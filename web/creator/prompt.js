@@ -386,6 +386,11 @@ export class PromptBox {
       // nothing on screen said so — a placeholder that named only "@" read as
       // the complete list of what the box does.
       "data-placeholder": t("Describe your video — @ cites what is attached, / brings in cast, files and looks"),
+      // The same line in two halves for the fullscreen shell's simple view,
+      // which draws the ask as the placeholder and the two openings as a
+      // helper line under it — see styles/fullscreen.js.
+      "data-ask": t("Describe your video"),
+      "data-openings": t("@ cites what is attached · / brings in cast, files and looks"),
     });
 
     this.root.addEventListener("input", () => this.onEdit());

@@ -624,6 +624,8 @@ export const ja = {
  "→ ref": "→ ref",
  "Attach this still as a reference": "このスチルをリファレンスとして添付",
  "Describe your video — @ cites what is attached, / brings in cast, files and looks": "動画を記述してください — @ は添付を参照し、/ はキャスト・ファイル・ルックを持ち込みます",
+ "Describe your video": "動画を記述してください",
+ "@ cites what is attached · / brings in cast, files and looks": "@ は添付を参照 · / はキャスト・ファイル・ルックを持ち込みます",
  "Not queued while the rewrite below is on — that is what the model reads. Edit this and refine again, or revert the rewrite, to send it.": "下のリライトが有効な間、これはキューされません — モデルが読むのはリライトの方です。これを送るには、編集して再リファインするか、リライトを取り消してください。",
  "Nothing matches.": "一致するものがありません。",
  "Attached": "添付済み",

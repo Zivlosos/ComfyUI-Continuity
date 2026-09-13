@@ -624,6 +624,8 @@ export const ko = {
  "→ ref": "→ ref",
  "Attach this still as a reference": "이 스틸을 레퍼런스로 첨부",
  "Describe your video — @ cites what is attached, / brings in cast, files and looks": "비디오를 묘사하세요 — @ 는 첨부된 것을 참조하고, / 는 캐스트·파일·룩을 불러옵니다",
+ "Describe your video": "비디오를 묘사하세요",
+ "@ cites what is attached · / brings in cast, files and looks": "@ 는 첨부된 것을 참조 · / 는 캐스트·파일·룩을 불러옵니다",
  "Not queued while the rewrite below is on — that is what the model reads. Edit this and refine again, or revert the rewrite, to send it.": "아래 리라이트가 켜져 있는 동안은 큐에 들어가지 않습니다 — 모델이 읽는 것은 그쪽입니다. 이것을 편집하고 다시 리파인하거나, 리라이트를 되돌려야 전송됩니다.",
  "Nothing matches.": "일치하는 것이 없습니다.",
  "Attached": "첨부됨",

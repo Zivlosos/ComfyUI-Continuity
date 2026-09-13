@@ -1052,6 +1052,140 @@ export const css = `
 .mmc-fs.simple .mmc-fs-run { flex: 0 1 300px; }
 .mmc-fs.simple .mmc-fs-more { display: flex; }
 
+/* --- the simple view, tightened ------------------------------------------ */
+/*
+ * One surface, and everything that belongs to the shot is on it. The step
+ * switch at its top, the tools under that, the sentence, the rows that describe
+ * the shot, and Render on the last line — rather than a card with a toolbar
+ * hovering over it and a button hanging under it.
+ *
+ * The body's wrappers are flattened (display: contents) so that every row is a
+ * direct child of the card and takes the same left edge and the same rhythm;
+ * the grid has no row gap, so rhythm is margins on the items.
+ */
+.mmc-fs.simple { --mmc-fs-measure: min(820px, calc(100vw - 48px)); }
+.mmc-fs.simple .mmc-fs-col {
+  display: grid; grid-template-columns: minmax(0, 1fr); row-gap: 0;
+  height: auto; overflow: visible; box-shadow: none;
+  border-radius: 24px; padding: 18px 20px;
+  background: var(--mmc-surface); border: 1px solid var(--mmc-line);
+  transform-origin: 50% 50%;
+  /* A shade above true centre, where a single object on a field wants to sit. */
+  margin-bottom: 6vh;
+}
+.mmc-fs.simple .mmc-fs-face,
+.mmc-fs.simple .mmc-fs-col .mmc-root,
+.mmc-fs.simple .mmc-root > div:has(> .mmc-rail) { display: contents; }
+.mmc-fs.simple .mmc-fs-col > *, .mmc-fs.simple .mmc-root > * { grid-column: 1 / -1; min-width: 0; }
+.mmc-fs.simple .mmc-fs-col > .mmc-fs-stepbar { justify-self: start; margin-bottom: 14px; }
+.mmc-fs.simple .mmc-fs-step { height: calc(28px * var(--mmc-type)); padding: 0 16px; font-size: calc(13px * var(--mmc-type)); }
+.mmc-fs.simple .mmc-fs-stepbar { border-radius: 16px; }
+.mmc-fs.simple .mmc-fs-step-ink { border-radius: 14px; }
+.mmc-fs.simple .mmc-fs-col .mmc-rail { margin-bottom: 10px; }
+.mmc-fs.simple .mmc-root > * { margin-bottom: 12px; }
+
+
+/* The tools are glyphs, and their names are in the tooltip. Nine words under
+   nine pictures was a second sentence above the one you came to write. The
+   machine's three are ruled off from the shot's, because they are a different
+   kind of thing and the row used to say nothing about it. */
+.mmc-fs.simple { --mmc-tool-tile: 36px; }
+.mmc-fs.simple .mmc-rail { display: flex; justify-content: space-between; gap: 0; padding: 0; margin: 0 -8px; }
+.mmc-fs.simple .mmc-rail-group { gap: 2px; }
+.mmc-fs.simple .mmc-tool { width: auto; gap: 0; color: var(--mmc-dim); }
+.mmc-fs.simple .mmc-tool > span:not(.mmc-tool-icon):not(.mmc-tool-count) { display: none; }
+.mmc-fs.simple .mmc-tool-icon { border-radius: 50%; background: none; border-color: transparent; }
+.mmc-fs.simple .mmc-tool:hover:not(:disabled) .mmc-tool-icon { background: var(--mmc-surface-3); }
+.mmc-fs.simple .mmc-tool:hover:not(:disabled) { color: var(--mmc-strong); }
+.mmc-fs.simple .mmc-tool svg { width: 20px; height: 20px; }
+.mmc-fs.simple .mmc-tool:disabled { opacity: .4; }
+.mmc-fs.simple .mmc-tool:disabled .mmc-tool-icon { opacity: 1; }
+
+/* The field is a field: cut into the card, six lines deep, with the rows that
+   describe the shot under it on the card itself. */
+.mmc-fs.simple .mmc-panel {
+  flex: none; border: 0; padding: 0; box-shadow: none; background: none; border-radius: 0;
+}
+.mmc-fs.simple .mmc-well {
+  overflow: visible; border-radius: 18px; padding: 14px 18px 12px;
+  background: var(--mmc-bg); border: 1px solid var(--mmc-line);
+}
+.mmc-fs.simple .mmc-well:focus-within { border-color: var(--mmc-line-3); }
+.mmc-fs.simple .mmc-prompt {
+  font-size: calc(17px * var(--mmc-type)); line-height: 1.55; padding: 0;
+  min-height: calc(160px * var(--mmc-type)); max-height: 46vh; color: var(--mmc-strong);
+}
+/* The ask, then the two openings as a helper line under it. On the node face
+   they are one placeholder because a face has one line to say it in. */
+.mmc-fs.simple .mmc-prompt:empty::before {
+  content: attr(data-ask); color: color-mix(in oklab, var(--mmc-text) 72%, var(--mmc-ground));
+}
+.mmc-fs.simple .mmc-prompt:empty::after {
+  content: attr(data-openings); display: block; margin-top: 6px; pointer-events: none;
+  font-size: calc(13px * var(--mmc-type)); color: var(--mmc-off);
+}
+.mmc-fs.simple .mmc-compiled-rail {
+  border-top: 0; padding: 0; margin: 0; font-size: calc(13px * var(--mmc-type));
+}
+
+/* Chips are one shape and one fill, and none of them is bold: on this surface a
+   tinted rectangle is enough of a shape, and weight is kept for what you are
+   writing. The glyphs inside them go — a clock beside "6 s" and a rectangle
+   beside "16:9" say nothing the number did not — and so does the second
+   spelling of the resolution; the tooltip has it. */
+.mmc-fs.simple .mmc-pills { justify-content: flex-start; gap: 7px; margin-top: 14px; }
+.mmc-fs.simple .mmc-pills-tail { justify-content: flex-start; }
+.mmc-fs.simple .mmc-pill > svg, .mmc-fs.simple .mmc-pill-seg > svg,
+.mmc-fs.simple .mmc-pill-sub { display: none; }
+/* Except the aspect's: the rectangle is the shape itself, and "16:9" alone is
+   a fraction you have to work out. */
+.mmc-fs.simple .mmc-pill-seg > .mmc-aspect-glyph { display: flex; }
+.mmc-fs.simple .mmc-pill, .mmc-fs.simple .mmc-mode {
+  height: calc(34px * var(--mmc-type)); border-radius: 17px; font-size: calc(13.5px * var(--mmc-type));
+  background: var(--mmc-surface-3); border-color: transparent; padding: 0 14px; font-weight: 400;
+  color: var(--mmc-text); letter-spacing: 0;
+}
+.mmc-fs.simple .mmc-pill-seg { padding: 0 10px; font-size: calc(13.5px * var(--mmc-type)); }
+/* Every chip on its own: no compound controls, no hairlines, one shape. */
+.mmc-fs.simple .mmc-pill-set { background: none; gap: 6px; overflow: visible; padding: 0; }
+.mmc-fs.simple .mmc-pill-set > .mmc-pill-seg {
+  background: var(--mmc-surface-3); border-radius: 17px; border-left: 0; padding: 0 14px;
+}
+.mmc-fs.simple .mmc-pill b, .mmc-fs.simple .mmc-pill-seg,
+.mmc-fs.simple .mmc-pill-model .mmc-model-name { font-weight: 400; color: var(--mmc-text); }
+.mmc-fs.simple .mmc-step { height: calc(34px * var(--mmc-type)); width: calc(26px * var(--mmc-type)); font-size: 15px; color: var(--mmc-text); }
+.mmc-fs.simple .mmc-pill-group { padding: 0 4px; }
+.mmc-fs.simple .mmc-pill-group > span { padding: 0 6px; }
+/* The second line is not values: a readout of the route, a way to grow the
+   piece, a way to its other view. Words, not chips, so that a filled rectangle
+   keeps meaning "a setting of this shot". */
+.mmc-fs.simple .mmc-pills-tail { gap: 16px; margin-top: 4px; }
+.mmc-fs.simple .mmc-pills-tail > .mmc-pill, .mmc-fs.simple .mmc-mode, .mmc-fs.simple .mmc-mode.pinned {
+  background: none; border-color: transparent; padding: 0; height: calc(26px * var(--mmc-type));
+  color: var(--mmc-dim); font-size: calc(13px * var(--mmc-type));
+}
+.mmc-fs.simple .mmc-pills-tail > .mmc-pill:hover { color: var(--mmc-strong); background: none; }
+/* The route keeps its amber — the mode and the pin are the one readout on this
+   line that changes what runs, and the badge is how it has always said so. */
+
+/* The end of the last line: the sampler's fold as plain words, then the press. */
+.mmc-fs.simple .mmc-fs-runrow { padding: 4px 0 0; justify-content: flex-end; gap: 4px; }
+.mmc-fs.simple .mmc-fs-note { order: -1; margin-right: auto; }
+.mmc-fs.simple .mmc-fs-more {
+  border-color: transparent; background: none; color: var(--mmc-dim);
+  padding: 0 12px; height: calc(34px * var(--mmc-type)); border-radius: 17px; font-size: calc(13.5px * var(--mmc-type));
+}
+.mmc-fs.simple .mmc-fs-more svg { display: none; }
+.mmc-fs.simple .mmc-fs-more:hover, .mmc-fs.simple .mmc-fs-more[aria-pressed="true"] { background: var(--mmc-surface-3); color: var(--mmc-strong); }
+.mmc-fs.simple .mmc-fs-cancel { height: calc(34px * var(--mmc-type)); border-radius: 17px; }
+/* The one filled control in colour, on the line every other control shares. */
+.mmc-fs.simple .mmc-fs-run {
+  flex: none; order: 1; margin-left: 6px;
+  height: calc(38px * var(--mmc-type)); padding: 0 28px; border-radius: 19px;
+  font-size: calc(14px * var(--mmc-type));
+}
+.mmc-fs.simple .mmc-fs-run svg { width: 14px; height: 14px; }
+
 /* --- a window too narrow for the desk ------------------------------------- */
 /*
  * Three regions with floors of 340, 500 and 260 want about 1160px before the

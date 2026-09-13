@@ -2736,7 +2736,7 @@ export class CreatorEditor {
       // The two ends of the shot in one pill: they are one question asked twice,
       // and either of them can be a file, a handle or nothing at all.
       pillSet([framePill("first_frame", "Start frame", "frameIn"),
-               framePill("last_frame", "End frame", "frameOut")]),
+               framePill("last_frame", "End frame", "frameOut")], { className: "mmc-frames" }),
       // A body that is not making a video says how long it runs in its own
       // terms, or not at all — see `extraPills`.
       ...(this.durationPill ? [duration] : []),

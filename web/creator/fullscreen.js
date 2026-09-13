@@ -696,7 +696,12 @@ class Fullscreen {
       this.mount();
       this.paint();
     };
-    if (reduced() || this.view !== "simple" || !this.face.animate) {
+    // The surface that turns is the column, not the face inside it: in the
+    // simple view the face is display:contents (see styles/fullscreen.js) so
+    // that the tool row and Render can share the card's last line, and a
+    // transform on it would be a transform on nothing.
+    const card = this.col;
+    if (reduced() || this.view !== "simple" || !card.animate) {
       land();
       return;
     }
@@ -713,7 +718,7 @@ class Fullscreen {
     // Lit from the side it is turning away from, so the face darkens as it goes
     // edge-on and comes back up into the light. Nothing else says a flat
     // rectangle has a thickness.
-    const away = this.face.animate([
+    const away = card.animate([
       { transform: "perspective(1600px) rotateY(0deg)", filter: "brightness(1)" },
       { transform: `perspective(1600px) rotateY(${dir * -90}deg) scale(.94)`,
         filter: "brightness(.45)" },
@@ -724,7 +729,7 @@ class Fullscreen {
       // not after: two animations on one element resolve in the order they were
       // started, so this one is already overriding that held state by the time
       // it goes. Cancelling first would show the new face flat for one frame.
-      const back = this.face.animate([
+      const back = card.animate([
         { transform: `perspective(1600px) rotateY(${dir * 90}deg) scale(.94)`,
           filter: "brightness(.45)" },
         { transform: "perspective(1600px) rotateY(0deg)", filter: "brightness(1)" },
