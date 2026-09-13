@@ -1725,6 +1725,10 @@ export function parseState(raw) {
       // Workflows saved before LoRAs existed have no key at all, and a
       // hand-edited blob can have the wrong type in it.
       if (!Array.isArray(state.loras)) state.loras = [];
+      // A prompt of only whitespace is no prompt: the compiler strips it to
+      // nothing, and the box's placeholder hangs off the box being empty. Old
+      // saves carry a "\n" from a box cleared to the browser's own <br>.
+      if (typeof state.prompt !== "string" || !state.prompt.trim()) state.prompt = "";
       if (!Array.isArray(state.assets)) state.assets = [];
       if (!state.refined || typeof state.refined !== "object") state.refined = null;
       for (const key of ["soundscape", "music"]) {
@@ -3213,6 +3217,8 @@ export function parseTimeline(raw) {
       // Workflows saved before either existed have no key at all, and a
       // hand-edited blob can have the wrong type in it.
       if (!Array.isArray(timeline.loras)) timeline.loras = [];
+      // Blank is empty — see `parseState`.
+      if (typeof timeline.prompt !== "string" || !timeline.prompt.trim()) timeline.prompt = "";
       if (!Array.isArray(timeline.assets)) timeline.assets = [];
       // Absent in every blob saved before the sampler row moved, and anything
       // at all in a hand-edited one.
@@ -4252,7 +4258,8 @@ export function parsePreStage(raw) {
     if (parsed && typeof parsed === "object") {
       const state = { ...emptyPreStage(), ...parsed };
       if (!PRESTAGE_ARCHES.includes(state.arch)) state.arch = DEFAULT_STILL_ARCH;
-      if (typeof state.prompt !== "string") state.prompt = "";
+      // Blank is empty — see `parseState`.
+      if (typeof state.prompt !== "string" || !state.prompt.trim()) state.prompt = "";
       if (!Array.isArray(state.refs)) state.refs = [];
       // Not truncated to the cap. The compile refuses a render carrying more
       // references than its weights read, and a blob quietly losing the fourth

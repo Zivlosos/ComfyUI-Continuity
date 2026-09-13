@@ -741,7 +741,12 @@ export class PromptBox {
         } else if (node.dataset?.handle) {
           text += `@${node.dataset.handle}`;
         } else if (node.tagName === "BR") {
-          text += "\n";
+          // Enter writes a literal newline (see the header), so a <br> is the
+          // browser's: the one it leaves after the last character is deleted,
+          // or appends after a trailing newline. At the end it stands for
+          // nothing — reading it as a line made a cleared box serialize as
+          // "\n", and that is a prompt that never shows its placeholder.
+          if (node !== this.root.lastChild) text += "\n";
         } else {
           // A block the engine put there is a line, and the newline it stands
           // for is the thing that would otherwise vanish. Not before the first
@@ -1127,6 +1132,14 @@ export class PromptBox {
   // ---- editing -------------------------------------------------------------
 
   onEdit() {
+    // Deleting the last character leaves the browser's <br> behind — which
+    // reads as a newline above, and which keeps the box from being :empty, so
+    // the placeholder stayed gone until the node was rebuilt. A box holding
+    // nothing but that is a box holding nothing.
+    if (this.root.hasChildNodes() && [...this.root.childNodes].every((node) =>
+          node.tagName === "BR" || (node.nodeType === Node.TEXT_NODE && !bare(node.nodeValue)))) {
+      this.root.replaceChildren();
+    }
     const before = this.chipped;
     this.censusChips();
     this.hooks.onInput(this.getValue());

@@ -205,6 +205,8 @@ class Node {
   }
   scrollIntoView() {}
   get firstChild() { return this.children[0] ?? null; }
+  get lastChild() { return this.children[this.children.length - 1] ?? null; }
+  hasChildNodes() { return this.children.length > 0; }
   get childNodes() { return this.children; }
   get nodeType() { return this.tagName === "#text" ? 3 : 1; }
   /** Enough of a parse for `svg()`, which is how every glyph in the pack is

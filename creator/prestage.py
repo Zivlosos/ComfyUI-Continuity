@@ -34,7 +34,7 @@ import json
 
 from comfy_api.latest import io
 
-from . import canvas, compile_image, media, neural, render_image, sampling
+from . import canvas, compile_image, media, neural, render_image, sampling, variations
 from .core import emit as loop
 from .compile import CompileError
 from .families import registry
@@ -167,6 +167,19 @@ class MiniMaxH3PreStage(io.ComfyNode):
             "seed": seed, "steps": steps, "cfg": cfg,
             "sampler_name": sampler_name, "scheduler": scheduler,
         })
+
+        # A `{day|night}` in the prompt is chosen here, on the seed this render
+        # samples on, the way `compile.varied_piece` chooses for a strip. A
+        # still is one card, so it chooses as card 1 — the number the prompt
+        # box lights the alternative by. The image arches write the sentence
+        # on the blob; the H3 branch keeps the Creator's request under its own
+        # block, and that request is chosen whole, `refined` and all.
+        data = variations.vary_mapping(data, sampler.seed, 1, keys=("prompt",))
+        h3_block = data.get(still.ARCH)
+        if isinstance(h3_block, dict) and isinstance(h3_block.get("request"), dict):
+            request = variations.vary_mapping(h3_block["request"], sampler.seed, 1)
+            if request is not h3_block["request"]:
+                data = {**data, still.ARCH: {**h3_block, "request": request}}
 
         # One dispatch for all three pills: the registry answers the arch with
         # the family's still module, and every family speaks the same two

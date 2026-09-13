@@ -970,6 +970,27 @@ check("and that one frame is what is saved",
 check("no audio is decoded", "VAEDecodeAudio" in h3, False)
 check("and no video is written", "MiniMaxH3Save" in h3, False)
 
+# ---- {a|b} chooses on the seed --------------------------------------------
+#
+# The same hash `compile.varied_piece` uses for a strip, as card 1: the prompt
+# box lights the alternative by that number, so the render has to read it.
+
+variations = importlib.import_module(f"{PACKAGE}.creator.variations")
+
+varied_text = "a {red|blue} door"
+for seed in (100, 2331284070, 32029067):
+    chosen = variations.resolve(varied_text, seed, 1)
+    check(f"an image arch renders the alternative seed {seed} chooses",
+          sorted(i["text"] for _, i in
+                 by_class(build(blob(prompt=varied_text), seed=seed).expand)["CLIPTextEncode"]),
+          [chosen])
+    check(f"...and the H3 branch's request carries the same choice on seed {seed}",
+          json.loads(by_class(still(still_blob(request={"prompt": varied_text}), seed=seed).expand)
+                     ["MiniMaxH3TimelineSegment"][0][1]["segment_data"])["request"]["prompt"],
+          chosen)
+check("a choice is made — the braces never reach the encoder",
+      "{" in by_class(build(blob(prompt=varied_text)).expand)["CLIPTextEncode"][0][1]["text"], False)
+
 # ---- the H3 branch's ControlNet ---------------------------------------------
 #
 # **A pre-stage still is a one-frame video generation, so it is aimed the way a

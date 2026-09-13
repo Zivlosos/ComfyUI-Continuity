@@ -1124,6 +1124,12 @@ export const css = `
   content: attr(data-openings); display: block; margin-top: 6px; pointer-events: none;
   font-size: calc(13px * var(--mmc-type)); color: var(--mmc-off);
 }
+/* The pre-stage writes straight onto the card. Its own editor has no well;
+   the H3 branch mounts the shot's body, and that well loses its box here so
+   the two branches are one surface. The ghost gets the room the well's
+   padding gave the shot's. */
+.mmc-fs.simple .mmc-prestage-host .mmc-well { background: none; border: 0; border-radius: 0; padding: 0; }
+.mmc-fs.simple .mmc-prestage-host .mmc-prompt { padding-top: 8px; }
 .mmc-fs.simple .mmc-compiled-rail {
   border-top: 0; padding: 0; margin: 0; font-size: calc(13px * var(--mmc-type));
 }

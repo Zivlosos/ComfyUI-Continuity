@@ -130,6 +130,10 @@ export class PreStageEditor {
       onAttach: (row) => this.attachFromMention(row),
       attachBlocked: () => this.refBlocked(),
       onOverflow: (over) => this.onPromptOverflow(over),
+      // A `{day|night}` chooses on the node's seed, as card 1 — the same
+      // choice `prestage.py` makes before it compiles, so the alternative the
+      // box lights is the one the render reads.
+      pick: () => ({ seed: this.seed(), card: 1 }),
       // The `/` menu's doors. No cast branch here and none offered — an image
       // node has no piece to cast anybody into, which `commandOptions` reads off
       // the missing `castFromLibrary` above. A style is another matter: the
@@ -205,6 +209,11 @@ export class PreStageEditor {
       () => this.state.sampling,
       (block) => { this.state.sampling = block; this.onCommit?.(); },
       () => this.onWidgetChange?.());
+  }
+
+  /** The seed this render samples on — a widget, never the blob's. */
+  seed() {
+    return Number(this.widgetIO().value("seed", 0)) || 0;
   }
 
   commit() {
@@ -582,9 +591,35 @@ export class PreStageEditor {
         + "natural-language prompts. Use @ to name a style reference.");
   }
 
+  /** The same placeholder in two halves for the simple view — the ask, then
+   *  what the box answers to, as a helper line under it. The Creator's box
+   *  carries its pair from birth (`PromptBox`); this one's changes with the
+   *  arch pill, so it is written on every render. */
+  ghost() {
+    const refs = S.PRESTAGE_REFS[this.state.arch] ?? {};
+    // No cast and no atlas from this box — see the hooks above — so the
+    // helper names only what `/` offers here, and nothing where the arch reads
+    // no pictures at all.
+    if (!refs.reads) {
+      return { ask: t("Describe the image"),
+               openings: t("Long, detailed natural language — these models were trained on it") };
+    }
+    return refs.editsFirst
+      ? { ask: t("Say what to change"),
+          openings: t("The first picture is the one being changed · @ names the others · / brings in files") }
+      : { ask: t("Describe the image"),
+          openings: t("@ names a style reference · / brings in files") };
+  }
+
   render() {
     const state = this.state;
+    // The seed moved, or a reference came or went: the box repaints what the
+    // seed chooses and which names are chips, as the Creator's does.
+    this.prompt.refresh();
     this.prompt.root.dataset.placeholder = this.placeholder();
+    const ghost = this.ghost();
+    this.prompt.root.dataset.ask = ghost.ask;
+    this.prompt.root.dataset.openings = ghost.openings;
     this.railHost.replaceChildren(this.renderRail());
     this.renderExpand();
     const chips = [
@@ -1504,7 +1539,15 @@ export class PreStageBody {
         still.request.models.route = route;
         this.commit();
       },
+      // The still is one card, and a `{day|night}` on it chooses as card 1 on
+      // the node's seed — what `prestage.py` chooses before it compiles.
+      varies: () => ({ seed: Number(this.widgetIO().value("seed", 0)) || 0, card: 1 }),
     });
+    // The box is the shot's and asks for a video; this one makes a picture.
+    // The openings stay — cast, files and looks are all wired on this branch.
+    editor.prompt.root.dataset.placeholder =
+      t("Describe the image — @ cites what is attached, / brings in cast, files and looks");
+    editor.prompt.root.dataset.ask = t("Describe the image");
     return editor;
   }
 
