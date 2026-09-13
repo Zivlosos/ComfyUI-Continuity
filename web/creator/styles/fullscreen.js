@@ -200,9 +200,9 @@ export const css = `
 /* Quieter than the shot beside it, in the two ways a column can be quieter:
    smaller tools and less contrast. Nothing is hidden — this is still the node's
    whole face — it just stops competing for the eye. */
-.mmc-fs-pre { --mmc-tool-tile: calc(42px * var(--mmc-type)); }
+.mmc-fs-pre { --mmc-tool-tile: 42px; }
 .mmc-fs-pre .mmc-tool-icon { border-radius: 11px; }
-.mmc-fs-pre .mmc-tool { font-size: calc(11px * var(--mmc-type)); }
+.mmc-fs-pre .mmc-tool { font-size: 11px; }
 .mmc-fs-pre .mmc-tool svg { width: 18px; height: 18px; }
 .mmc-fs-pre .mmc-root { opacity: .82; transition: opacity .15s ease; }
 .mmc-fs-pre:hover .mmc-root, .mmc-fs-pre:focus-within .mmc-root { opacity: 1; }
@@ -312,7 +312,7 @@ export const css = `
    width and 56px is the only size that reads; in a column with a picture beside
    it, eleven of them wrapped to a second row and the shelf of tools became the
    tallest thing above the writing. */
-.mmc-fs { --mmc-tool-tile: calc(48px * var(--mmc-type)); }
+.mmc-fs { --mmc-tool-tile: 48px; }
 .mmc-fs .mmc-tool-icon { border-radius: 13px; }
 .mmc-fs .mmc-tool svg { width: 20px; height: 20px; }
 /*
@@ -337,7 +337,7 @@ export const css = `
  * it keep an even rhythm on their own.
  */
 .mmc-fs .mmc-rail {
-  display: grid; grid-template-columns: repeat(auto-fill, calc(76px * var(--mmc-type)));
+  display: grid; grid-template-columns: repeat(auto-fill, 76px);
   gap: 14px 0; justify-content: start; align-items: start;
 }
 .mmc-fs .mmc-rail-group { display: contents; margin-left: 0; }
@@ -994,12 +994,12 @@ export const css = `
    held by the tools themselves and not by a grid: the card is wide enough that
    this rail is one line, and a grid would put the cluster's hairline in a whole
    track of its own — far more room than a seam wants. */
-.mmc-fs.simple { --mmc-tool-tile: calc(44px * var(--mmc-type)); }
+.mmc-fs.simple { --mmc-tool-tile: 44px; }
 .mmc-fs.simple .mmc-rail { display: flex; justify-content: space-between; gap: 14px 0; }
 .mmc-fs.simple .mmc-rail-group {
   display: flex; align-items: flex-start; gap: 14px 0; margin-left: 0;
 }
-.mmc-fs.simple .mmc-tool { width: calc(68px * var(--mmc-type)); font-size: calc(11px * var(--mmc-type)); gap: 6px; }
+.mmc-fs.simple .mmc-tool { width: 68px; font-size: 11px; gap: 6px; }
 .mmc-fs.simple .mmc-tool-icon { border-radius: 12px; }
 .mmc-fs.simple .mmc-tool svg { width: 19px; height: 19px; }
 /* The split the node face makes with the whole width of the node — this

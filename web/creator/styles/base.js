@@ -179,8 +179,11 @@ export const css = `
   /* The rail's tile, and everything positioned against it — the refiner's
      corner chevron is the one that kept drifting off the box when the shell
      drew a smaller square. One token, so the shell is a single override
-     rather than a second set of offsets that has to be kept in step. */
-  --mmc-tool-tile: calc(56px * var(--mmc-type));
+     rather than a second set of offsets that has to be kept in step.
+     Not scaled by the text size, and neither is the word under it: the tool
+     is its icon, the label a caption, and a rail of eleven that grew with the
+     type wrapped to a second row at Large. */
+  --mmc-tool-tile: 56px;
   /* What a file lends a subject, as colour. Their looks are the default and
      wear none; these are the three departures from it, and they are worn by the
      shelf's badges and dots and by the library's editor tiles. Tokens rather

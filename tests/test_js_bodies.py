@@ -111,7 +111,8 @@ export const app = {
 globalThis.__posted = [];
 // A row per family, the way the settings route serves it — the page draws one
 // field per entry and a patch must not drop the entries it did not touch.
-let stored = { video_crf: 23,
+// The lead-in off, so the row is an advanced one and not one in force.
+let stored = { video_crf: 23, turbo_lead_in: 0,
                video_prefix: { h3: "continuity/renders/h3/H3",
                                ltx25: "continuity/renders/ltx25/LTX25" },
                image_prefix: { h3: "continuity/stills/h3/H3",
@@ -1344,37 +1345,48 @@ try {
   out.errors.push(`arch switch: ${error.message}`);
 }
 
-// The settings page: three tabs now — how good the file is, where it goes, and
-// what the node faces offer. Read the rendered tree rather than a screenshot
-// — what matters is that the tabs exist, the folder fields carry the stored
-// prefixes, and a committed edit posts the key the server expects.
+// The settings page: one page with an index down the side, every setting a
+// row with its name, its buttons and the note for the pressed one. Read the
+// rendered tree rather than a screenshot — what matters is that the groups
+// exist, every row finds its default pressed, the folder fields carry the
+// stored prefixes, and a press posts the key the server expects.
 try {
   const { openSettings } = await import("./web/creator/settings.js");
   openSettings();
   await new Promise((done) => setTimeout(done, 0));
   const page = document.body.children.at(-1);
-  const tabs = [];
-  const walk = (node) => {
-    if (node.className === "mmc-tab") tabs.push(node.text.trim());
-    (node.children ?? []).forEach(walk);
+  const found = (root, cls) => {
+    const hits = [];
+    const walk = (node) => {
+      if (String(node.className ?? "").split(" ").includes(cls)) hits.push(node);
+      (node.children ?? []).forEach(walk);
+    };
+    walk(root);
+    return hits;
   };
-  walk(page);
-  out.settings = { tabs, quality: page.text.includes("crf 23") };
+  const rowOf = (key) => found(page, "mmc-set-row").find((row) => row.getAttribute("data-key") === key);
+  // A row's buttons, as the word on each and whether it is pressed.
+  const buttonsOf = (key) => found(rowOf(key), "mmc-set-seg-opt");
+  const pressedOf = (key) => buttonsOf(key).map((b) => b.getAttribute("aria-pressed"));
+  // The word alone: a button may carry the value beside it (crf 23, 112%).
+  // A stepper row has no buttons to be pressed: its word is the value shown
+  // between the two steps, and its list is the stop count it declares.
+  const labelOf = (key) => buttonsOf(key).find((b) => b.getAttribute("aria-pressed") === "true")
+    ?.children[0]?.textContent ?? found(rowOf(key), "mmc-set-step-val")[0]?.textContent;
+  const stopsOf = (key) => buttonsOf(key).length
+    || Number(found(rowOf(key), "mmc-set-stepper")[0]?.getAttribute("data-stops") ?? 0);
+  const press = async (key, index) => {
+    buttonsOf(key)[index].listeners.click[0]();
+    await new Promise((done) => setTimeout(done, 0));
+  };
+  out.settings = {
+    index: found(page, "mmc-set-ix").map((b) => b.text.trim()),
+    groups: found(page, "mmc-set-group").map((g) => g.getAttribute("data-group")),
+    quality: page.text.includes("crf 23"),
+  };
 
-  // Switch to Folders and commit a new renders prefix, the way the field does.
-  const tabButtons = [];
-  const collect = (node) => {
-    if (node.className === "mmc-tab") tabButtons.push(node);
-    (node.children ?? []).forEach(collect);
-  };
-  collect(page);
-  tabButtons[1].listeners.click[0]();
-  const fields = [];
-  const findFields = (node) => {
-    if (node.className === "mmc-out-field") fields.push(node);
-    (node.children ?? []).forEach(findFields);
-  };
-  findFields(page);
+  // The folders: commit a new renders prefix, the way the field does.
+  const fields = found(page, "mmc-out-field");
   // The field is a token field, not an input: `%year%` is drawn as one tile
   // wearing the plain word, and the stored string is what the tiles and the
   // text between them spell. So it is read the way the page reads it and
@@ -1388,7 +1400,7 @@ try {
   // knows `%year%` should not have to unlearn it — and should not be left
   // holding eight loose characters either, which is the state this field exists
   // to make unreachable. Before the commit below, while these nodes are still
-  // the ones on screen: `set` re-renders the tab, and every field found above
+  // the ones on screen: `set` re-renders the page, and every field found above
   // is detached the moment it does.
   fields[1].replaceChildren(document.createTextNode("shoot/%year%/take"));
   fields[1].listeners.input[0]();
@@ -1398,129 +1410,58 @@ try {
   fields[0].replaceChildren(document.createTextNode("client/shoot-3/take"));
   fields[0].listeners.blur[0]();
   await new Promise((done) => setTimeout(done, 0));
-  // Copied, not referenced: the Nodes tab clicks below append to the same array.
+  // Copied, not referenced: the presses below append to the same array.
   out.settings.posted = [...globalThis.__posted];
 
   // Nothing on the row wears a `%`: not the field, not the chips that write
   // into it. That spelling is core's and the stored value's, and putting it in
   // front of anyone is what made this field typeable into nonsense.
-  const rows = [];
-  const findRows = (node) => {
-    if (node.className === "mmc-set-dest") rows.push(node);
-    (node.children ?? []).forEach(findRows);
-  };
-  findRows(page);
-  out.settings.folderPercent = rows.some((row) => row.text.includes("%"));
+  out.settings.folderPercent = found(page, "mmc-set-dest").some((row) => row.text.includes("%"));
 
   // The way back to the shipped folder is only up on a row that has left it.
-  // The tab was rendered from the defaults, so H3 — edited above and posted —
+  // The page was rendered from the defaults, so H3 — edited above and posted —
   // is the one offering it; nothing else is.
-  const resets = [];
-  const findResets = (node) => {
-    if (node.className === "mmc-set-reset") resets.push(node);
-    (node.children ?? []).forEach(findResets);
-  };
-  findResets(page);
+  const resets = found(page, "mmc-set-dest").map((row) => found(row, "mmc-set-reset")[0]);
   out.settings.folderResets = resets.map((r) => r.style.display);
   globalThis.__posted.length = 0;
   resets[0].listeners.click[0]();
   await new Promise((done) => setTimeout(done, 0));
   out.settings.folderResetPosted = [...globalThis.__posted];
 
-  // The Nodes tab: the two node settings, read but not clicked — a click would
-  // append to __posted, which is why the folder assertion above copies it.
-  tabButtons[2].listeners.click[0]();
-  const opts = [];
-  const findOpts = (node) => {
-    if (node.className === "mmc-opt mmc-set-opt") opts.push(node);
-    (node.children ?? []).forEach(findOpts);
-  };
-  findOpts(page);
-  out.settings.shiftRows = opts.map((o) => o.getAttribute("aria-checked"));
+  // Every row, by the key it writes, with the pressed button's word. A fresh
+  // settings file lands every one of them on a named button — a page that
+  // opened on a value it does not offer would grow a Custom button, and the
+  // word here would say so.
+  const KEYS = ["video_crf", "seam_handoff", "motion_fix_abstain", "lora_loader",
+                "latent_cache", "latent_cache_days", "latent_cache_gb", "advanced",
+                "show_shift_pills", "autoplay_previews", "preview_max_px", "preview_quality",
+                "text_scale", "theme", "surface_lift"];
+  out.settings.pressed = Object.fromEntries(KEYS.map((key) => [key, labelOf(key)]));
+  out.settings.stops = Object.fromEntries(KEYS.map((key) => [key, stopsOf(key)]));
+  out.settings.leadInIdle = Boolean(rowOf("turbo_lead_in"));
+  // The retention row is live: the ceiling ships at 8 GB, so there is a store
+  // for it to age. It goes quiet only when the ceiling is Off.
+  out.settings.daysDisabled = buttonsOf("latent_cache_days").every((b) => b.getAttribute("disabled") != null);
 
-  // The tab's four rails, in page order: the step preview's size and quality,
-  // then the reference cache's two limits. Read for their stops and their
-  // readouts — a rail is a list of values as much as it is a control, and a
-  // stop list that silently lost its ends would still draw.
-  const rails = [];
-  const findRails = (node) => {
-    if (String(node.className ?? "").split(" ")[0] === "mmc-set-slider") rails.push(node);
-    (node.children ?? []).forEach(findRails);
-  };
-  findRails(page);
-  const railOf = (slider) => {
-    let found = null;
-    const walk = (node) => {
-      if (node.getAttribute?.("type") === "range") found = node;
-      (node.children ?? []).forEach(walk);
-    };
-    walk(slider);
-    return found;
-  };
-  const previewRails = rails.slice(0, 2);
-  const cacheRails = rails.slice(2);
-  out.settings.previewStops = previewRails.map(
-    (r) => Number(railOf(r).getAttribute("max")) + 1);
-  out.settings.cacheStops = cacheRails.map((r) => Number(railOf(r).getAttribute("max")) + 1);
-  const edgeOf = (slider, want) => {
-    let found = "";
-    const walk = (node) => {
-      if (node.className === want) found = node.textContent;
-      (node.children ?? []).forEach(walk);
-    };
-    walk(slider);
-    return found;
-  };
-  const readOf = (r) => [edgeOf(r, "mmc-edge"), edgeOf(r, "mmc-edge-unit")]
-    .filter(Boolean).join(" ");
-  out.settings.previewReads = previewRails.map(readOf);
-  out.settings.cacheReads = cacheRails.map(readOf);
-  out.settings.cacheDisabled = cacheRails.map((r) => railOf(r).getAttribute("disabled") != null);
+  // The advanced switch brings the turbo lead-in onto the page: it is an
+  // advanced control, and while the switch is off its row is not there at all.
+  await press("advanced", 1);
+  out.settings.leadInShown = Boolean(rowOf("turbo_lead_in"));
+  out.settings.leadInPressed = labelOf("turbo_lead_in");
+  out.settings.advancedPosted = globalThis.__posted.at(-1);
 
-  // Then turn the advanced controls on — the first section's second row — and
-  // count again. The turbo lead-in's three rows are what should appear: it is
-  // an advanced control, and while the switch is off its section is not on the
-  // page at all. Clicked last, so `posted` above is still only the folder edit.
-  opts[1].listeners.click[0]();
-  await new Promise((done) => setTimeout(done, 0));
-  const shown = [];
-  const findShown = (node) => {
-    if (node.className === "mmc-opt mmc-set-opt") shown.push(node);
-    (node.children ?? []).forEach(findShown);
-  };
-  findShown(page);
-  out.settings.advancedRows = shown.length;
-  out.settings.advancedLeadIn = page.text.includes("Turbo lead-in");
-
-  // The Appearance tab: three sections, in the order they are drawn — four
-  // points on the text scale, two answers on the colour, four on the surface
-  // separation. Each is a number or a class the stylesheet reads, so for each
-  // one the press has to land in two places: on the server, and on the document
-  // element. A setting stored and never drawn is the failure being watched for.
-  tabButtons[3].listeners.click[0]();
-  // The pin lives in styles.js, and it is two facts: the preference from this
-  // page and whether the shell is up. Imported here so the second one can be
-  // said out loud without opening a real fullscreen editor.
+  // The interface rows: each is a number or a class the stylesheet reads, so
+  // for each one the press has to land in two places — on the server, and on
+  // the document element. A setting stored and never drawn is the failure
+  // being watched for.
   const packStyles = await import("./web/creator/styles.js");
-  const setOpts = () => {
-    const found = [];
-    const walk = (node) => {
-      if (node.className === "mmc-opt mmc-set-opt") found.push(node);
-      (node.children ?? []).forEach(walk);
-    };
-    walk(page);
-    return found;
-  };
-  // Rows are counted off in section order. A re-render replaces the nodes, so
-  // this is re-read after every press rather than held.
-  const sizes = setOpts();
-  out.settings.textRows = sizes.slice(0, 4).map((o) => o.getAttribute("aria-checked"));
-  out.settings.themeRows = sizes.slice(4, 6).map((o) => o.getAttribute("aria-checked"));
-  out.settings.liftRows = sizes.slice(6, 10).map((o) => o.getAttribute("aria-checked"));
-  out.settings.textPercents = page.text.includes("92%") && page.text.includes("125%");
-  out.settings.liftPercents = page.text.includes("60%") && page.text.includes("180%");
-  sizes[2].listeners.click[0]();
-  await new Promise((done) => setTimeout(done, 0));
+  // The number in force reads under the name — 100% on a fresh file, and the
+  // multiplier just chosen the moment it is pressed.
+  const readingOf = (key) => found(rowOf(key), "mmc-set-hint")[0]?.textContent;
+  out.settings.textReading = readingOf("text_scale");
+  out.settings.liftReading = readingOf("surface_lift");
+  await press("text_scale", 2);
+  out.settings.textReadingAfter = readingOf("text_scale");
   out.settings.textPosted = globalThis.__posted.at(-1);
   out.settings.typeVar = document.documentElement.style["--mmc-type"];
 
@@ -1529,8 +1470,7 @@ try {
   // also two facts and not one — the preference *and* an open shell — so setting
   // it from this page must not by itself darken anything: the node faces behind
   // this page are part of nodes ComfyUI draws in its own palette.
-  setOpts()[5].listeners.click[0]();
-  await new Promise((done) => setTimeout(done, 0));
+  await press("theme", 1);
   out.settings.themePosted = globalThis.__posted.at(-1);
   out.settings.darkClassIdle = document.documentElement.classList.contains("mmc-force-dark");
   // With the shell up, the same preference does apply.
@@ -1540,55 +1480,39 @@ try {
   out.settings.darkClassShut = document.documentElement.classList.contains("mmc-force-dark");
   // And going back to following has to leave it off even with the shell up — a
   // pin that cannot be unpinned is worse than no pin.
-  setOpts()[4].listeners.click[0]();
-  await new Promise((done) => setTimeout(done, 0));
+  await press("theme", 0);
   packStyles.noteFullscreen(true);
   out.settings.followClass = document.documentElement.classList.contains("mmc-force-dark");
   packStyles.noteFullscreen(false);
 
-  setOpts()[8].listeners.click[0]();
-  await new Promise((done) => setTimeout(done, 0));
+  await press("surface_lift", 2);
   out.settings.liftPosted = globalThis.__posted.at(-1);
   out.settings.liftVar = document.documentElement.style["--mmc-lift"];
 
-  // The Stored data tab. It is an inventory before it is a set of buttons, so
-  // what is checked is that it counts what is there: a row over an empty store
-  // is inert, and a row over three saved shots offers to remove three.
+  // The inventory. It is a list before it is a set of buttons, so what is
+  // checked is that it counts what is there: a row over an empty store is
+  // inert, and a row over three saved shots offers to remove three. The count
+  // is not taken until the page is read down to it — the index's press is one
+  // way there.
   const presets = { version: 1, presets: [
     { id: "a", scope: "shot", name: "one", updated: 3 },
     { id: "b", scope: "shot", name: "two", updated: 2 },
     { id: "c", scope: "cast", name: "vera", updated: 1 },
   ] };
   localStorage.setItem("continuity-presets", JSON.stringify(presets));
-  tabButtons[4].listeners.click[0]();
+  out.stored = { beforeCounting: found(page, "mmc-zone-held")[0]?.textContent };
+  found(page, "mmc-set-ix").at(-1).listeners.click[0]();
   // Two turns: one for the render, one for the counts to land behind it.
   await new Promise((done) => setTimeout(done, 0));
   await new Promise((done) => setTimeout(done, 0));
-  const zoneRows = () => {
-    const found = [];
-    const walk = (node) => {
-      if (node.className === "mmc-zone-row") found.push(node);
-      (node.children ?? []).forEach(walk);
-    };
-    walk(page);
-    return found;
-  };
-  const heldOf = (row) => {
-    let found = "";
-    const walk = (node) => {
-      if (node.className === "mmc-zone-held") found = node.textContent;
-      (node.children ?? []).forEach(walk);
-    };
-    walk(row);
-    return found;
-  };
-  const pressOf = (row) => (row.children ?? []).find(
-    (kid) => String(kid.className ?? "").includes("mmc-zone-go"));
-  out.stored = {
+  const zoneRows = () => found(page, "mmc-zone-row");
+  const heldOf = (row) => found(row, "mmc-zone-held")[0]?.textContent ?? "";
+  const pressOf = (row) => found(row, "mmc-zone-go")[0];
+  Object.assign(out.stored, {
     rows: zoneRows().length,
     held: zoneRows().map(heldOf),
     empty: zoneRows().map((row) => row.getAttribute("data-empty")),
-  };
+  });
 
   // Arming and firing the Shots row. The first press only asks; the second is
   // what removes, and afterwards the row has to say so on its own rather than
@@ -3475,12 +3399,11 @@ check("...and a place kept for the next tool", nav.get("holdsAPlace"), True)
 check("Presets opens the library", nav.get("opensTheLibrary"), True)
 check("...and the room comes back with the press", nav.get("dashGone"), True)
 
-# The settings page owns four questions now — how good the file is, where it
-# goes, what the node faces offer and what a render does on the way there, and
-# how large they are drawn — so it has four tabs, and the folder fields are the
-# only place the prefixes can be set. The third is "General" rather than
-# "Nodes": it carries a Rendering group as well as a Nodes one, so the old name
-# was the name of half of it.
+# The settings page is one page: an index down the side names the five groups
+# — what a render writes, how it is sampled, what a node face draws, how the
+# pack is drawn, and what the pack is holding — and every setting is one row
+# with its buttons beside it. The folder fields are the only place the
+# prefixes can be set.
 settings = report.get("settings", {})
 # The lockup this pack shipped for a while: `executed` is broadcast once, to
 # whoever is listening, and a socket that drops mid-render takes the end of the
@@ -3505,94 +3428,92 @@ check("...and one that ended without a file says why rather than nothing",
 
 # --- what the pack is holding, and taking it back -----------------------------
 #
-# The rows of the Stored data tab, in page order, against a fake user whose only
+# The rows of the inventory, in page order, against a fake user whose only
 # saved work is two shots and one cast member. Spelled out rather than derived
-# from the JS: the point of the tab is that it reports what is really there, and
-# a check that recomputed the same list from the same table would pass on a tab
-# that counted nothing at all.
+# from the JS: the point of the inventory is that it reports what is really
+# there, and a check that recomputed the same list from the same table would
+# pass on a page that counted nothing at all.
 STORED_ROWS = ["Pieces", "Shots", "Pre-stages", "Cast", "Styles",
-               "Stars and where you left off", "The LoRA manager's notes",
-               "Refiner choices", "The reference cache", "The refiner's server",
-               "Every setting on this page"]
+               "Picker stars and folders", "LoRA notes",
+               "Refiner choices", "Reference cache", "Remote refiner",
+               "Settings"]
 NOTHING = "none"
+# The settings row is always offered and has no count: its value cell is empty.
 STORED_HELD = [NOTHING, "2", NOTHING, "1", NOTHING, NOTHING, NOTHING, NOTHING,
-               NOTHING, NOTHING, "in force"]
+               NOTHING, NOTHING, ""]
 STORED_EMPTY = ["true", "false", "true", "false", "true", "true", "true", "true",
                 "true", "true", "false"]
 
 stored = report.get("stored", {})
-check("the stored-data tab lists every store", stored.get("rows"), len(STORED_ROWS))
+# The count reads every preset index on disk, so it waits until the page is
+# read down to the inventory: opened, the rows say they are counting.
+check("the inventory is not counted until it is reached", stored.get("beforeCounting"), "Counting…")
+check("the inventory lists every store", stored.get("rows"), len(STORED_ROWS))
 check("...and counts what is actually in each one", stored.get("held"), STORED_HELD)
 check("...marking the empty ones as empty", stored.get("empty"), STORED_EMPTY)
 check("a remove press asks before it acts", stored.get("armedLabel"), "Really remove?")
 check("...and the second press empties that store and nothing else",
       stored.get("afterStored"), ["c"])
 check("...after which the row says it is empty",
-      (stored.get("afterHeld") or [None])[1], "none")
+      (stored.get("afterHeld") or [None, None])[1], "none")
 
-check("the settings page has all five tabs", settings.get("tabs"),
-      ["Quality", "Folders", "General", "Appearance", "Stored data"])
-# Every row on the tab, in order, with each setting's default checked on a fresh
-# settings file: previews ship playing, the seam handoff and the reference cache
-# ship on, and the advanced controls and the shift pills ship off. Advanced
-# leads, because it decides how much of the rest of the tab there is — the turbo
-# lead-in is an advanced control and its three rows are simply not on the page
-# while it is off, which is what makes this list four pairs and a triple and
-# not that plus another triple. Then preview playback, which governs the
-# biggest thing a node draws, the seam handoff's three roads with the plain
-# latent checked, the reference cache, and the shift pills last, which change
-# only what is drawn. The drift guard between the seam handoff and the cache is
-# a rail, not a list, and is read with the rails below.
-#
-# There used to be a fourth pair here, for whether the compiler wrote each
-# reference's scope into the prompt. It is not a choice any more — a label the
-# prompt never defines is a label pointing at nothing — so the setting is gone
-# and the prompt box shows what is actually sent instead.
-# The LoRA loader's pair sits after the seam handoff's rows: the pack's own
-# stack (the default, checked), then ComfyUI's. The motion fix gate's four
-# rows sit after the latent seams' pair: off, gentle, fast (the default,
-# checked), only the fastest.
-check("the node settings show their defaults checked",
-      settings.get("shiftRows"),
-      ["true", "false", "true", "false", "false", "true", "false", "false",
-       "true", "false",
-       "false", "false", "true", "false", "true", "false", "true", "false"])
-# The step preview's two rails, and the reference cache's two. All four travel a
-# list of stops rather than a range, because nobody is choosing between 30 days
-# and 31 — and the defaults have to land on a named stop, or the page opens
-# showing a value it does not offer.
-#
-# The preview pair is the one setting on this tab that is not purely cosmetic:
-# the frame is broadcast on every sampling step, and a frame past a proxy's
-# websocket cap drops the socket mid-render rather than arriving late (#24). So
-# the page has to open on this pack's own numbers, not the override node's
-# 1024/80 — a page that opened on 1024 would be a page saying the thing that
-# caused the lockup is what is in force.
-check("both preview rails carry their stops", settings.get("previewStops"), [7, 7])
-check("...opening on the pack's own 640 px and quality 80",
-      settings.get("previewReads"), ["640 px", "80"])
-check("both cache rails carry their stops", settings.get("cacheStops"), [6, 9])
-check("...opening on the stored month and 8 GB",
-      settings.get("cacheReads"), ["1 month", "8 GB"])
-# The retention rail is live: the ceiling ships at 8 GB, so there is a store for
-# it to age. It goes quiet only when the ceiling is Off.
-check("...both live while there is a store to bound", settings.get("cacheDisabled"), [False, False])
-
-# And with the advanced controls on, the turbo lead-in is back on the page: the
-# four pairs and the seam handoff's four rows, plus its own three rows. That is
-# the whole of what the switch does to this tab — it adds a section, it never
-# disables one.
-# 21: the seventeen rows the tab always draws plus the lead-in's four (the
-# motion fix gate's four and the LoRA loader's pair are among the seventeen —
-# neither is ever hidden).
-check("advanced controls bring the turbo lead-in back to the page",
-      (settings.get("advancedRows"), settings.get("advancedLeadIn")), (21, True))
-check("the quality tab shows the encoder value", settings.get("quality"), True)
-# The text scale: four points with the drawn sizes checked on a fresh file, each
-# row saying what it is as a percentage the way the quality rows say their crf.
-check("the appearance tab offers four sizes with the default checked",
-      settings.get("textRows"), ["false", "true", "false", "false"])
-check("...each with its multiplier as a percentage", settings.get("textPercents"), True)
+check("the index names the five groups", settings.get("index"),
+      ["Output", "Rendering", "Nodes", "Interface", "Stored data"])
+check("...and the page draws them in that order", settings.get("groups"),
+      ["output", "rendering", "nodes", "interface", "data"])
+# Every row, by the key it writes, with the button a fresh settings file lands
+# on. Previews ship playing, the seam handoff on the plain latent and the
+# reference cache on, the advanced controls and the shift pills off; the
+# motion gate at the measured default between its two clips. A default that
+# missed every button would grow a "Custom" one, and this is where it would
+# show.
+check("every row opens on its default", settings.get("pressed"), {
+    "video_crf": "Standard",
+    "seam_handoff": "Latent",
+    "motion_fix_abstain": "Fast motion",
+    "lora_loader": "This pack",
+    "latent_cache": "Keep",
+    "latent_cache_days": "1 month",
+    "latent_cache_gb": "8 GB",
+    "advanced": "Standard",
+    "show_shift_pills": "Hidden",
+    "autoplay_previews": "Plays itself",
+    "preview_max_px": "640 px",
+    "preview_quality": "80",
+    "text_scale": "Default",
+    "theme": "Follow ComfyUI",
+    "surface_lift": "Default",
+})
+# And every row offers the whole of its list — a stop list that silently lost
+# its ends would still draw. The step preview's two rows are the one setting
+# here that is not purely cosmetic: the frame is broadcast on every sampling
+# step, and a frame past a proxy's websocket cap drops the socket mid-render
+# rather than arriving late (#24). So the page has to open on this pack's own
+# numbers, not the override node's 1024/80 — checked above.
+check("...with the whole of each list on offer", settings.get("stops"), {
+    "video_crf": 4, "seam_handoff": 4, "motion_fix_abstain": 4, "lora_loader": 2,
+    "latent_cache": 2, "latent_cache_days": 6, "latent_cache_gb": 9, "advanced": 2,
+    "show_shift_pills": 2, "autoplay_previews": 2, "preview_max_px": 7, "preview_quality": 7,
+    "text_scale": 4, "theme": 2, "surface_lift": 4,
+})
+check("the retention row is live while there is a store to bound",
+      settings.get("daysDisabled"), False)
+check("the quality row shows the encoder value", settings.get("quality"), True)
+# The turbo lead-in is an advanced control: not on the page while the switch is
+# off (and the stub's file has it off — set, it would be in force and shown
+# either way), on it the moment the switch goes on. That is the
+# whole of what the switch does to this page: it adds a row, it never disables
+# one.
+check("the turbo lead-in waits on the advanced switch",
+      (settings.get("leadInIdle"), settings.get("advancedPosted"),
+       settings.get("leadInShown"), settings.get("leadInPressed")),
+      (False, {"advanced": True}, True, "Off"))
+# The text scale and the separation each read their multiplier under the name
+# as a percentage — "112%" is the one reading of a multiplier nobody has to be
+# told how to read — and the reading moves with the press.
+check("the text size and the separation read their multiplier in force",
+      (settings.get("textReading"), settings.get("liftReading")), ("100%", "100%"))
+check("...and the reading follows the press", settings.get("textReadingAfter"), "112%")
 # And the press has to land in two places. The multiplier goes to the server,
 # because it is a per-machine preference like every other one on this page; and
 # it goes onto the document element, because a scale nothing reads is a number
@@ -3601,11 +3522,9 @@ check("choosing a size posts the multiplier", settings.get("textPosted"),
       {"text_scale": 1.12})
 check("...and writes it where the stylesheet reads it",
       settings.get("typeVar"), "1.12")
-# The colour: two answers, following checked on a fresh file. Following is not a
-# neutral default here — it is the whole of what the stylesheet does unaided, so
-# a fresh file has to land on it.
-check("the appearance tab offers both palettes with following checked",
-      settings.get("themeRows"), ["true", "false"])
+# The colour: following is not a neutral default here — it is the whole of
+# what the stylesheet does unaided, so a fresh file has to land on it (checked
+# above), and pinning is the one press away from it.
 check("pinning the pack dark posts the theme", settings.get("themePosted"),
       {"theme": "dark"})
 # The pin is where it is *not* applied that matters. A node face is part of a
@@ -3618,11 +3537,6 @@ check("...and leaving the shell puts the palette back",
       settings.get("darkClassShut"), False)
 check("...and following again stays light even with the shell up",
       settings.get("followClass"), False)
-# The surface separation: four points, the drawn ladder checked, each row saying
-# what it is as a percentage the way the sizes above do.
-check("the appearance tab offers four separations with the default checked",
-      settings.get("liftRows"), ["false", "true", "false", "false"])
-check("...each with its multiplier as a percentage", settings.get("liftPercents"), True)
 check("choosing a separation posts the multiplier", settings.get("liftPosted"),
       {"surface_lift": 1.4})
 check("...and writes it where the stylesheet reads it",
@@ -3630,7 +3544,7 @@ check("...and writes it where the stylesheet reads it",
 # A field per family, renders first: an LTX 2.5 render used to land in H3's
 # folder with H3's name on it, and one field for every family is what says
 # out loud that it no longer does.
-check("the folders tab carries a field per family, renders then stills",
+check("the folders carry a field per family, renders then stills",
       settings.get("fields"),
       ["continuity/renders/h3/H3", "continuity/renders/ltx25/LTX25",
        "continuity/stills/h3/H3", "continuity/stills/krea2/Krea2",
@@ -3658,7 +3572,6 @@ check("editing one family's folder posts the block, leaving the others alone",
       settings.get("posted"),
       [{"video_prefix": {"h3": "client/shoot-3/take",
                          "ltx25": "continuity/renders/ltx25/LTX25"}}])
-
 # The node face is a preview and the prompt is written in a sheet.
 face = report.get("face", {})
 check("the face carries the live prompt box", face.get("boxOnFace"), True)

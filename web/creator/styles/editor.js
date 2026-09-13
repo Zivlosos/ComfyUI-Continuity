@@ -21,7 +21,7 @@ export const css = `
 .mmc-tool {
   display: flex; flex-direction: column; align-items: center; gap: 6px;
   background: none; border: 0; padding: 0; cursor: pointer;
-  color: var(--mmc-dim); font-size: calc(12px * var(--mmc-type)); font-family: inherit;
+  color: var(--mmc-dim); font-size: 12px; font-family: inherit;
 }
 .mmc-tool-icon {
   width: var(--mmc-tool-tile); height: var(--mmc-tool-tile); border-radius: 14px;

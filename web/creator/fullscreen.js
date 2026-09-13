@@ -299,6 +299,13 @@ class Fullscreen {
             : t("The video: the prompt, the cast and everything the render reads."),
           onclick: () => this.setStep(step),
         }, [el("span", { text: t(label) })]))]);
+    // The segments are the width of their words, and the words change size
+    // under the text-size setting while the bar is up: the ink is repainted
+    // whenever the bar's box moves, or it keeps the old width over a wider
+    // "Shot" until the next switch.
+    if (typeof ResizeObserver !== "undefined") {
+      new ResizeObserver(() => this.paintInk()).observe(this.stepBar);
+    }
 
     // What each column is, said once at the top of it. The desk shows two
     // node faces that are built from the same parts — the same rail, the same
