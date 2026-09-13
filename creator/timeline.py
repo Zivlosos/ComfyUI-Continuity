@@ -117,6 +117,13 @@ def stamps(data):
     # segments, so replacing it has to re-render them.
     for entry in data.get("loras", []) or []:
         stamp(lora.resolve, entry, "name")
+    # ...and the ones the cast wears, which ride into every shot that cites
+    # their owner exactly as the piece's do.
+    for subject in data.get("subjects", []) or []:
+        if isinstance(subject, dict):
+            for entry in subject.get("loras", []) or []:
+                if isinstance(entry, dict):
+                    stamp(lora.resolve, entry, "name")
     for asset in data.get("assets", []) or []:
         stamp(media.resolve, asset, "filename")
     # The lane's cues, whether the piece's whole lane or the stretch cut onto

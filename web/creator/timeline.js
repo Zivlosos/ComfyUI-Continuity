@@ -966,6 +966,7 @@ class Timeline {
     this.castShelf ??= new CastShelf({
       getCast: () => this.timeline.subjects ?? [],
       setCast: (list) => { this.timeline.subjects = list; },
+      family: () => S.pieceFamily(this.timeline),
       getAssets: () => S.castAssets(this.timeline),
       addAsset: () => this.attachOneCastAsset(),
       whereCited: (subject) => {

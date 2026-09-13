@@ -40,10 +40,11 @@ import { deleteRefMod, describeRefMod, isRefMod, makeRefMod, moveRefMod, renderM
 import { SUBFOLDER as MOD_FOLDER, ledger, modRow, modRows, modeRows, modeWord, remakeMods, remakeRows } from "./refmod.js";
 import { atlasRef } from "./presets/atlasref.js";
 import { openPicker } from "./picker.js";
-import { downloadMod, openMenu, noteField, sizeRows, triggerField, MARKER_LABEL, MARKER_NOTE,
-         ROLES, TAKES_NOTE } from "./cast.js";
-import { SUBJECT_TAKES, seedFeatures, showSeconds, splitTriggers, tagIndex,
-         GUIDE_LORA_STRENGTH, guideLoraStyle } from "./state.js";
+import { downloadMod, openLoraMenu, openMenu, noteField, sizeRows, triggerField, MARKER_LABEL,
+         MARKER_NOTE, ROLES, TAKES_NOTE } from "./cast.js";
+import { loraBase, openLoras } from "./loras.js";
+import { SUBJECT_TAKES, seedFeatures, showSeconds, splitTriggers, subjectLoras, tagIndex,
+         GUIDE_LORA_STRENGTH, guideLoraStyle, DEFAULT_VIDEO_FAMILY, checkpointsOf } from "./state.js";
 import { neuralDial } from "./neural.js";
 import { attributeWarning, styleAttributes } from "./presets/stylelib.js";
 import { BUILTIN } from "./presets/builtin.js";
@@ -1270,6 +1271,7 @@ class PresetLibrary {
             ]),
             el("div", { class: "mmc-cast-sheet-col" }, [
               this.sheetRefs(member),
+              this.sheetWears(member),
             ]),
           ]),
           this.sheetFoot(row, member)]
@@ -1390,6 +1392,95 @@ class PresetLibrary {
       ...(files.some((file) => file.slot === "replaces")
         ? [this.sheetReplaces(member)] : []),
     ]);
+  }
+
+  /** What they wear: LoRAs, one row each, in the file rows' own grid — a
+   *  row can say the file, the words and the weight, which is the whole of
+   *  what a LoRA on a person is. Kept with them so they come back wearing it
+   *  into any piece (discussion #82). */
+  sheetWears(member) {
+    const worn = subjectLoras(member);
+    return el("div", { class: "mmc-cast-sheet-band" }, [
+      el("div", { class: "mmc-cast-sheet-legend", text: t("Wearing") }),
+      el("div", { class: "mmc-cast-sheet-files" }, [
+        ...worn.map((entry) => this.sheetLoraRow(member, entry)),
+        el("div", { class: "mmc-cast-sheet-file-add" }, [
+          el("button", {
+            class: "mmc-cast-sheet-addfile",
+            title: t("A LoRA from models/loras. It goes on the model in every shot "
+                   + "their name is in, with its trigger words in front of that shot's prompt."),
+            onclick: () => this.addLora(member),
+          }, [icon("effect", 12), el("span", { text: t("Hang a LoRA on them") })]),
+        ]),
+      ]),
+      ...(worn.length ? [] : [el("p", { class: "mmc-cast-sheet-nothing", text:
+        t("A character LoRA is the fifth thing somebody can be made of — weights "
+        + "rather than a file. Its trigger word is how the prompt names them.") })]),
+    ]);
+  }
+
+  sheetLoraRow(member, entry) {
+    const off = entry.enabled === false;
+    const words = (entry.triggers ?? []).join(", ");
+    return el("button", {
+      class: `mmc-cast-sheet-file mmc-cast-sheet-lora${off ? " off" : ""}`,
+      title: t("{name} — press to change its words or its weight, mute it, or take it off them.",
+               { name: entry.name }),
+      onclick: (event) => this.pickLora(event.currentTarget, member, entry),
+    }, [
+      el("span", { class: "mmc-cast-sheet-thumb" }, [icon("effect", 18)]),
+      el("span", { class: "mmc-cast-sheet-role" }, [el("span", { text: t("LoRA") })]),
+      el("span", { class: "mmc-cast-sheet-fileid" }, [
+        el("span", { class: "mmc-cast-sheet-filename", text: loraBase(entry) }),
+        el("span", { class: `mmc-cast-sheet-filenote${words ? "" : " off"}`,
+                     text: words ? t("trigger words {words}", { words }) : t("no trigger words") }),
+      ]),
+      el("span", { class: "mmc-cast-sheet-enc" }, [
+        el("b", { text: Number(entry.strength ?? 1).toFixed(2) }),
+        el("br"),
+        el("span", { text: off ? t("muted") : t("weight") }),
+      ]),
+      el("span", { class: "mmc-cast-sheet-more", text: "⋯" }),
+    ]);
+  }
+
+  /** The family the piece behind the library is on, or the pack's default —
+   *  what says whether a LoRA has a checkpoint to claim. */
+  loraFamily() {
+    return this.target?.family?.() ?? DEFAULT_VIDEO_FAMILY;
+  }
+
+  pickLora(anchor, member, entry) {
+    openLoraMenu(anchor, {
+      handle: member.handle || "subject", entry, family: this.loraFamily(),
+      touch: () => this.queueSave(),
+      done: () => this.flushSave().then(() => this.renderSheet()),
+      settle: () => { if (!this.sheetTyping()) this.renderSheet(); },
+      onManage: () => this.addLora(member, entry.name),
+      onRemove: () => {
+        member.loras = subjectLoras(member).filter((worn) => worn.name !== entry.name);
+        if (!member.loras.length) delete member.loras;
+        this.flushSave().then(() => this.renderSheet());
+      },
+    });
+  }
+
+  /** The manager, on their own stack. It writes straight through to the
+   *  member; the sheet saves as it goes and redraws when it shuts. */
+  async addLora(member, reveal = null) {
+    member.loras ??= [];
+    const family = this.loraFamily();
+    await openLoras({
+      state: member,
+      family,
+      targets: [...checkpointsOf(family)],
+      scope: "piece",
+      reveal,
+      onChange: () => this.queueSave(),
+    });
+    if (!member.loras.length) delete member.loras;
+    await this.flushSave();
+    this.renderSheet();
   }
 
   /** Their looks as the ledger reads them: `from` stills, mod or picture. A

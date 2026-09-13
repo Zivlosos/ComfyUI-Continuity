@@ -154,12 +154,12 @@ class Subject:
 
     __slots__ = ("handle", "sources", "takes", "description", "features",
                  "motion", "voice", "replaces", "replaces_what", "marker",
-                 "seeded", "notes", "triggers")
+                 "seeded", "notes", "triggers", "loras")
 
     def __init__(self, handle, sources, takes="person", description="",
                  features=(), motion=(), voice=None, replaces=(),
                  replaces_what="", marker=None, seeded=False, notes=None,
-                 triggers=None):
+                 triggers=None, loras=()):
         self.handle = handle
         self.sources = tuple(sources)      # asset handles defining its appearance
         self.takes = takes                 # one of TAKES
@@ -215,6 +215,15 @@ class Subject:
         claimed = set(self.files)
         self.triggers = {h: tuple(w) for h, w in (triggers or {}).items()
                          if h in claimed and w}
+        # The LoRAs they wear: stack entries in the shape `compile.merge_loras`
+        # and `active_loras` read — `name`, `strength`, `enabled`, `triggers`,
+        # `modes`, `audio` — so that a LoRA hung on a person is patched by the
+        # same code as one hung on the piece. What differs is *when*: these
+        # are merged into a shot's stack only while the shot cites them, and
+        # their trigger words go in front of that shot's prompt and no other.
+        # A character LoRA is the fifth thing somebody can be made of, and
+        # the one that is weights rather than a file (discussion #82).
+        self.loras = tuple(dict(entry) for entry in (loras or ()))
 
     @property
     def changed(self):
@@ -253,6 +262,22 @@ class Subject:
         if self.changed:
             return "partially_preserved"
         return "fully_preserved"
+
+    @property
+    def lora_words(self):
+        """The trigger words of the LoRAs they wear, deduped, in stack order.
+        Muted entries contribute none, as `compile.active_loras` drops them."""
+        out = []
+        seen = set()
+        for entry in self.loras:
+            if entry.get("enabled") is False:
+                continue
+            for word in entry.get("triggers") or ():
+                word = str(word).strip()
+                if word and word.lower() not in seen:
+                    seen.add(word.lower())
+                    out.append(word)
+        return out
 
     @property
     def files(self):
@@ -306,6 +331,7 @@ def parse(raw):
         features = _parse_features(handle, item.get("features"))
         notes = _parse_notes(handle, item.get("notes"))
         triggers = _parse_triggers(handle, item.get("triggers"))
+        loras = _parse_loras(handle, item.get("loras"))
         # A subject with nothing behind it defines nothing: the label would be
         # written into the prompt and the model would be told a name and no
         # appearance. Three things count as something behind it, and a cast entry
@@ -318,12 +344,20 @@ def parse(raw):
         # that has no references: in T2VA there is no picture to point at, and
         # "@anna is a person in their thirties, close-cropped hair" is the whole of
         # what a name can mean there. That is still worth having, because it is
-        # what keeps them the same person across nine shots.
-        if not sources and not motion and not replaces and not description and not features:
+        # what keeps them the same person across nine shots. The fourth is a
+        # LoRA with a trigger word: a character LoRA *is* somebody's
+        # appearance, and its word is how the prompt names them — so a member
+        # made of nothing but that still defines something, and the word is
+        # what the definition line says (`definitions`). A LoRA with no word
+        # is weights the prompt cannot reach for, and defines nobody.
+        worded = any(str(w).strip() for entry in loras for w in (entry.get("triggers") or ()))
+        if not sources and not motion and not replaces and not description \
+                and not features and not worded:
             raise SubjectError(
                 f"@{handle}: a subject needs something behind it — a picture or "
                 f"a clip to be built out of, a description of what they look "
-                f"like, a feature of theirs, or the person they stand in for"
+                f"like, a feature of theirs, a LoRA with a trigger word, or the "
+                f"person they stand in for"
             )
 
         marker = item.get("relationship") or None
@@ -346,6 +380,7 @@ def parse(raw):
             marker=marker,
             notes=notes,
             triggers=triggers,
+            loras=loras,
         ))
     return cast
 
@@ -388,6 +423,41 @@ def _parse_triggers(handle, raw):
         if str(key).strip() and words:
             out[str(key).strip()] = words
     return out
+
+
+def _parse_loras(handle, raw):
+    """The blob's `loras` list -> stack entries, shape-checked and nothing else.
+
+    Only the file's name is required here; the strength is checked where it is
+    read (`compile.active_loras`), the same as an entry on the piece, and the
+    words are kept as the list the manager wrote. An entry with no name is a
+    slot nobody filled and is dropped rather than refused — the UI never writes
+    one, and an old hand-edited blob is not worth a queue-time error over it.
+    """
+    if raw is None:
+        return ()
+    if not isinstance(raw, (list, tuple)):
+        raise SubjectError(f"@{handle}: loras must be a list of LoRA entries")
+    out = []
+    for index, entry in enumerate(raw):
+        if not isinstance(entry, dict):
+            raise SubjectError(f"@{handle}: LoRA #{index + 1} is not an object")
+        name = str(entry.get("name") or "").strip()
+        if not name:
+            continue
+        kept = {"name": name}
+        for key in ("strength", "enabled", "audio", "modes"):
+            if key in entry:
+                kept[key] = entry[key]
+        words = entry.get("triggers")
+        # A typed line as well as the manager's list. Not `split_triggers`:
+        # a LoRA's words are prefixed to the prompt in the casing they were
+        # trained with, where a plate's wake words are matched lowercased.
+        if isinstance(words, str):
+            words = words.split(",")
+        kept["triggers"] = [str(w).strip() for w in (words or ()) if str(w).strip()]
+        out.append(kept)
+    return tuple(out)
 
 
 def asleep(subject, texts):
@@ -885,6 +955,12 @@ def definitions(cast, asset_labels, extra_lines=(), ids=None):
                 described = (f"{described}, with {_feature_texts(spoken)}"
                              if described else
                              f"{noun}, {_feature_texts(spoken)}")
+            # Nothing but a LoRA behind them: the trigger word is the only
+            # name the model has for who this is, so the label is bound to it
+            # here — "<Subject 1> is the person, ohwx anna" — and the word
+            # goes in front of the prompt as it does for any LoRA in the run.
+            if not described and subject.lora_words:
+                described = f"{noun}, {', '.join(subject.lora_words)}"
             lines.append(f"{label} is {described}.")
             continue
         if subject.description:

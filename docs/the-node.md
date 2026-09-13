@@ -132,6 +132,22 @@ is asleep is refused by name with the words that would wake one. The tile
 wears the ring hollow. The words are kept with the member in the cast
 library and follow a picture onto its RefMod.
 
+A member can also **wear a LoRA**. On the open card, under the tiles, the
+line `wears` holds the LoRAs hung on them - `+ LoRA` opens the LoRA manager
+on the member's own stack - and each chip says the file, its weight and its
+trigger words. A LoRA on a person goes on the model in every shot that names
+them and no other, with its trigger words put in front of that shot's prompt;
+a shot that never cites them is not patched with it. The chip's menu holds
+the trigger words and a weight slider, a mute, and the way off; *Set up in the
+LoRA manager* reaches the full card - the wide weight range, which checkpoint
+it claims, the words its sidecar suggests. A member with a LoRA and a trigger
+word and nothing else is a valid member: the definition line binds their label
+to the word (`<Subject 1> is the person, ohwx anna`). A shot's own stack entry
+for the same file wins over the member's, the way it wins over the piece's.
+The LoRA is kept with the member in the cast library, weight and words
+included, and comes back with them into any piece; the library's own sheet
+edits it under *Wearing*.
+
 To have somebody perform an action the way another person does it, hang the
 clip or still of that person on them as "their action comes from this", and
 say what the action is on the tile. (The blob and the prompt keep the guide's

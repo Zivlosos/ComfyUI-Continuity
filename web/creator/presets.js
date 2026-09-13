@@ -709,6 +709,11 @@ export function captureSubject(subject, assets) {
         ...(subject.replaces_what ? { replaces_what: subject.replaces_what } : {}),
         ...(subject.relationship ? { relationship: subject.relationship } : {}),
         files,
+        // What they wear. A LoRA is named by its file under models/loras
+        // already, so it travels as it is — with the weight and the words,
+        // which are the part that took the trying (discussion #82).
+        ...(S.subjectLoras(subject).length
+          ? { loras: S.serializeLoras(S.subjectLoras(subject)) } : {}),
       },
     },
     cover: null,
@@ -729,7 +734,9 @@ export function castFactsLine(facts = {}, { tokens = null } = {}) {
   const pictures = facts.pictures ?? 0;
   const clips = facts.clips ?? 0;
   const features = facts.features ?? 0;
-  const nothing = !pictures && !mods && !clips && !facts.motion && !facts.voice && !facts.replaces;
+  const loras = facts.loras ?? 0;
+  const nothing = !pictures && !mods && !clips && !facts.motion && !facts.voice
+    && !facts.replaces && !loras;
   return [
     t(facts.takes ?? "person"),
     // Saved looks before pictures: they are the cheaper and the portable kind,
@@ -744,6 +751,7 @@ export function castFactsLine(facts = {}, { tokens = null } = {}) {
     facts.motion ? t("action") : null,
     facts.voice ? t("voice") : null,
     facts.replaces ? t("their place") : null,
+    loras ? t(loras === 1 ? "{count} LoRA" : "{count} LoRAs", { count: loras }) : null,
     // How much of them is written down, feature by feature. Worth a card's
     // width: a member with six features is somebody who will come back the same
     // person, and one with none is a name over a photograph.
@@ -992,6 +1000,7 @@ export function factsOf(body, scope) {
       voice: files.some((file) => file.slot === "voice"),
       replaces: files.some((file) => file.slot === "replaces"),
       described: Boolean(String(member.description ?? "").trim()),
+      loras: S.subjectLoras(member).length,
       // What somebody wrote about them, which is not every row: a card is
       // seeded with a row per attribute of its `takes`, and an untouched one is
       // the baseline every person reference carries rather than a fact about
@@ -1455,6 +1464,7 @@ export function addSubjectToPiece(stored, timeline) {
     ...(stored.seeded ? { seeded: true } : {}),
     ...(Object.keys(notes).length ? { notes } : {}),
     ...(Object.keys(triggers).length ? { triggers } : {}),
+    ...(S.subjectLoras(stored).length ? { loras: S.subjectLoras(stored) } : {}),
   };
   // A member kept before the rows existed gets them here, on the way into a
   // piece — the same repair `parseSubjects` does for a piece written then.

@@ -1702,7 +1702,19 @@ function parseSubjects(raw) {
       ...(SUBJECT_MARKERS.includes(s.relationship) ? { relationship: s.relationship } : {}),
       ...(Object.keys(subjectNotes(s)).length ? { notes: subjectNotes(s) } : {}),
       ...(Object.keys(subjectTriggers(s)).length ? { triggers: subjectTriggers(s) } : {}),
+      ...(subjectLoras(s).length ? { loras: subjectLoras(s) } : {}),
     }));
+}
+
+/** The cast as the blob stores it. A subject is written as it is held, bar
+ *  the LoRAs they wear, which go through the stack's own serializer so an
+ *  entry on a person and the same entry on the piece are the same bytes. */
+function serializeSubjects(subjects, family = DEFAULT_VIDEO_FAMILY) {
+  return subjects.map((subject) => {
+    const loras = subjectLoras(subject);
+    const { loras: _dropped, ...rest } = subject;
+    return loras.length ? { ...rest, loras: serializeLoras(loras, family) } : rest;
+  });
 }
 
 export function parseState(raw) {
@@ -1919,7 +1931,8 @@ export function serializeState(state) {
     // The cast, absent when nobody was cast — the same terms as the timeline's.
     // Not in serializeCommon: a segment's cast is the piece's, mirrored down,
     // and writing the mirror back would store every subject once per card.
-    ...(state.subjects?.length ? { subjects: state.subjects } : {}),
+    ...(state.subjects?.length
+      ? { subjects: serializeSubjects(state.subjects, pieceFamily(state)) } : {}),
     // Not in serializeCommon: the weights belong to the node, and a timeline
     // segment goes through that function too. The turbo switch likewise.
     ...serializeModels(state.models),
@@ -3421,7 +3434,8 @@ export function serializeTimeline(timeline) {
     ...(timeline.assets?.length ? { assets: serializeAssets(timeline.assets) } : {}),
     // The cast, on the same terms: absent when nobody was cast, so a piece
     // without one round-trips to the bytes it always did.
-    ...(timeline.subjects?.length ? { subjects: timeline.subjects } : {}),
+    ...(timeline.subjects?.length
+      ? { subjects: serializeSubjects(timeline.subjects, pieceFamily(timeline)) } : {}),
     audio_tail_s: clampTail(timeline.audio_tail_s),
     // The storyboard. Absent when off, so a piece that never asked for one
     // round-trips to the bytes it always did.
@@ -4636,7 +4650,9 @@ export const findLora = (state, name) => state.loras.find((l) => l.name === name
  *  `compile.active_loras`. */
 export function activeLoras(state, family = DEFAULT_VIDEO_FAMILY) {
   const target = checkpoint(state, family);
-  return state.loras.filter((entry) =>
+  // What the cast this state cites wears, under the state's own — the order
+  // `compile.cast_loras` merges them in, so a shot naming the same file wins.
+  return mergeLoras(castLoras(state), state.loras).filter((entry) =>
     entry.enabled !== false && round2(entry.strength) !== 0
     && (!target || loraModes(entry, family).includes(target)));
 }
@@ -5209,6 +5225,42 @@ export function subjectTriggers(subject) {
 }
 
 /**
+ * The LoRAs a subject wears, as stack entries — the shape the manager edits
+ * in place and `compile.merge_loras` reads. Normalised on the way in like the
+ * stack itself (`parseState`): a name is required, a strength is a number,
+ * words are a list. Mirrors `subjects._parse_loras`.
+ */
+export function subjectLoras(subject) {
+  const raw = subject?.loras;
+  if (!Array.isArray(raw)) return [];
+  // The live entries, put right in place rather than copied: the chip's menu
+  // and the manager both edit the object they are handed, and a copy would
+  // be a slider that moves nothing.
+  const live = raw.filter((entry) => entry && typeof entry.name === "string" && entry.name.trim());
+  for (const entry of live) {
+    entry.name = entry.name.trim();
+    entry.strength = Number.isFinite(Number(entry.strength)) ? Number(entry.strength) : 1;
+    entry.triggers = typeof entry.triggers === "string"
+      ? entry.triggers.split(",").map((w) => w.trim()).filter(Boolean)
+      : Array.isArray(entry.triggers) ? entry.triggers.map((w) => String(w).trim()).filter(Boolean) : [];
+  }
+  return live;
+}
+
+/** The LoRAs the members `state` cites wear, in cast order — what rides into
+ *  this shot's stack beside its own. Mirrors `compile.cast_loras`. */
+export function castLoras(state) {
+  return citedCast(state).flatMap((subject) => subjectLoras(subject));
+}
+
+/** Two stacks as one, the second's entry winning where both name a file.
+ *  Mirrors `compile.merge_loras`. */
+export function mergeLoras(first, second) {
+  const named = new Set((second ?? []).map((entry) => entry.name));
+  return [...(first ?? []).filter((entry) => !named.has(entry.name)), ...(second ?? [])];
+}
+
+/**
  * The files of `subject` that wait for a word `texts` do not say. A fact about
  * one shot, not the cast: the same member is built out of a different set of
  * plates in every shot, decided by the prose. Matched as a lowercase substring
@@ -5572,10 +5624,15 @@ export function subjectProblem(scope, subject) {
   // Described in words alone is a subject: in a generation with no references
   // there is no picture to point at, and the description is the whole of what
   // the name can mean. Mirrors the same relaxation in `subjects.parse`.
+  // A LoRA with a trigger word counts too: the word is how the prompt names
+  // them, and the definition line is bound to it.
+  const worded = subjectLoras(subject).some((entry) => entry.triggers.length);
   if (!files.length && !replacesOf(subject).length
       && !String(subject.description ?? "").trim()
-      && !subjectFeatures(subject).length) {
-    return "nothing behind them yet — hang a file on them, or describe them in words";
+      && !subjectFeatures(subject).length && !worded) {
+    return subjectLoras(subject).length
+      ? "their LoRA has no trigger word — give it one, or describe them in words"
+      : "nothing behind them yet — hang a file on them, or describe them in words";
   }
   const wanted = [...files, ...replacesOf(subject)].filter(Boolean);
   const missing = wanted.filter((h) => !byHandle.has(h));

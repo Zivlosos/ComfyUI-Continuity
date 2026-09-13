@@ -300,7 +300,7 @@ check("...and whose ledger is the receipt", made.get("ledger"),
       "Saved as a RefMod · full · 1,024 tokens · refmods/vanellope_example Download Show in library")
 check("...with nothing to save and no node to save with", made.get("saveOffered"), ["Download", "Show in library"])
 check("the page's legends are sentences", made.get("legends"),
-      ["Who they are", "What a picture cannot say", "Made out of"])
+      ["Who they are", "What a picture cannot say", "Made out of", "Wearing"])
 
 card = report.get("card") or {}
 check("the card's facts name the file", card.get("facts"), ["refmod:vanellope_example"])

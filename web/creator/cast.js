@@ -55,6 +55,7 @@
 import { refmodFileUrl, viewUrl } from "./api.js";
 import { dismissable, el, icon, placeNear } from "./dom.js";
 import { t } from "./i18n.js";
+import { loraBase, openLoras } from "./loras.js";
 import { SUBFOLDER as MOD_FOLDER, costMark, keepable, ledger, looks, modRow, modeRows, remakeMods, remakeRows } from "./refmod.js";
 import * as S from "./state.js";
 
@@ -323,6 +324,129 @@ export function wordsLead({ subject, handle, touch, done }) {
 }
 
 /**
+ * The menu behind a LoRA somebody wears: the words and the weight at its head,
+ * then the three things to do with it. One menu for the shelf's chip and the
+ * library sheet's row, since they are the same entry asked the same things.
+ *
+ * `touch` is called on every keystroke and drag, `done` when the menu is left
+ * by Enter or a row — the shelf's own two-speed persistence — and `settle`
+ * when it is dismissed, for whatever redraws the chip.
+ */
+export function openLoraMenu(anchor, { handle, entry, family, touch, done, settle = null,
+                                       onManage, onRemove }) {
+  const off = entry.enabled === false;
+  openMenu(anchor, {
+    title: t("@{handle} wears {name}", { handle, name: loraBase(entry) }),
+    // Dismissed rather than left by a row: the words and the weight are on
+    // the entry already, and the chip has to be redrawn to say so.
+    onClose: settle,
+    lead: (close) => el("div", { class: "mmc-cast-menu-words" }, [
+      wordsField({ handle, entry, touch, done: () => { close(); done(); } }),
+      weightField({ entry, touch, done: () => { close(); done(); } }),
+    ]),
+    sections: [{
+      rows: [
+        {
+          label: off ? t("Unmute") : t("Mute"),
+          note: off
+            ? t("Back on the model, as it was set up.")
+            : t("Off the model and out of the prompt, with its weight and words kept."),
+          onPick: () => { if (off) delete entry.enabled; else entry.enabled = false; done(); },
+        },
+        ...(onManage ? [{
+          label: t("Set up in the LoRA manager"),
+          note: S.routing(family)
+            ? t("The full weight range, which checkpoint it claims, and the words its file suggests.")
+            : t("The full weight range and the words its file suggests."),
+          onPick: onManage,
+        }] : []),
+        {
+          label: t("Take it off @{handle}", { handle }),
+          note: t("Out of their shots. The file stays in your folder."),
+          onPick: onRemove,
+        },
+      ],
+    }],
+  });
+}
+
+/** The trigger words, in the same field the wake words take, wearing the
+ *  LoRA's glyph inside its edge where that one wears the ring. */
+function wordsField({ handle, entry, touch, done }) {
+  const field = noteField({
+    value: (entry.triggers ?? []).join(", "),
+    write: (text) => {
+      entry.triggers = text.split(",").map((w) => w.trim()).filter(Boolean);
+      touch();
+    },
+    done,
+    className: "mmc-cast-menu-wear",
+    placeholder: t("trigger words — ohwx anna"),
+    title: t("Words, separated by commas, put in front of the prompt of every "
+           + "shot @{handle} is in — the token this LoRA was trained on, in the "
+           + "casing it was trained with.", { handle }),
+  });
+  // Appended, and placed by the stylesheet: the field is the whole row and
+  // the glyph sits inside its left edge whichever child it is.
+  field.appendChild(icon("effect", 12));
+  return field;
+}
+
+/** The weight, as a slider with the number beside it. The span is the
+ *  manager's first notch — ±2 at 0.05 — widened to hold a weight the manager
+ *  already set past it, so a slider LoRA driven to 6 opens at 6. */
+function weightField({ entry, touch, done }) {
+  const span = Math.abs(Number(entry.strength ?? 1)) > 2 ? 10 : 2;
+  const readout = el("span", {
+    class: "mmc-cast-menu-weight-n",
+    text: Number(entry.strength ?? 1).toFixed(2),
+  });
+  const slider = el("input", {
+    type: "range", class: "mmc-cast-menu-weight",
+    min: String(-span), max: String(span), step: span > 2 ? "0.25" : "0.05",
+    value: String(entry.strength ?? 1),
+    title: t("How strongly it is applied. 1.00 is as trained; most character "
+           + "LoRAs sit between 0.6 and 1.0."),
+    oninput: (event) => {
+      entry.strength = Number(event.target.value);
+      readout.textContent = entry.strength.toFixed(2);
+      touch();
+    },
+    onkeydown: (event) => {
+      event.stopPropagation();
+      if (event.key === "Enter") { event.preventDefault(); done(); }
+    },
+  });
+  slider.addEventListener("pointerdown", (event) => event.stopPropagation());
+  return el("div", { class: "mmc-cast-menu-lead mmc-cast-menu-weightrow" }, [
+    el("span", { class: "mmc-cast-of", text: t("weight") }), slider, readout,
+  ]);
+}
+
+/** One LoRA somebody wears, as a chip: the file, its weight, and the words
+ *  that wake it in the prompt. The weight is set in the marker's monospace —
+ *  it is a number the model is handed — and a muted entry is struck rather
+ *  than hidden, since muting is the way to ask whether it was the LoRA.
+ *  Exported for the library sheet's row, which says the same things. */
+export function loraChip(entry, onclick) {
+  const off = entry.enabled === false;
+  const words = (entry.triggers ?? []).join(", ");
+  return el("button", {
+    class: `mmc-cast-lora${off ? " off" : ""}`,
+    title: (off ? t("{name} — muted, and kept as it was set up.\n", { name: entry.name })
+                : `${entry.name}\n`)
+         + (words ? t("Trigger words: {words}\n", { words }) : t("No trigger words.\n"))
+         + t("Click to change its words or its weight, mute it, or take it off them."),
+    onclick,
+  }, [
+    icon("effect", 12),
+    el("span", { class: "mmc-cast-lora-name", text: loraBase(entry) }),
+    el("span", { class: "mmc-cast-lora-weight", text: Number(entry.strength ?? 1).toFixed(2) }),
+    ...(words ? [el("span", { class: "mmc-cast-lora-words", text: words })] : []),
+  ]);
+}
+
+/**
  * The shelf itself. Built once, redrawn in place, and told nothing about where
  * it is mounted beyond the six things it cannot work out for itself.
  *
@@ -372,12 +496,16 @@ export function wordsLead({ subject, handle, touch, done }) {
  *                       `recast` — and only the host knows which prose there is.
  *                       Absent where there is nothing to rewrite, and the swap
  *                       is offered without it.
+ * `family`               the piece's video family, as a getter — what the LoRA
+ *                       manager needs to say which checkpoint a LoRA on
+ *                       somebody claims. Defaults to the pack's default family.
  */
 export class CastShelf {
   constructor({ getCast, setCast, getAssets, addAsset, whereCited, cite, touch, commit,
                 keep = null, library = null, mod = null, vae = null, rename = null,
-                dropAssets = null, canvas = null }) {
+                dropAssets = null, canvas = null, family = null }) {
     this.getCast = getCast;
+    this.family = family ?? (() => S.DEFAULT_VIDEO_FAMILY);
     this.dropAssets = dropAssets;
     this.setCast = setCast;
     this.getAssets = getAssets;
@@ -594,6 +722,7 @@ export class CastShelf {
           el("span", { class: "mmc-cast-line-takes", text: t(subject.takes ?? "person") }),
         ]),
         this.miniRefs(subject),
+        ...this.wearsMark(subject),
         ...this.costMark(subject),
         // What is wrong with them outranks where they walk on: a card that
         // cannot queue is the thing to deal with first, and it is the reason
@@ -696,6 +825,10 @@ export class CastShelf {
       // tiles it is about, where the cube that used to do this sat in the
       // header with nothing to say for itself.
       ...this.ledgerRow(subject),
+      // What they wear: weights rather than files, and the fifth thing a
+      // member can be made of. After the files and their cost, before the
+      // words — it is still the "what they are made of" half of the card.
+      this.wearsRow(subject),
       this.featureBlock(subject),
       ...this.placeRow(subject),
       ...(problem ? [el("div", { class: "mmc-cast-bad", text: t(problem) })] : []),
@@ -1231,6 +1364,112 @@ export class CastShelf {
    * edited or continued. Empty and silent where nobody takes anyone's place,
    * which is most cards — an offer, not a warning.
    */
+  // ---- what they wear --------------------------------------------------------
+  //
+  // A LoRA hung on a person (discussion #82). Not a tile in the strip above:
+  // a tile is a file the tokenizer is shown, and a LoRA is weights patched
+  // onto the transformer — in every shot their name is written into, with
+  // its trigger words in front of that shot's prompt. So it is the row's own
+  // sentence, in the idiom of "takes the place of": a verb, then what they
+  // wear, dim until they wear something so an empty row reads as an offer.
+  //
+  // The entries are the stack's own shape and the LoRA manager edits them in
+  // place, the way it edits the piece's — one editor for strength, checkpoint
+  // and words, wherever a LoRA is. The chip's menu holds the two things
+  // worth changing without leaving the card: the words, and the weight.
+
+  /** The one mark a shut line makes about this: they wear something. */
+  wearsMark(subject) {
+    const worn = S.subjectLoras(subject);
+    if (!worn.length) return [];
+    return [el("span", {
+      class: "mmc-cast-line-wears",
+      title: worn.map((entry) => `${loraBase(entry)} ${Number(entry.strength ?? 1).toFixed(2)}`).join("\n"),
+    }, [icon("effect", 11), ...(worn.length > 1 ? [el("span", { text: String(worn.length) })] : [])])];
+  }
+
+  wearsRow(subject) {
+    const worn = S.subjectLoras(subject);
+    return el("div", { class: `mmc-cast-line mmc-cast-wears${worn.length ? " on" : ""}` }, [
+      el("span", { class: "mmc-cast-of", text: t("wears") }),
+      ...worn.map((entry) => this.loraChip(subject, entry)),
+      el("button", {
+        class: "mmc-cast-wear-add",
+        title: t("Hang a LoRA on @{handle}. It goes on the model in every shot their "
+               + "name is in, and its trigger words go in front of that shot's prompt.",
+               { handle: subject.handle }),
+        onclick: () => this.addLora(subject),
+      }, [el("span", { text: "+" }), el("span", { text: t("LoRA") })]),
+    ]);
+  }
+
+  loraChip(subject, entry) {
+    return loraChip(entry, (event) => this.pickLora(event.currentTarget, subject, entry));
+  }
+
+  /** Hang another one on them: the manager, opened on their own stack. It
+   *  writes straight through to the entry, so the card only has to redraw. */
+  async addLora(subject) {
+    subject.loras ??= [];
+    const family = this.family();
+    await openLoras({
+      state: subject,
+      family,
+      // A member with pictures behind them puts a shot on the reference
+      // checkpoint; one made of words alone can land on either.
+      targets: S.subjectFiles(subject).length && S.routing(family)
+        ? [S.routesOf(family).reference] : [...S.checkpointsOf(family)],
+      scope: "piece",
+      // Only touched while the window is up: the manager pushes onto the
+      // array it was handed, so the key stays until it shuts.
+      onChange: () => this.touch?.(),
+    });
+    this.tidyLoras(subject);
+    this.save();
+  }
+
+  /** No key at all where they wear nothing, so a member who tried a LoRA and
+   *  took it off again is the bytes they were before. */
+  tidyLoras(subject) {
+    if (Array.isArray(subject.loras) && !subject.loras.length) delete subject.loras;
+  }
+
+  /** The chip's menu — shared with the library's sheet, see `openLoraMenu`. */
+  pickLora(anchor, subject, entry) {
+    openLoraMenu(anchor, {
+      handle: subject.handle, entry, family: this.family(),
+      touch: () => this.touch?.(),
+      done: () => this.save(),
+      settle: () => this.renderSoon(),
+      onManage: () => this.manageLora(subject, entry),
+      onRemove: () => {
+        subject.loras = S.subjectLoras(subject).filter((worn) => worn.name !== entry.name);
+        this.tidyLoras(subject);
+        this.save();
+      },
+    });
+  }
+
+  /** The manager on their stack, opened on this entry — the way to the full
+   *  card: the wide weight span, the checkpoint claim, the sidecar's words. */
+  async manageLora(subject, entry) {
+    subject.loras ??= [];
+    const family = this.family();
+    await openLoras({
+      state: subject,
+      family,
+      targets: S.subjectFiles(subject).length && S.routing(family)
+        ? [S.routesOf(family).reference] : [...S.checkpointsOf(family)],
+      scope: "piece",
+      reveal: entry.name,
+      // Only touched while the window is up: the manager pushes onto the
+      // array it was handed, so the key stays until it shuts.
+      onChange: () => this.touch?.(),
+    });
+    this.tidyLoras(subject);
+    this.save();
+  }
+
   placeRow(subject) {
     const held = S.replacesOf(subject);
     const clips = this.getAssets().filter(

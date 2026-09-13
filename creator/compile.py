@@ -2673,16 +2673,7 @@ def cited_pool(pool, request, extra_texts=(), cast=()):
     """
     if not pool:
         return []
-    texts = [str(request.get("prompt") or ""),
-             str(request.get("soundscape") or ""),
-             str(request.get("music") or "")]
-    texts.extend(str(text or "") for text in extra_texts)
-    refined = request.get("refined")
-    if isinstance(refined, dict) and refined.get("enabled") is not False:
-        texts.append(str(refined.get("body") or ""))
-        sections = refined.get("sections")
-        if isinstance(sections, dict):
-            texts.extend(str(text or "") for text in sections.values())
+    texts = _cited_texts(request, extra_texts)
     found = set()
     for text in texts:
         found.update(HANDLE_RE.findall(text))
@@ -2711,6 +2702,43 @@ def cited_pool(pool, request, extra_texts=(), cast=()):
                 # brought with it.
                 found.update(subject.replaces)
     return [asset for asset in pool if asset.handle in found]
+
+
+def _cited_texts(request, extra_texts=()):
+    """Every text of a request a citation counts in — see `cited_pool`."""
+    texts = [str(request.get("prompt") or ""),
+             str(request.get("soundscape") or ""),
+             str(request.get("music") or "")]
+    texts.extend(str(text or "") for text in extra_texts)
+    refined = request.get("refined")
+    if isinstance(refined, dict) and refined.get("enabled") is not False:
+        texts.append(str(refined.get("body") or ""))
+        sections = refined.get("sections")
+        if isinstance(sections, dict):
+            texts.extend(str(text or "") for text in sections.values())
+    return texts
+
+
+def cast_loras(cast, request, extra_texts=()):
+    """The LoRAs the members this segment cites wear, in cast order.
+
+    A LoRA hung on a person goes on with them: patched onto the shots their
+    name is written into and no other, with its trigger words in front of
+    those shots' prompts. Read off the same texts a citation of their pictures
+    is read off, so the two cannot disagree about which shots they are in.
+    Merged into the shot's stack by the caller — between the piece's and the
+    shot's own, so a shot that names the same file at another strength is the
+    more specific entry and wins, the rule `merge_loras` already applies.
+
+    Here at request-building time rather than in `compile_request`, because
+    the segment node patches straight off `request["loras"]` and the request
+    is its cache key: the stack has to be whole before either reads it.
+    """
+    if not cast:
+        return []
+    texts = _cited_texts(request, extra_texts)
+    return [dict(entry) for subject in subjects.cited(cast, texts)
+            for entry in subject.loras]
 
 
 def _inject_pool(pool, request, extra_texts=(), cast=()):
@@ -3525,12 +3553,18 @@ def _chained_request(data, segment, pool, global_prompt, cast=()):
     face = face_for(data, segment)
     if face:
         request["face"] = face
-    request["loras"] = merge_loras(data.get("loras"), segment.get("loras"))
     # The soundscape and the score are properties of the piece, not of one
     # shot — a cut is not where the room tone changes. A segment may still
     # say its own; an empty one inherits rather than clearing.
     for key in ("soundscape", "music"):
         request[key] = str(segment.get(key) or data.get(key) or "")
+    # The piece's stack, then what the members this shot cites wear, then the
+    # shot's own — after every text above is final, since the middle one is
+    # read off them. A piece whose cast wears nothing compiles to the bytes it
+    # did before, so its segment nodes stay cache hits.
+    request["loras"] = merge_loras(
+        merge_loras(data.get("loras"), cast_loras(cast, request)),
+        segment.get("loras"))
     # The tail length is the timeline's — one seam sounding different from
     # the next is not a thing anyone tunes per cut.
     request["audio_tail_s"] = data.get("audio_tail_s", DEFAULT_AUDIO_TAIL_S)
@@ -3627,6 +3661,7 @@ def _renamed(subject, rename):
         replaces=[pick(h) for h in subject.replaces],
         replaces_what=subject.replaces_what,
         marker=subject.marker,
+        loras=subject.loras,
     )
 
 
@@ -3662,6 +3697,8 @@ def _subject_dict(subject):
         out["notes"] = dict(subject.notes)
     if subject.triggers:
         out["triggers"] = {h: ", ".join(words) for h, words in subject.triggers.items()}
+    if subject.loras:
+        out["loras"] = [dict(entry) for entry in subject.loras]
     for key, value in (("description", subject.description),
                        ("voice", subject.voice),
                        ("replaces_what", subject.replaces_what),
@@ -3905,7 +3942,11 @@ def group_payload(data, start=0, end=None):
         shots.append((at, text))
         at += float(segment.get("duration_s", 6) or 0)
 
-        stack = merge_loras(stack, segment.get("loras"))
+        stack = merge_loras(
+            merge_loras(stack, cast_loras(
+                cast, segment,
+                extra_texts=global_texts if number == first_number else ())),
+            segment.get("loras"))
 
     # How the shots of one pass become one description, which is the family's —
     # see `Grammar.join_shots`. The same grammar that composes the finished

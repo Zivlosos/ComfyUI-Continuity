@@ -1872,6 +1872,7 @@ export class CreatorEditor {
     this.castShelf ??= new CastShelf({
       getCast: () => this.castPiece.subjects ?? [],
       setCast: (list) => { this.castPiece.subjects = list; },
+      family: () => S.pieceFamily(this.piece ?? this.state),
       // This shot's attachments and the piece's pool together: both are files
       // this generation carries, and `subjects.check` runs against the two of
       // them merged. A keyframe is in the list rather than filtered out of it —

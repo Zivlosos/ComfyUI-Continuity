@@ -6,6 +6,22 @@ exactly as it was written, wall of text and all.
 
 ## Unreleased
 
+**A cast member can wear a LoRA.** A character LoRA is somebody's appearance
+as weights rather than as a file, and it had to be hung on the piece or on a
+shot by hand, in every piece they were in, and its trigger word typed into
+each prompt (discussion #82). The open card now has a `wears` line under the
+tiles: `+ LoRA` opens the LoRA manager on the member's own stack, and each
+chip says the file, its weight and its trigger words. The LoRA goes on the
+model in exactly the shots that cite the member — merged into that shot's
+stack between the piece's and the shot's own, so a shot naming the same file
+still wins — and its trigger words go in front of that shot's prompt and no
+other. The chip's menu edits the words and the weight in place, mutes, or
+takes it off; the manager's card is a row away for the wide weight range and
+the checkpoint claim. Weight, words and mute are kept with the member in the
+cast library and come back with them into any piece, and the library's sheet
+edits them under *Wearing*. A member made of nothing but a worded LoRA is a
+valid member; the definition line binds their label to the word.
+
 **A take whose file is gone is refused before anything is sampled, and the
 strip says so.** A locked card plays its take from a file under `takes/`, and
 when that folder had been cleared out the card still read as kept: the clip

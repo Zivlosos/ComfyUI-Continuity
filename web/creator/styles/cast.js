@@ -469,6 +469,77 @@ export const css = `
 }
 .mmc-cast-place-clip:hover { border-color: var(--mmc-accent); color: var(--mmc-text); }
 .mmc-cast-of { font-size: calc(11px * var(--mmc-type)); color: var(--mmc-dim); white-space: nowrap; }
+
+/* --- what they wear ---------------------------------------------------------- */
+
+/* A LoRA on a person, as the same offered sentence the place they take is:
+   "wears", then the chips, dim until there is one. The chip is not the stack's
+   chip — that one carries a swap and a checkpoint claim, which belong to a
+   piece — but it wears the stack's glyph, so "this is a LoRA" reads the same
+   wherever one is drawn. */
+.mmc-cast-wears { flex-wrap: wrap; row-gap: 5px; opacity: .62; }
+.mmc-cast-wears:hover, .mmc-cast-wears:focus-within, .mmc-cast-wears.on { opacity: 1; }
+.mmc-cast-lora {
+  display: inline-flex; align-items: baseline; gap: 6px; flex: none; max-width: 100%;
+  appearance: none; cursor: pointer; font: inherit; text-align: left;
+  border: 1px solid var(--mmc-line); border-radius: 7px; padding: 3px 8px 3px 7px;
+  background: var(--mmc-surface-2); color: var(--mmc-text);
+}
+.mmc-cast-lora svg { align-self: center; flex: none; color: var(--mmc-dim); }
+.mmc-cast-lora:hover { border-color: var(--mmc-accent); }
+.mmc-cast-lora:focus-visible { outline: 2px solid var(--mmc-accent); outline-offset: 1px; }
+.mmc-cast-lora-name {
+  font-size: calc(12px * var(--mmc-type)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* The weight in the marker's monospace: across the card that face means "this
+   is the number the model is handed". */
+.mmc-cast-lora-weight {
+  flex: none; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: calc(10.5px * var(--mmc-type)); color: var(--mmc-dim); font-variant-numeric: tabular-nums;
+}
+/* The words go in front of the prompt, so they read as prose on the chip —
+   quiet, after the number, and cut short before they take the row. */
+.mmc-cast-lora-words {
+  color: var(--mmc-off); font-size: calc(11px * var(--mmc-type));
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 16em;
+}
+/* Muted: struck rather than hidden. The question a mute answers is "was it
+   this one", and the chip has to stay where the eye left it to be unmuted. */
+.mmc-cast-lora.off { color: var(--mmc-off); }
+.mmc-cast-lora.off .mmc-cast-lora-name { text-decoration: line-through; }
+.mmc-cast-lora.off svg, .mmc-cast-lora.off .mmc-cast-lora-weight { color: var(--mmc-off); }
+/* The way to hang one on them: dashed like the strip's "+" tile, but a word
+   wide — a 38px square that opens a window of a thousand files would say "a
+   picture" to anyone who has used the row above it. */
+.mmc-cast-wear-add {
+  display: inline-flex; align-items: center; gap: 4px; flex: none;
+  appearance: none; cursor: pointer; font: inherit; font-size: calc(11.5px * var(--mmc-type));
+  border: 1px dashed var(--mmc-line); border-radius: 7px; padding: 3px 9px 3px 7px;
+  background: none; color: var(--mmc-off); white-space: nowrap;
+}
+.mmc-cast-wear-add:hover { border-color: var(--mmc-accent); color: var(--mmc-accent); }
+/* On the shut line: the glyph, and a count where there is more than one. */
+.mmc-cast-line-wears {
+  display: inline-flex; align-items: center; gap: 2px; flex: none;
+  color: var(--mmc-dim); font-size: calc(10.5px * var(--mmc-type));
+}
+/* The chip's menu: the words at its head, then the weight as a slider with the
+   number beside it. The field wears the glyph inside its left edge, the way
+   the wake field wears its ring — which line is the rule, said once. */
+.mmc-cast-menu-wear { position: relative; }
+.mmc-cast-menu-wear > svg {
+  position: absolute; left: 16px; top: 50%; margin-top: -6px; pointer-events: none;
+  color: var(--mmc-dim);
+}
+.mmc-cast-menu-wear .mmc-cast-menu-field { padding-left: 26px; }
+.mmc-cast-menu-weightrow { display: flex; align-items: center; gap: 8px; padding-top: 0; }
+.mmc-cast-menu-weight { flex: 1; min-width: 0; margin: 0; accent-color: var(--mmc-accent); }
+.mmc-cast-menu-weight-n {
+  flex: none; min-width: 3.2em; text-align: right;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: calc(11px * var(--mmc-type)); color: var(--mmc-dim); font-variant-numeric: tabular-nums;
+}
+
 .mmc-cast-bad { font-size: calc(11px * var(--mmc-type)); color: var(--mmc-bad); line-height: 1.45; padding-left: 58px; }
 
 /* On a node face the shelf is bounded, the way the asset row and the prompt box
