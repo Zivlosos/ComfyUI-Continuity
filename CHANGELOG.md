@@ -6,6 +6,19 @@ exactly as it was written, wall of text and all.
 
 ## Unreleased
 
+**A take whose file is gone is refused before anything is sampled, and the
+strip says so.** A locked card plays its take from a file under `takes/`, and
+when that folder had been cleared out the card still read as kept: the clip
+node found the file missing when it ran, which on a strip where the dead take
+is card 3 is after cards 1 and 2 had sampled (#42). Every clip card's file is
+now checked above the graph, in the same instant as the other refusals, naming
+the card and whether it is a take or cut-in footage. The strip probes each kept
+take once when it draws and marks one that is gone — `kept · file gone`, in the
+error colour, perforated like an unshot card — with the ✕ to forget it and a
+*Forget missing takes* pill beside the locks for a strip full of them. Nothing
+is forgotten on its own: a folder mounted later or a workflow opened on the
+wrong machine would lose real film to an automatic ✕.
+
 **Use one frame of a clip instead of the clip.** A clip attached for the one
 frame in it that is the reference cost every frame of it through every
 sampling step — and the picture editor's scrub on a clip looked like the way

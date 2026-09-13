@@ -66,6 +66,11 @@ tl = importlib.import_module(f"{PACKAGE}.creator.timeline")
 cn = importlib.import_module(f"{PACKAGE}.creator.creator_node")
 accel_mod = importlib.import_module(f"{PACKAGE}.creator.accel")
 outputs_mod = importlib.import_module(f"{PACKAGE}.creator.outputs")
+# Cut-in footage and kept takes are checked against the disk before a graph
+# is built (issue #42), and these suites must not depend on which files happen
+# to be in this ComfyUI's input folder — so every name resolves.
+media_mod = importlib.import_module(f"{PACKAGE}.creator.media")
+media_mod.resolve = lambda filename: f"/input/{filename}"
 
 from harness import FAILURES, check
 
@@ -1197,6 +1202,32 @@ alone = by_class(with_clip(dict(CLIP)))
 for absent in ("MiniMaxH3TimelineSegment", "KSampler", "MiniMaxH3Reel"):
     check(f"a clip on its own emits no {absent}", absent in alone, False)
 check("...and still writes a file", len(alone["MiniMaxH3Save"]), 1)
+
+# A file that is gone is refused before a graph is built, naming the card
+# (issue #42). The clip node used to find out when it ran, which on a strip
+# where the missing file is card 3 is after cards 1 and 2 had sampled. A kept
+# take says so as a take — the card is locked on it — and footage as footage.
+_resolves = media_mod.resolve
+media_mod.resolve = lambda filename: (_ for _ in ()).throw(
+    media_mod.MediaError(f"{filename!r} is not in the input folder any more"))
+try:
+    expect_error("footage that is not on disk is refused up front",
+                 lambda: with_clip({"prompt": "wide", "duration_s": 5}, dict(CLIP)),
+                 "segment 2's footage is not there to play: 'footage.mp4'")
+    kept = {"prompt": "wide", "duration_s": 5, "hold": True,
+            "take": {"filename": "wide_00001.mp4 [output]", "duration_s": 5,
+                     "width": 1344, "height": 768, "has_audio": True}}
+    expect_error("a kept take whose file is gone is refused as a take",
+                 lambda: with_clip(kept, {"prompt": "closer", "duration_s": 5}),
+                 "segment 1 is locked on a take that is no longer on disk")
+    expect_error("...naming the file",
+                 lambda: with_clip(kept, {"prompt": "closer", "duration_s": 5}),
+                 "wide_00001.mp4 [output]")
+    expect_error("...by the card's own number when it is not the first",
+                 lambda: with_clip({"prompt": "wide", "duration_s": 5}, kept),
+                 "segment 2 is locked on a take")
+finally:
+    media_mod.resolve = _resolves
 
 # ---- a seam beside supplied footage -----------------------------------------
 #

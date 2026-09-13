@@ -3765,6 +3765,23 @@ export function dropTake(timeline, index) {
   return true;
 }
 
+/**
+ * Forget every take whose file is gone. -> how many were dropped.
+ *
+ * `gone` is the set of filenames the strip has found missing on disk — the
+ * strip's knowledge, not the piece's, which is why it is handed in rather than
+ * read here. A strip reopened after `takes/` was cleared out is fourteen dead
+ * takes, and the ✕ on each chip is fourteen clicks (issue #42).
+ */
+export function dropMissingTakes(timeline, gone) {
+  let dropped = 0;
+  for (const pass of passes(timeline)) {
+    const take = takeOn(pass.segments[0]);
+    if (take && gone.has(take.filename)) { delete pass.segments[0].take; dropped += 1; }
+  }
+  return dropped;
+}
+
 /** Whether the strip is holding anything back — which is what decides whether
  *  any of this is drawn at all. */
 export const shotInParts = (timeline) =>

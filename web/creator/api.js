@@ -695,9 +695,12 @@ async function ask(path) {
       duration: Number.isFinite(body.duration) ? body.duration : null,
       width: Number.isFinite(body.width) ? body.width : null,
       height: Number.isFinite(body.height) ? body.height : null,
+      // The route answers 404 for a name that is not under input/ or output/
+      // any more. Distinct from an unreadable file, which is still there.
+      missing: response.status === 404,
     };
   } catch {
-    return { hasAudio: null, duration: null, width: null, height: null };
+    return { hasAudio: null, duration: null, width: null, height: null, missing: false };
   }
 }
 

@@ -185,6 +185,13 @@ Every card has a padlock. Locked cards are not rendered, so you can shoot a
 long strip one pass at a time, keep the takes you like, and re-shoot only the
 card you are working on. Each pass is written as its own file under `takes/`.
 
+A locked card with nothing shot yet is simply left out of the render, with
+everything written on it kept — which is how you shoot one card of fifteen
+while the rest wait. If a take's file has been deleted from `takes/`, the card
+says `kept · file gone` and the render refuses it by name before sampling
+anything; forget the take with the ✕ on the chip (or *Forget missing takes*
+for the whole strip) and the card goes back to not shot.
+
 ## Cutting in your own footage
 
 A clip you already have can be a card on the strip, not just a reference. It

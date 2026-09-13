@@ -93,6 +93,10 @@ settings_mod.load = lambda: dict(settings_mod.DEFAULTS)
 # makes that branch visible in the file.
 SIZES = {"a.png": (1080, 1920), "b.png": (1080, 1920), "face.png": (1024, 1024)}
 media_mod.image_size = lambda filename: SIZES.get(filename, (1920, 1080))
+# `resolve` for the same reason: cut-in footage and kept takes are checked
+# against the disk before a graph is built (issue #42), and a golden must not
+# depend on which files happen to be in this ComfyUI's input folder.
+media_mod.resolve = lambda filename: f"/input/{filename}"
 
 MODELS = {
     "fl2va": "h3/fl2va.safetensors",
@@ -381,11 +385,6 @@ finally:
 # the switch off is a file the render ignores; a switch thrown over a shot with
 # no drawing on it has nothing to aim at and must not load six gigabytes of
 # branch to find that out.
-#
-# `resolve` is patched for the same reason `image_size` is above: a golden must
-# not depend on which files happen to be in this ComfyUI's input folder.
-media_mod.resolve = lambda filename: f"/input/{filename}"
-
 GUIDE_MODELS = {**MODELS, "control": "h3/fun_controlnet_union.safetensors"}
 SWITCH = {"on": True, "strength": 0.8, "start": 0.0, "end": 0.7}
 GUIDE_ASSET = {"handle": "gde-1", "kind": "video", "role": "guide",

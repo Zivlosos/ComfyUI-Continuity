@@ -290,8 +290,9 @@ const cardWidth = (seconds) => 132 + Math.round(Math.sqrt(seconds) * 26);
  *  because the film already exists, perforated because it does not. Empty for
  *  everything in the render, which is every card on a strip that has never held
  *  one back. */
-const holdSkin = (head) => (S.isHeld(head)
-  ? (S.takeOn(head) ? " mmc-tl-kept" : " mmc-tl-unshot") : "");
+const holdSkin = (head, gone) => (S.isHeld(head)
+  ? (S.takeOn(head) && !gone.has(S.takeOn(head).filename) ? " mmc-tl-kept" : " mmc-tl-unshot")
+  : "");
 
 /**
  * The finished prompt for the pass holding one card of a piece — what the
@@ -365,6 +366,36 @@ class Timeline {
     // Delete does, and the arming is forgotten the moment the pointer leaves
     // the card. Never a browser confirm(): see `presetlib.saveCurrent`.
     this.armed = null;
+    // The kept takes whose files are not on disk any more. A take is a record
+    // on the card and the film is a file under output/, and the two part ways
+    // when the folder is cleared out (issue #42): the card still reads as kept,
+    // and the render refuses it by name. Filled by `askTakes` as the probes
+    // answer, once per filename for the life of the strip — a file put back
+    // shows on the next open, and the refusal reads the disk either way.
+    this.gone = new Set();
+    this.asked = new Set();
+  }
+
+  /**
+   * Ask the server which kept takes are still on disk.
+   *
+   * One probe per take, and only the first time the strip sees the name: the
+   * answer arrives after the strip has drawn, so a take found missing redraws
+   * it once. Nothing is forgotten here — a mounted-later folder or a workflow
+   * opened on the wrong machine would lose real film to an automatic ✕ — the
+   * chip says so and the pill beside the locks offers to forget them all.
+   */
+  askTakes() {
+    for (const pass of S.passes(this.timeline)) {
+      const take = S.takeOn(pass.segments[0]);
+      if (!take || this.asked.has(take.filename)) continue;
+      this.asked.add(take.filename);
+      probe(take.filename).then((answer) => {
+        if (!answer.missing || this.gone.has(take.filename)) return;
+        this.gone.add(take.filename);
+        this.render();
+      });
+    }
   }
 
   commit() {
@@ -1648,6 +1679,7 @@ class Timeline {
     // serialized piece, and twenty cards would otherwise serialize it twenty
     // times to draw one mark.
     this.edited = S.editedSince(this.timeline);
+    this.askTakes();
     passes.forEach((pass, position) => {
       if (position > 0) parts.push(this.renderJoin(pass.start));
       parts.push(this.renderPass(pass));
@@ -1722,7 +1754,7 @@ class Timeline {
     // carries the switch, alongside the other things a pass has one of.
     const chip = this.takeChip(pass.start);
 
-    return el("div", { class: `mmc-tl-pass on${holdSkin(pass.segments[0])}` }, [
+    return el("div", { class: `mmc-tl-pass on${holdSkin(pass.segments[0], this.gone)}` }, [
       el("div", { class: "mmc-tl-pass-head" }, [
         el("span", { class: "mmc-tl-pass-name" }, [
           icon("timeline", 13), el("span", { text: t("one pass") }),
@@ -2416,6 +2448,15 @@ class Timeline {
             + "card at a time is finished."),
         onclick: () => { if (S.holdAll(this.timeline, true)) this.commit(); },
       }, [icon("lock", 13), el("span", { text: t("Lock all") })])] : []),
+      // Every take whose file is gone, forgotten in one click: the strip a
+      // cleared-out takes/ folder leaves behind is dead takes on every card.
+      ...(passes.some((pass) => this.gone.has(S.takeOn(pass.segments[0])?.filename)) ? [el("button", {
+        class: "mmc-pill mmc-tl-holdall mmc-tl-forget-gone",
+        title: t("Forget every take whose file is no longer on disk. Those cards go "
+               + "back to not shot — everything written on them is kept — and a "
+               + "locked one stays out of the render until you unlock it."),
+        onclick: () => { if (S.dropMissingTakes(this.timeline, this.gone)) this.commit(); },
+      }, [el("span", { text: t("Forget missing takes") })])] : []),
       ...(loose.length < passes.length ? [el("button", {
         class: "mmc-pill mmc-tl-holdall",
         title: t("Put every card back in the render. Takes are kept — a card that is "
@@ -2494,7 +2535,12 @@ class Timeline {
                + "is kept."),
       }) : null;
     }
-    const [tone, name, why] = this.edited?.has(index)
+    const [tone, name, why] = this.gone.has(take.filename)
+      ? ["missing", held ? t("kept · file gone") : t("take · file gone"),
+         t("The file this take was written to is not under output/ any more, so "
+         + "there is nothing to play and the render would refuse this card by "
+         + "name. Unlock the card to shoot it again, or forget the take.")]
+      : this.edited?.has(index)
       ? ["stale", held ? t("kept · edited") : t("take · edited"),
          t("This take was made before you changed the card, so it is no longer "
          + "what the card describes. It still plays — shoot the card again to "
@@ -2611,7 +2657,7 @@ class Timeline {
     // head is where it is changed.
     // In a pass of several shots both are the pass's: it is one generation, so
     // it is held, kept and drawn as one piece of film. See `renderPass`.
-    const skin = shared ? "" : holdSkin(segment);
+    const skin = shared ? "" : holdSkin(segment, this.gone);
     const chip = shared ? null : this.takeChip(index);
 
     return el("div", {

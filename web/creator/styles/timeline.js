@@ -370,6 +370,10 @@ export const css = `
    off-distribution marks wear, meaning what it means there: a statement about
    what will happen, not a refusal. The take still plays. */
 .mmc-tl-card-state.stale { background: color-mix(in srgb, var(--mmc-warn) 16%, transparent); color: var(--mmc-warn); }
+/* ...and a kept take whose file is gone. The error colour, because this one
+   is a refusal: the card cannot play and the render will say so. The ✕ beside
+   it is the way out, and the pill by the locks forgets them all at once. */
+.mmc-tl-card-state.missing { background: color-mix(in srgb, var(--mmc-bad) 16%, transparent); color: var(--mmc-bad); }
 
 /* Looking at a take and deciding against it is half of shooting a piece in
    parts, and it is the one thing the strip had no word for: the way to reject a

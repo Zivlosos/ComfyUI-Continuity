@@ -50,6 +50,11 @@ except Exception as exc:  # noqa: BLE001
 package = importlib.import_module(PACKAGE)
 cn = importlib.import_module(f"{PACKAGE}.creator.creator_node")
 redetail = importlib.import_module(f"{PACKAGE}.creator.redetail")
+# Cut-in footage and kept takes are checked against the disk before a graph
+# is built (issue #42), and these suites must not depend on which files happen
+# to be in this ComfyUI's input folder — so every name resolves.
+media_mod = importlib.import_module(f"{PACKAGE}.creator.media")
+media_mod.resolve = lambda filename: f"/input/{filename}"
 
 from harness import FAILURES, check, passed
 

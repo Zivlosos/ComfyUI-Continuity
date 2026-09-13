@@ -198,6 +198,38 @@ def _fingerprint(blob):
         return (blob, (), graph_settings)
 
 
+def _footage_on_disk(piece, strip):
+    """Refuse a clip card whose file is gone before anything is sampled.
+
+    A kept take and cut-in footage are both played from a file, and the clip
+    node resolves that file when it runs — which, on a strip where the missing
+    file is card 3, is after cards 1 and 2 have sampled (issue #42: a strip
+    reopened after its takes were cleared out fails ten minutes in). The
+    filenames are all known here, above the graph, so this is where the same
+    rule the output prefix follows applies: a render that cannot finish should
+    stop before it starts. `compile.py` stays free of disk access; the piece
+    hands over card numbers, and the strip says whether the card is a take.
+    """
+    strip_segments = compiler.timeline_segments(strip)
+    for index, segment in enumerate(compiler.timeline_segments(piece)):
+        if not compiler.is_clip(segment):
+            continue
+        filename = str(segment.get("filename") or "")
+        try:
+            media.resolve(filename)
+        except media.MediaError as exc:
+            card = int(segment.get("card_no") or index + 1)
+            on_strip = strip_segments[card - 1] if card - 1 < len(strip_segments) else {}
+            if compiler.is_kept(on_strip):
+                raise compiler.CompileError(
+                    f"segment {card} is locked on a take that is no longer on "
+                    f"disk ({filename}) — unlock the card to shoot it again, or "
+                    f"forget the take on its card") from exc
+            raise compiler.CompileError(
+                f"segment {card}'s footage is not there to play: {exc} — put the "
+                f"file back, or take the card off the strip") from exc
+
+
 def _render(blob, seed, steps, cfg, sampler_name, scheduler,
             block_cache, spectrum, spectrum_blend, unique_id,
             shift_video=sampling.SHIFT_DEFAULTS[0],
@@ -235,6 +267,7 @@ def _render(blob, seed, steps, cfg, sampler_name, scheduler,
     # itself when neither is in play, so a strip that never touched any of this
     # compiles to exactly what it always did.
     piece = compiler.rendered_piece(data)
+    _footage_on_disk(piece, data)
     piece = compiler.varied_piece(piece, seed)
     # The run's context is read off `data` below, for the reason given there;
     # it is read once more here because the piece it describes may have to
