@@ -1066,7 +1066,8 @@ export class PreStageEditor {
     if (spec.lora && !turbo.lora) loadLoraNames();
 
     const pills = [];
-    pills.push(el("div", { class: `mmc-pill mmc-pill-group${turbo.on ? " accel-on" : ""}` }, [
+    // One pill, like the shot's (turbo.js): the switch and its quality stops.
+    const parts = [
       el("button", {
         class: "mmc-turbo-main",
         title: this.turboTitle(spec, turbo, io),
@@ -1083,12 +1084,11 @@ export class PreStageEditor {
           this.throwTurbo(true);
         },
       }, [icon("bolt", 16), el("span", { text: t(turbo.on ? "turbo" : "turbo off") })]),
-    ]));
+    ];
 
     if (turbo.on) {
       const steps = Number(io.value("steps", 0));
-      pills.push(el("div", { class: "mmc-pill mmc-turbo-seg" },
-        Object.keys(spec.steps).map((quality) => el("button", {
+      parts.push(...Object.keys(spec.steps).map((quality) => el("button", {
           class: "mmc-turbo-opt",
           "aria-pressed": steps === spec.steps[quality],
           title: t(titles[quality] ?? ""),
@@ -1100,8 +1100,11 @@ export class PreStageEditor {
         }, [
           el("span", { text: t(quality === "medium" ? "med" : quality) }),
           el("span", { class: "mmc-pill-sub", text: String(spec.steps[quality]) }),
-        ]))));
+        ])));
+    }
+    pills.push(el("div", { class: `mmc-pill mmc-turbo-seg${turbo.on ? " accel-on" : ""}` }, parts));
 
+    if (turbo.on) {
       // Which of the two the run is on, and the way to the other. Only where
       // there are two: an arch with one route has nothing to say here.
       if (spec.lora && spec.checkpoint) {

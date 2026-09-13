@@ -121,17 +121,20 @@ export const css = `
    shape making the same kind of decision, and a second name would be a second
    place for the shape to drift. */
 .mmc-turbo-main {
-  display: flex; align-items: center; gap: 7px; height: 100%; padding: 0 2px 0 8px;
+  display: flex; align-items: center; gap: 7px; height: 100%; padding: 0 2px 0 12px;
   background: none; border: 0; color: inherit; font-size: calc(13px * var(--mmc-type));
   font-family: inherit; cursor: pointer; white-space: nowrap;
 }
 .mmc-turbo-pick {
-  display: flex; align-items: center; justify-content: center; width: 22px; color: inherit;
+  display: flex; align-items: center; justify-content: center; width: 26px; color: inherit;
 }
-/* The turbo quality stops. One pill holding three mutually exclusive answers,
-   like the trim editor's track switch — three loose pills would read as
-   independent toggles, and draft/med/good are one dial. Lit in the accelerator
-   blue, because that is the family it belongs to.
+/* The turbo pill: the switch, then its quality stops and the lead-in, each
+   behind a hairline. One pill holding three mutually exclusive answers, like
+   the trim editor's track switch — three loose pills would read as independent
+   toggles, and draft/med/good are one dial; and the switch that puts them there
+   belongs in front of them, not two chips away. Lit in the accelerator blue,
+   because that is the family it belongs to. The stops keep their own grey
+   until pressed: the pill's colour says turbo is on, a stop's says which.
 
    This pill is the prototype the shared segmented pill (.mmc-pill-set, styles/
    editor.js) is drawn after. It keeps its own rules: it was right before there
@@ -144,6 +147,7 @@ export const css = `
 }
 .mmc-turbo-opt:first-child { border-left: 0; }
 .mmc-turbo-opt:hover { color: var(--mmc-text); }
+.mmc-turbo-seg > .mmc-pill-seg { border-left: 1px solid var(--mmc-line); }
 .mmc-turbo-opt[aria-pressed="true"] { background: color-mix(in srgb, var(--mmc-role-motion) 14%, transparent); color: var(--mmc-role-motion); }
 .mmc-turbo-opt[aria-pressed="true"] .mmc-pill-sub { color: color-mix(in srgb, var(--mmc-role-motion) 75%, transparent); }
 .mmc-tl-total { display: flex; gap: 8px; align-items: baseline; margin-left: auto; font-size: calc(13px * var(--mmc-type)); }

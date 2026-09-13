@@ -1145,14 +1145,30 @@ export const css = `
   background: var(--mmc-surface-3); border-color: transparent; padding: 0 14px; font-weight: 400;
   color: var(--mmc-text); letter-spacing: 0;
 }
-.mmc-fs.simple .mmc-pill-seg { padding: 0 10px; font-size: calc(13.5px * var(--mmc-type)); }
-/* Every chip on its own: no compound controls, no hairlines, one shape. */
-.mmc-fs.simple .mmc-pill-set { background: none; gap: 6px; overflow: visible; padding: 0; }
-.mmc-fs.simple .mmc-pill-set > .mmc-pill-seg {
-  background: var(--mmc-surface-3); border-radius: 17px; border-left: 0; padding: 0 14px;
-}
+.mmc-fs.simple .mmc-pill-seg, .mmc-fs.simple .mmc-turbo-opt { padding: 0 12px; font-size: calc(13.5px * var(--mmc-type)); }
+/* A set is still one pill here — the two ends of the shot, the canvas and its
+   short edge, the sampler and its scheduler, the turbo stops. Splitting them
+   into loose chips read as six unrelated settings, and left "beta" standing on
+   its own beside turbo. The chip's own padding is reset so the hairlines run
+   edge to edge, as they do on the node face. */
+.mmc-fs.simple .mmc-pill-set, .mmc-fs.simple .mmc-turbo-seg { padding: 0; gap: 0; overflow: hidden; }
 .mmc-fs.simple .mmc-pill b, .mmc-fs.simple .mmc-pill-seg,
 .mmc-fs.simple .mmc-pill-model .mmc-model-name { font-weight: 400; color: var(--mmc-text); }
+/* A state that is on keeps its colour: the chip rule above flattens every
+   border and every colour to the one surface, and an accelerator that is on
+   was the one chip that must not read like the rest. Text and a tint of the
+   fill — the border is transparent on this surface, so the border alone
+   would say nothing. */
+.mmc-fs.simple .mmc-pill.accel-on, .mmc-fs.simple .mmc-pill-seg.accel-on,
+.mmc-fs.simple .mmc-pill-seg[aria-pressed="true"], .mmc-fs.simple .mmc-turbo-opt[aria-pressed="true"] {
+  color: var(--mmc-role-motion); background: color-mix(in srgb, var(--mmc-role-motion) 14%, var(--mmc-surface-3));
+}
+/* The turbo pill lights its switch half, not the stops behind it: a tint
+   under all four and the pressed stop's own tint would disappear into it. */
+.mmc-fs.simple .mmc-turbo-seg.accel-on { background: var(--mmc-surface-3); }
+.mmc-fs.simple .mmc-turbo-seg.accel-on > .mmc-turbo-main, .mmc-fs.simple .mmc-turbo-seg.accel-on > .mmc-turbo-pick {
+  background: color-mix(in srgb, var(--mmc-role-motion) 14%, var(--mmc-surface-3));
+}
 .mmc-fs.simple .mmc-step { height: calc(34px * var(--mmc-type)); width: calc(26px * var(--mmc-type)); font-size: 15px; color: var(--mmc-text); }
 .mmc-fs.simple .mmc-pill-group { padding: 0 4px; }
 .mmc-fs.simple .mmc-pill-group > span { padding: 0 6px; }

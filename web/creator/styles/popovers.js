@@ -374,7 +374,9 @@ export const css = `
 .mmc-glora-text { resize: vertical; line-height: 1.4; }
 .mmc-glora-list { display: flex; flex-direction: column; max-height: 190px; overflow-y: auto; }
 .mmc-glora-row {
-  text-align: left; padding: 4px 8px; border: 0; background: none; cursor: pointer;
+  /* flex: none — overflow: hidden below drops a flex item's min-height to 0,
+     and past three rows the list would squash the buttons instead of scrolling. */
+  flex: none; text-align: left; padding: 4px 8px; border: 0; background: none; cursor: pointer;
   font-family: inherit; color: var(--mmc-text); font-size: calc(11px * var(--mmc-type));
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 4px;
 }

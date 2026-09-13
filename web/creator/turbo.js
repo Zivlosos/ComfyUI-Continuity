@@ -298,7 +298,11 @@ export function turboPills({ container, value, set, onCommit }) {
   const rowSteps = S.turboSteps(turbo.lora, S.pieceFamily(container), vdn)[turbo.quality]
     ?? S.TURBO_STEPS.medium;
 
-  pills.push(el("div", { class: `mmc-pill mmc-pill-group${on ? " accel-on" : ""}` }, [
+  // One pill for everything turbo: the switch, which file, the quality stops
+  // and the lead-in, divided by hairlines. They were three or four loose pills
+  // and read as unrelated settings — a "med 6" two chips away from the switch
+  // that put it there. `parts` is the pill's contents; it is closed at the end.
+  const parts = [
     el("button", {
       class: "mmc-turbo-main",
       title: on
@@ -383,7 +387,7 @@ export function turboPills({ container, value, set, onCommit }) {
         },
       }),
     }, [icon("chevron", 14)])] : []),
-  ]));
+  ];
 
   // Only while it is doing something, like the spectrum blend: off, the
   // qualities are a setting for a feature not in use.
@@ -397,7 +401,7 @@ export function turboPills({ container, value, set, onCommit }) {
     // is not running.
     const table = S.turboSteps(turbo.lora, S.pieceFamily(container));
     const own = S.turboPreset(turbo.lora, S.pieceFamily(container)).note;
-    pills.push(el("div", { class: "mmc-pill mmc-turbo-seg" }, S.TURBO_QUALITIES.map((quality) => el("button", {
+    parts.push(...S.TURBO_QUALITIES.map((quality) => el("button", {
       class: "mmc-turbo-opt",
       // Pressed is derived from the real steps widget, so a hand-edited step
       // count un-presses all three rather than one of them lying about it.
@@ -413,7 +417,7 @@ export function turboPills({ container, value, set, onCommit }) {
     }, [
       el("span", { text: t(quality === "medium" ? "med" : quality) }),
       el("span", { class: "mmc-pill-sub", text: String(table[quality]) }),
-    ]))));
+    ])));
   }
 
   // The lead-in, beside the quality stops because it is a slice of exactly the
@@ -436,9 +440,9 @@ export function turboPills({ container, value, set, onCommit }) {
   // because a number that is changing the render must never be off screen.
   if (on && turbo.lora && (uiSetting("advanced", false) === true || lead > 0)) {
     const steps = Number(value("steps", 0)) || 0;
-    pills.push(stepperPill({
+    parts.push(stepperPill({
       value: lead, min: 0, max: Math.min(S.TURBO_LEAD_MAX, Math.max(0, steps - 1)),
-      step: 1, width: "44px",
+      step: 1, width: "44px", seg: true,
       className: lead ? "accel-on" : "",
       // Parenthesised: `+` binds tighter than `:`, and without them the last
       // sentence would only ever appear on the off branch.
@@ -458,6 +462,7 @@ export function turboPills({ container, value, set, onCommit }) {
     }));
   }
 
+  pills.push(el("div", { class: `mmc-pill mmc-turbo-seg${on ? " accel-on" : ""}` }, parts));
   return pills;
 }
 
