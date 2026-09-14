@@ -353,9 +353,10 @@ export function seedMark(seed, size = 14) {
 
 /**
  * The seed as one small pill, for the row that has folded the sampler away —
- * the simple view's shot row. A die that rolls a new seed now, and the seed's
- * own mark (seedMark) in a ring: dotted while the next render will roll it
- * again, solid on a chip while it is kept. Pressing the mark opens a field to
+ * the simple view's shot row. Two halves, like the sets beside it: a die that
+ * rolls a new seed now, and the seed's own mark (seedMark) — white while the
+ * next render will roll it again, accent on a lit half while it is kept.
+ * Pressing the mark opens a field to
  * type or paste a number, with the fresh/keep switch under it. Beside the pill,
  * only once a render has run on a different seed, a dashed ghost carrying that
  * render's mark — press it and that seed is back and kept. Same widgets, same
@@ -374,12 +375,12 @@ export function seedPill({ widgets, value, set }) {
     : t("Seed {seed} — kept for every render. Click to type one, or to let it change.", { seed });
   const pill = el("div", { class: "mmc-pill mmc-seed-pill", "data-mode": fresh ? "fresh" : "kept" }, [
     el("button", {
-      class: "mmc-seed-roll",
+      class: "mmc-seed-cell mmc-seed-roll",
       title: t("Roll a new seed now"),
       onclick: () => set("seed", Math.floor(Math.random() * 0xffffffff)),
-    }, [icon("dice", 15)]),
+    }, [icon("dice", 20)]),
     el("button", {
-      class: "mmc-seed-id",
+      class: "mmc-seed-cell mmc-seed-id",
       title: said,
       onclick: (event) => openSeedPopover(event.currentTarget, { seed, fresh, set }),
     }, [seedMark(seed)]),
@@ -388,7 +389,10 @@ export function seedPill({ widgets, value, set }) {
     class: "mmc-pill mmc-seed-ghost",
     title: t("Back to {seed}, the seed the last render ran on — and keep it", { seed: last }),
     onclick: () => { set("seed", last); set("control_after_generate", "fixed"); },
-  }, [icon("rewind", 13), seedMark(last)])];
+  }, [
+    el("span", { class: "mmc-seed-cell" }, [icon("rewind", 20)]),
+    el("span", { class: "mmc-seed-cell" }, [seedMark(last)]),
+  ])];
   return [pill, ...ghost];
 }
 

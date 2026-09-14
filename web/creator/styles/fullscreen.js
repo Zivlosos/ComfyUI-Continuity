@@ -1050,17 +1050,16 @@ export const css = `
    mark, with the last render's seed as a ghost beside it (styles/timeline.js).
    Only while the row is folded: opened, the row has the full seed group and
    the pill would be the same control twice. */
-.mmc-fs.simple:not(.advanced) .mmc-seed-pill { display: flex; padding: 0 5px 0 0; }
+.mmc-fs.simple:not(.advanced) .mmc-seed-pill { display: flex; padding: 0; }
 /* The ghost keeps its dashed outline and no fill under the chip rule above —
-   it is an offer, not a setting — and keeps its arrow, which the chip rule
-   would hide with the other pill glyphs. */
+   it is an offer, not a setting. */
 .mmc-fs.simple:not(.advanced) .mmc-seed-ghost {
-  display: flex; padding: 0 10px 0 9px; background: none;
-  border: 1px dashed var(--mmc-line-2);
+  display: flex; padding: 0; background: none; border: 1px dashed var(--mmc-line-2);
 }
 .mmc-fs.simple:not(.advanced) .mmc-seed-ghost:hover { border-style: solid; }
-/* Outranks the chip rule below, which hides a pill's glyphs. */
-.mmc-fs.simple .mmc-pill.mmc-seed-ghost > svg { display: block; }
+/* Both halves' hairlines on this surface, where a border is otherwise flattened
+   to transparent — the pill's divider in the chip's own line, the ghost's dashed. */
+.mmc-fs.simple .mmc-seed-pill .mmc-seed-cell + .mmc-seed-cell { border-left-color: var(--mmc-line); }
 /* Render is the one action on the card, not the width of it. Stretched to the
    column it was the largest object in the room — louder than the picture it
    makes, and wide enough that the words sat alone in the middle of a bar — and
