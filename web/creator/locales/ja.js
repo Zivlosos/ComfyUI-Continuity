@@ -479,7 +479,7 @@ export const ja = {
  "Segment": "セグメント",
  "No {kind} slot left for {name}.": "{name} 用の{kind}スロットが残っていません。",
  "{count} marked": "{count} 件マーク済み",
- "Click files to mark them": "クリックしてファイルをマーク",
+ "Click to mark, shift-click for a run": "クリックでマーク、Shift+クリックで範囲",
  "Delete": "削除",
  "Move to…": "移動先…",
  "Add": "追加",

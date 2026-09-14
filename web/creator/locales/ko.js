@@ -479,7 +479,7 @@ export const ko = {
  "Segment": "세그먼트",
  "No {kind} slot left for {name}.": "{name}에 쓸 {kind} 슬롯이 남아 있지 않습니다.",
  "{count} marked": "{count}개 표시됨",
- "Click files to mark them": "파일을 클릭해 표시하세요",
+ "Click to mark, shift-click for a run": "클릭해 표시, Shift+클릭으로 범위",
  "Delete": "삭제",
  "Move to…": "이동…",
  "Add": "추가",

@@ -480,7 +480,7 @@ export const zh = {
  "Segment": "片段",
  "No {kind} slot left for {name}.": "没有剩余的{kind}槽位给 {name}。",
  "{count} marked": "已标记 {count} 个",
- "Click files to mark them": "点击文件以标记",
+ "Click to mark, shift-click for a run": "点击标记，Shift+点击标记一段",
  "Delete": "删除",
  "Move to…": "移动到…",
  "Add": "添加",

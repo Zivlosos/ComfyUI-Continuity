@@ -84,7 +84,7 @@ export function openPicker(options) {
   });
 }
 
-class Picker {
+export class Picker {
   constructor(options, resolve) {
     this.options = options;
     this.resolve = resolve;
@@ -743,6 +743,7 @@ class Picker {
     if (this.organize === on) return;
     this.organize = on;
     this.marked = [];
+    this.anchor = null;
     this.organizeButton.setAttribute("aria-pressed", String(on));
     this.renderGrid();
     this.renderFoot();
@@ -752,6 +753,24 @@ class Picker {
     const at = this.marked.indexOf(asset.path);
     if (at >= 0) this.marked.splice(at, 1);
     else this.marked.push(asset.path);
+    this.anchor = asset.path;
+    this.syncSelected();
+    this.renderFoot();
+  }
+
+  /** Shift-click: mark everything from the last cell clicked to this one, in
+   *  the grid's order. Additive on purpose — a run never unmarks anything, so
+   *  a shift-click on the wrong tile costs one click to undo rather than the
+   *  selection. The anchor moves to this cell, so runs chain: first, last,
+   *  then the next last. With no anchor yet it is a plain click. */
+  markRun(asset) {
+    const rows = this.visible();
+    const from = rows.findIndex((a) => a.path === this.anchor);
+    const to = rows.findIndex((a) => a.path === asset.path);
+    if (from < 0 || to < 0) { this.mark(asset); return; }
+    const run = rows.slice(Math.min(from, to), Math.max(from, to) + 1);
+    this.marked = [...new Set([...this.marked, ...run.map((a) => a.path)])];
+    this.anchor = asset.path;
     this.syncSelected();
     this.renderFoot();
   }
@@ -1065,7 +1084,10 @@ class Picker {
       // Double-clicks are detected by hand rather than with dblclick: the
       // second click re-toggles first, so viewing leaves the selection exactly
       // where it stood, and viewOnly grids get a single-click view.
-      onclick: () => {
+      // A shift-click would start selecting the page's text and images.
+      onmousedown: (event) => { if (event.shiftKey && this.organize) event.preventDefault(); },
+      onclick: (event) => {
+        if (this.organize && event.shiftKey) { this.markRun(asset); return; }
         const now = Date.now();
         const double = this.lastClick
           && this.lastClick.path === asset.path && now - this.lastClick.at < 400;
@@ -1085,7 +1107,7 @@ class Picker {
       onkeydown: (event) => {
         if (event.key !== "Enter" && event.key !== " ") return;
         event.preventDefault();
-        if (this.organize) this.mark(asset);
+        if (this.organize) (event.shiftKey ? this.markRun(asset) : this.mark(asset));
         else this.toggle(asset);
       },
     });
@@ -1946,7 +1968,7 @@ class Picker {
       this.slots.classList.remove("full");
       this.slots.textContent = this.marked.length
         ? t("{count} marked", { count: this.marked.length })
-        : t("Click files to mark them");
+        : t("Click to mark, shift-click for a run");
       this.deleteButton = el("button", {
         class: "mmc-del", text: t("Delete"), disabled: !this.marked.length,
         onclick: () => this.confirmDelete(),
