@@ -27,7 +27,7 @@ import { RefinePanel, refineButton, refine } from "./refine.js";
 import { openAspectPopover, openResolutionPopover, openChoicePopover, facesPill, motionPill, neuralPill, guideLoraPill, aspectGlyph,
          resolutionPillText,
          PILL_GLYPH, pillSet, pillClass } from "./pills.js";
-import { blobIO, samplingBar, segmentSeedPill } from "./sampling.js";
+import { blobIO, samplingBar, segmentSeedPill, seedPill } from "./sampling.js";
 import { Stage, stageSource } from "./stage.js";
 import { openRestyle } from "./restyle.js";
 import { familyPill, weightsPill, loadCatalog, adoptWeights } from "./models.js";
@@ -2750,6 +2750,15 @@ export class CreatorEditor {
       // decides what the short edge is the short edge *of*, and the size on the
       // second half is the product of the two.
       ...(this.canvasPills ? [pillSet([aspectPill, resPill])] : []),
+      // The seed, for the one face that folds the sampler row away: the simple
+      // view. Drawn on every body that has the widget and shown by the
+      // stylesheet only where the row is folded — the desk and the node face
+      // have the full seed group a line below and would be saying it twice.
+      ...(this.samplingWidgets?.seed ? seedPill({
+        widgets: this.samplingWidgets,
+        ...this.widgetIO(),
+        set: (name, v) => { this.widgetIO().set(name, v); this.render(); },
+      }) : []),
       // The end of the row, and one flex item rather than three. Everything
       // above says what the shot *is*; these say where it runs and what it
       // belongs to, and the auto margin that holds them against the far end of

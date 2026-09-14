@@ -74,7 +74,6 @@ export const css = `
   padding: 22px 22px 48px;
   font-size: calc(13px * var(--mmc-type)); line-height: 1.45;
   color: var(--mmc-text); user-select: text; cursor: text;
-  scrollbar-width: thin;
 }
 /* A long list scrolls from the top rather than centring off both ends. */
 .mmc-stage-slate > :first-child { margin-top: auto; }

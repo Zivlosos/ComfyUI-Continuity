@@ -4214,6 +4214,34 @@ export function emptyPreStage() {
   };
 }
 
+/** What Clear takes off a pre-stage: the writing on either branch. The image
+ *  branch writes a prompt, an init and its references; the H3 branch writes
+ *  a Creator request, cleared by the same keys as a shot. The machine — arch,
+ *  canvas, LoRAs, turbo, the checkpoints — stays, the line the piece's Clear
+ *  draws. `ref_lora` names a LoRA in the stack, so it is machine and stays;
+ *  with no references it reads nothing. */
+const PRESTAGE_CLEARED_KEYS = ["prompt", "init", "refs"];
+const STILL_CLEARED_KEYS = ["prompt", "soundscape", "music", "refined", "assets"];
+
+export function preStageWritten(state) {
+  if ((state.prompt || "").trim() || state.init || state.refs?.length) return true;
+  const request = state[PRESTAGE_STILL_ARCH]?.request;
+  return Boolean(request && ((request.prompt || "").trim()
+    || (request.soundscape || "").trim() || (request.music || "").trim()
+    || request.refined || request.assets?.length));
+}
+
+/** Empty the pre-stage's writing in place — the body holds this object. */
+export function clearPreStage(state) {
+  const blank = emptyPreStage();
+  for (const key of PRESTAGE_CLEARED_KEYS) state[key] = blank[key];
+  const request = state[PRESTAGE_STILL_ARCH]?.request;
+  if (request) {
+    const empty = emptyState();
+    for (const key of STILL_CLEARED_KEYS) request[key] = empty[key];
+  }
+}
+
 export function emptyPreStageTurbo() {
   const empty = {};
   for (const [arch, turbo] of Object.entries(PRESTAGE_TURBO)) {

@@ -166,11 +166,8 @@ export const css = `
 .mmc-shelf-strip {
   display: flex; align-items: center; gap: 8px; flex: 1 1 0; min-width: 0;
   overflow-x: auto; overflow-y: hidden; padding: 3px 0;
-  scrollbar-width: thin; scrollbar-color: var(--mmc-line) transparent;
   scroll-behavior: smooth; overscroll-behavior-x: contain;
 }
-.mmc-shelf-strip::-webkit-scrollbar { height: 5px; }
-.mmc-shelf-strip::-webkit-scrollbar-thumb { background: var(--mmc-line); border-radius: 3px; }
 .mmc-shelf-strip.more-r { mask-image: linear-gradient(90deg, #000 calc(100% - 40px), transparent); }
 .mmc-shelf-strip.more-l { mask-image: linear-gradient(90deg, transparent, #000 40px); }
 .mmc-shelf-strip.more-l.more-r {

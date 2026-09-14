@@ -573,6 +573,13 @@ class Timeline {
     this.barHost = el("div", { class: "mmc-tl-bar" });
     this.loraHost = el("div", { class: "mmc-tl-loras" });
     this.stripHost = el("div", { class: "mmc-tl-strip" });
+    // A trackpad swipes sideways on its own; a wheel only ever sends deltaY,
+    // and without this the strip is unreachable for anyone using one.
+    this.stripHost.addEventListener("wheel", (event) => {
+      if (event.deltaX || !event.deltaY) return;
+      event.preventDefault();
+      this.stripHost.scrollLeft += event.deltaY;
+    }, { passive: false });
     // Under the strip, because it is under the strip in what it describes: the
     // cards are what the piece is made of and the lane is what it is cut to.
     // It brings its own axis — see `sound.js` for why it cannot borrow the

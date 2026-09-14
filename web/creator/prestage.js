@@ -40,7 +40,8 @@ import { CreatorEditor } from "./editor.js";
 import { openPresetLibrary } from "./presetlib.js";
 import * as P from "./presets.js";
 import { PromptBox, focusEnd, openEditorSheet } from "./prompt.js";
-import { blobIO, samplingBar } from "./sampling.js";
+import { blobIO, samplingBar, seedPill } from "./sampling.js";
+import { clearButton } from "./clear.js";
 import { loadLoraNames, loraNames } from "./turbo.js";
 import { Stage, stageSource } from "./stage.js";
 import { loadCatalog, refreshCatalog, catalogByFolder } from "./models.js";
@@ -99,7 +100,10 @@ export class PreStageEditor {
    * @param {() => string|number} options.nodeId
    */
   constructor({ state, onCommit, samplingWidgets, onWidgetChange, nodeId,
-                stage = null, archPill = null, presetTarget = null }) {
+                stage = null, archPill = null, presetTarget = null, clearTool = null }) {
+    // The body's, like the preset target: what Clear empties is the pre-stage
+    // on both branches, and only the body knows both.
+    this.clearTool = clearTool;
     // Supplied by `PreStageBody` for the same reason the arch pill is: a preset
     // can change the architecture, and remounting the body is not something the
     // body being remounted can do.
@@ -125,7 +129,10 @@ export class PreStageEditor {
       getState: () => ({ ...this.state, assets: this.state.refs ?? [] }),
       onInput: (text) => {
         this.state.prompt = text;
-        this.onCommit?.();
+        // The whole commit, not just the write-out: the rail's Clear reads
+        // whether anything is written, and the shot face redraws on every
+        // keystroke for the same reason.
+        this.commit();
       },
       onAttach: (row) => this.attachFromMention(row),
       attachBlocked: () => this.refBlocked(),
@@ -769,6 +776,9 @@ export class PreStageEditor {
         tool(t("Add LoRA"), "effect",
              t("Manage the LoRAs patched onto the image model. Krea LoRAs train on RAW and apply on Turbo too."),
              () => this.manageLoras()),
+        // Last in the cluster, as on the video rail: everything to its left
+        // writes the still, and this takes it back.
+        ...(this.clearTool?.() ?? []),
       ]),
       el("div", { class: "mmc-rail-group" }, [
         tool(t("Presets"), "star",
@@ -1071,6 +1081,15 @@ export class PreStageEditor {
         onChange: (next) => { state.init.denoise = next; this.commit(); },
       }));
     }
+
+    // The seed, for the simple view, where the sampler row is folded away —
+    // the same pill the video face draws, off the same node widget. See
+    // `CreatorEditor.renderPills`.
+    if (this.samplingWidgets?.seed) pills.push(...seedPill({
+      widgets: this.samplingWidgets,
+      ...this.widgetIO(),
+      set: (name, value) => { this.widgetIO().set(name, value); this.render(); },
+    }));
 
     return el("div", { class: "mmc-pills" }, pills);
   }
@@ -1485,6 +1504,20 @@ export class PreStageBody {
       stage: this.stage,
       archPill: () => this.renderArchPill(),
       presetTarget: () => this.presetTarget(),
+      clearTool: () => [this.clearTool()],
+    });
+  }
+
+  /** The pre-stage's Clear, for either branch's rail. Remounts rather than
+   *  re-rendering: the H3 branch's editor holds the request it was built on,
+   *  and the request is emptied in place, but the image branch's chips and
+   *  the still's assets both come off state a mount reads once. */
+  clearTool() {
+    return clearButton({
+      written: S.preStageWritten(this.state),
+      what: t("Empty the prompt, the init image and the references — everything you wrote "
+            + "for this still. The architecture, the canvas, the LoRAs and the sampler stay."),
+      run: () => { S.clearPreStage(this.state); this.onCommit?.(); this.mount(); },
     });
   }
 
@@ -1506,7 +1539,10 @@ export class PreStageBody {
         read: () => this.state.sampling,
         write: (block) => { this.state.sampling = block; },
       },
-      onCommit: () => this.onCommit?.(),
+      // The body's commit, which redraws — as the piece's node does for its
+      // shot face. Forwarding to the node alone left the rail's Clear stale
+      // until something else redrew it.
+      onCommit: () => this.commit(),
       samplingWidgets: this.samplingWidgets,
       onWidgetChange: this.onWidgetChange,
       nodeId: this.nodeId,
@@ -1525,6 +1561,7 @@ export class PreStageBody {
       modelPill: () => [this.renderArchPill()],
       extraPills: () => this.renderStillPills(),
       extraTools: () => [this.renderFrameGrabTool()],
+      clearTool: () => [this.clearTool()],
       // The `@` menu's roster, exactly as the video face wires it — a still on
       // this branch is a video generation, and the request is the piece a
       // member is cast into: its assets are the shot's row, its subjects the
