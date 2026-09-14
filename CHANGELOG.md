@@ -6,6 +6,9 @@ exactly as it was written, wall of text and all.
 
 ## Unreleased
 
+**The simple view shows the seed.** A seed pill on the simple card, drawn as
+two halves, and the card scrolls; a pre-stage `{a|b}` chooses on the seed.
+
 **A cast member can wear a LoRA.** A character LoRA is somebody's appearance
 as weights rather than as a file, and it had to be hung on the piece or on a
 shot by hand, in every piece they were in, and its trigger word typed into
