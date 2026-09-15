@@ -11,10 +11,14 @@ renders.** Ask for a picture or a shot, then ask for changes; the model writes
 what you would have typed into the prompt box and the render goes on the
 ordinary queue, so Cancel reaches it and the file lands in the gallery. Each
 render gets a handle you can cite, uploads get one too, and a finished card can
-be opened in the editor or retaken. The rail holds the model, the still and
-video families, shape, seed and a Refine switch that puts a clip's prompt
-through the family's own prompting first. Stills and one-shot video only; no
-timeline, cast or saved conversations yet.
+be opened in the editor or retaken. It is laid out like any chat surface:
+one column, a composer at the foot whose **+** opens the pack's own picker,
+attachments as chips until they are sent, and the simple view's own pills
+under the text for the families, the canvas and the seed. The model's name is
+in the bar; turbo, a Refine switch that puts a clip's prompt through the
+family's own prompting first, and a skill to append are behind the gear
+beside it. Stills and one-shot video only; no timeline, cast or saved
+conversations yet.
 
 **The simple view shows the seed.** A seed pill on the simple card, drawn as
 two halves, and the card scrolls; a pre-stage `{a|b}` chooses on the seed.

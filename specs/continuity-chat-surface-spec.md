@@ -243,14 +243,20 @@ the way back.
   inline with the thumbnail or player, its handle, and two doors: **Open in
   the editor** (the chat's piece becomes the node's blob) and **Retake**
   (same blob, new seed). A refusal is a bubble.
-- **The rail**, right. The backend and model picker (the refine popover's,
-  reused); what this model can do (tools, vision, neither — probed and
-  cached per model); the still family and video family for `kind`, seeded
-  from `settings.weights`; resolution, turbo, seed policy; the **Refine**
-  switch, off; a skill to append, none. Under it the ledger as tiles.
-- **The composer**, bottom. A plain box with a paperclip that uploads into
-  `input/continuity/chat/` and adds a ledger line; pasted images do the
-  same. Enter sends.
+- **No rail.** The model's name is in the bar, the way ChatGPT places it,
+  and opens the refine popover; a gear beside it holds the three switches
+  that are set once per machine — turbo, the **Refine** switch (off), a skill
+  to append. Everything a message is made against is in the composer's foot,
+  drawn with the simple view's own pills: the still family and video family
+  for `kind`, the aspect + short-edge split pill, the die-and-mark seed pill.
+  The ledger has no tiles: each thing is in the transcript where it was made
+  or attached, wearing its handle, and pressing it cites it.
+- **The composer**, bottom. One rounded sheet: attachments waiting to go,
+  the text, and a foot with **+** on the left and the send arrow on the
+  right. The plus opens the pack's own picker (image, video, audio, renders);
+  pasted and dropped files upload into `input/continuity/chat/` and join the
+  same tray. Attachments become ledger lines when the message is sent, and
+  the message the model reads names their handles. Enter sends.
 
 Leaving the room keeps the conversation for the life of the page; reloading
 starts fresh. The renders stay, in the output folder.

@@ -11,7 +11,8 @@
 // the action the model may answer with, the machine card, the ledger line and
 // the two blob patches; `routes/chat.py` joins them to the disk and the queue.
 // So this module has exactly three jobs: keep the conversation, show what came
-// back, and give the rail the few standing choices a turn is made against. It
+// back, and hold the few standing choices a turn is made against — in the
+// composer's foot and behind the gear, with the node's own pills. It
 // has no opinion about families, weights or durations, and it must not grow
 // one — everything it knows about a family it reads off the served catalog.
 //
@@ -29,8 +30,12 @@
 // the queue itself, exactly as `stage.js` does for the node on the canvas, and
 // shows the real progress and the real preview frames rather than a spinner.
 
-import { el, icon, mark, spinner, dragsFiles, mountOverlay, keepScroll } from "./dom.js";
-import { openChoicePopover, stepperPill } from "./pills.js";
+import { el, icon, mark, spinner, dragsFiles, mountOverlay, keepScroll, placeNear, dismissable } from "./dom.js";
+import { openChoicePopover, openAspectPopover, edgeSlider, pillSet, pillClass,
+         aspectGlyph, PILL_GLYPH } from "./pills.js";
+import { seedPill } from "./sampling.js";
+import { rulesFor, resolveCanvas } from "./canvas.js";
+import { openPicker } from "./picker.js";
 import { outputUrl, upload, uiSetting, patchSettings, primeSettings, viewUrl } from "./api.js";
 import { settings as refinerSettings, chosenModel, openSettings, listSkills, refineRequest } from "./refine.js";
 import { FAMILIES, VIDEO_FAMILIES, DEFAULT_VIDEO_FAMILY, STILL_ARCHES,
@@ -198,6 +203,16 @@ function remember({ media, kind, aspect, filename, text }) {
 
 // ---- talking to the server --------------------------------------------------
 
+/** A user turn as the model reads it: the words, and the handles of whatever
+ *  went with them. The thumbnail is the screen's; the model only ever has the
+ *  ledger line, and without this it would not know that "this coat" and the
+ *  `img-2` that appeared on the same turn are one thing. */
+function withAttached(message) {
+  const handles = (message.attached ?? []).map((entry) => `@${entry.handle}`);
+  if (!handles.length) return message.text;
+  return `${message.text}\n(attached: ${handles.join(", ")})`;
+}
+
 /** The conversation as the server reads it: the last few exchanges, and nothing
  *  the screen hung onto them. */
 function forServer() {
@@ -210,7 +225,7 @@ function forServer() {
       if (exchanges > EXCHANGES) break;
     }
     trimmed.unshift(message.role === "user"
-      ? { role: "user", text: message.text }
+      ? { role: "user", text: withAttached(message) }
       : { role: "assistant", say: message.say ?? "", ...(message.action ? { action: message.action } : {}) });
   }
   return trimmed;
@@ -383,6 +398,10 @@ class Room {
     this.openRender = options.openRender ?? null;
     this.queue = { remaining: 0, running: false };
     this.skills = [];
+    // Files picked or pasted but not yet sent. They ride the next message the
+    // way an attachment does on any chat surface: shown in the composer, gone
+    // from it on Enter, and in the transcript under the words they went with.
+    this.pending = [];
   }
 
   mount() {
@@ -398,22 +417,33 @@ class Room {
       oninput: () => this.grow(),
       onpaste: (event) => this.pasted(event),
     });
-    this.clip = el("button", {
-      class: "mmc-ch-clip", title: t("Attach a picture or a clip"),
+    this.attachButton = el("button", {
+      class: "mmc-ch-tool", title: t("Add a picture, a clip or a sound"),
       onclick: () => this.browse(),
-    }, [icon("link", 16)]);
+    }, [icon("plus", 18)]);
     this.sendButton = el("button", {
       class: "mmc-ch-send", title: t("Send"),
       onclick: () => this.send(),
-    }, [icon("play", 16)]);
+    }, [icon("arrowUp", 18)]);
+    this.chips = el("div", { class: "mmc-ch-chips" });
+    this.pills = el("div", { class: "mmc-ch-pills" });
     // Built once and never rebuilt. A repaint that replaced the box would take
     // the caret out of it, and the queue's `status` arrives on every step of
     // every render — which is to say, in the middle of every sentence anybody
-    // types while something is sampling.
-    this.composer = el("div", { class: "mmc-ch-compose" },
-                       [this.clip, this.box, this.sendButton]);
-    this.talk = el("div", { class: "mmc-ch-talk" }, [this.log, this.composer]);
-    this.side = keepScroll(el("div", { class: "mmc-ch-rail" }));
+    // types while something is sampling. The pills and chips inside it are
+    // hosts that repaint on their own.
+    this.composer = el("div", { class: "mmc-ch-compose" }, [
+      this.chips,
+      this.box,
+      el("div", { class: "mmc-ch-foot" }, [
+        this.attachButton, this.pills, el("span", { class: "mmc-bn-gap" }), this.sendButton,
+      ]),
+    ]);
+    this.talk = el("div", { class: "mmc-ch-talk" }, [
+      this.log,
+      el("div", { class: "mmc-ch-dock" }, [this.composer]),
+    ]);
+    this.modelHost = el("span", { class: "mmc-ch-model" });
 
     this.sheet = el("div", { class: "mmc-bn" }, [
       el("div", { class: "mmc-bn-bar" }, [
@@ -436,20 +466,26 @@ class Room {
         el("span", { class: "mmc-bn-slash", text: "/" }),
         el("span", { class: "mmc-bn-here", text: t("Chat") }),
         el("span", { class: "mmc-bn-gap" }),
+        // Which model is talking, where ChatGPT puts it: in the bar, one quiet
+        // name. Everything that is set once per machine and then left alone is
+        // behind the gear beside it, so the composer holds only what changes
+        // from one message to the next.
+        this.modelHost,
+        el("button", {
+          class: "mmc-ch-gear", title: t("How this room renders"),
+          onclick: (event) => this.openMore(event.currentTarget),
+        }, [icon("gear", 17)]),
         el("button", {
           class: "mmc-close", text: "✕", title: t("Close the room"),
           onclick: () => this.close(),
         }),
       ]),
-      // The conversation leads and the rail is beside it, which is the other
-      // way round from the benches: there the subject is the glass and the
-      // dials are a margin, here the subject is what was said.
-      el("div", { class: "mmc-bn-room mmc-ch-room" }, [this.talk, this.side]),
+      el("div", { class: "mmc-bn-room mmc-ch-room" }, [this.talk]),
     ]);
 
     this.overlay = el("div", {
       class: "mmc-overlay mmc-bn-over mmc-ch-over",
-      // A file dropped anywhere in the room joins the conversation — the
+      // A file dropped anywhere in the room joins the next message — the
       // gesture is "here, look at this", and asking somebody to aim it at a
       // well in the corner is asking them to find the target first.
       ondragover: (event) => {
@@ -477,7 +513,7 @@ class Room {
                  || queue.running !== this.queue.running;
       this.queue = queue;
       // Only the transcript, and only when the answer changed. `status` fires on
-      // every step of every render; a rail rebuilt that often would close a
+      // every step of every render; a composer rebuilt that often would close a
       // popover under the pointer once a second.
       if (moved && this.overlay.isConnected) this.paintLog();
     });
@@ -512,7 +548,7 @@ class Room {
   paint() {
     this.paintLog();
     this.paintComposer();
-    this.paintRail();
+    this.paintBar();
   }
 
   /** The transcript, rebuilt from the conversation.
@@ -525,17 +561,17 @@ class Room {
   paintLog() {
     const bottom = this.log.scrollHeight - this.log.scrollTop - this.log.clientHeight < 60;
     const rows = [];
-    if (!state.messages.length) {
-      rows.push(el("div", { class: "mmc-ch-empty" }, [
-        el("p", { text: t("Ask for a picture or a shot, then ask for changes.") }),
-        el("p", { class: "mmc-ch-hint",
-                  text: t("“a fox in a snowy wood at dusk” · “now a clip of it, she looks up” · “bluer”") }),
-      ]));
-    }
+    if (!state.messages.length) rows.push(this.emptyRoom());
     for (const message of state.messages) {
       if (message.role === "user") {
-        rows.push(el("div", { class: "mmc-ch-msg mmc-ch-user" },
-                     [el("div", { class: "mmc-ch-said", text: message.text })]));
+        rows.push(el("div", { class: "mmc-ch-msg mmc-ch-user" }, [
+          el("div", { class: "mmc-ch-turn" }, [
+            message.attached?.length
+              ? el("div", { class: "mmc-ch-thumbs" }, message.attached.map((entry) => this.thumb(entry)))
+              : null,
+            message.text ? el("div", { class: "mmc-ch-said", text: message.text }) : null,
+          ].filter(Boolean)),
+        ]));
         continue;
       }
       if (message.say) {
@@ -555,6 +591,26 @@ class Room {
     }
     this.log.replaceChildren(...rows);
     if (bottom) this.log.scrollTop = this.log.scrollHeight;
+  }
+
+  /** What an empty room says: a question, and three answers you can take as
+   *  they are. The three are the shape of a conversation here — a picture, a
+   *  clip of it, a change — which is more use on the first day than an
+   *  explanation of one. */
+  emptyRoom() {
+    const tries = [
+      t("a fox in a snowy wood at dusk"),
+      t("now a clip of it, she looks up"),
+      t("bluer, and closer"),
+    ];
+    return el("div", { class: "mmc-ch-empty" }, [
+      el("h2", { text: t("What shall we make?") }),
+      el("p", { text: t("Ask for a picture or a shot. Then ask for changes.") }),
+      el("div", { class: "mmc-ch-tries" }, tries.map((line) => el("button", {
+        class: "mmc-ch-try", text: line,
+        onclick: () => { this.box.value = line; this.box.focus(); this.grow(); },
+      }))),
+    ]);
   }
 
   /** What the room is waiting for, said honestly. A local turn is a model on
@@ -617,8 +673,11 @@ class Room {
     }
     if (card.entry) {
       body.push(el("div", { class: "mmc-ch-doors" }, [
-        el("span", { class: "mmc-ch-handle", text: `@${card.entry.handle}`,
-                     title: t("Cite this in what you say next.") }),
+        el("button", {
+          class: "mmc-ch-handle", text: `@${card.entry.handle}`,
+          title: t("Cite this in what you say next."),
+          onclick: () => this.cite(card.entry),
+        }),
         el("span", { class: "mmc-bn-gap" }),
         el("button", {
           class: "mmc-ch-door",
@@ -640,112 +699,171 @@ class Room {
                  [el("div", { class: "mmc-ch-card" }, body)]);
   }
 
-  /** The one thing about the composer that changes: whether it can be used. */
+  /** One attached thing in a message: the picture, and the handle the model
+   *  knows it by. Pressing it cites it — the same door the render card has. */
+  thumb(entry) {
+    const shown = entry.handle.startsWith(PREFIX.audio) ? null : entry.filename;
+    return el("button", {
+      class: "mmc-ch-thumb", title: `@${entry.handle} · ${entry.text}`,
+      onclick: () => this.cite(entry),
+    }, [
+      shown
+        ? el("img", { src: viewUrl(shown, { preview: true }), alt: "",
+                      loading: "lazy", draggable: false })
+        : el("span", { class: "mmc-ch-sound" }, [icon("audio", 18)]),
+      el("span", { class: "mmc-ch-tag", text: `@${entry.handle}` }),
+    ]);
+  }
+
+  /** The composer's changing parts: whether it can be used, what is waiting
+   *  to go with the next message, and the three choices a message is made
+   *  against. */
   paintComposer() {
     this.box.disabled = state.busy;
-    this.sendButton.disabled = state.busy;
+    this.sendButton.disabled = state.busy || (!this.box.value.trim() && !this.pending.length);
+    this.chips.hidden = !this.pending.length;
+    this.chips.replaceChildren(...this.pending.map((asset) => this.chip(asset)));
+    this.paintPills();
+  }
+
+  /** A file waiting in the composer. Its own picture and a way to change your
+   *  mind, and nothing else: it has no handle yet, because it is not in the
+   *  ledger until it is sent. */
+  chip(asset) {
+    const shown = asset.kind === "audio" ? null : asset.path;
+    return el("div", { class: "mmc-ch-chip", title: asset.name || asset.path }, [
+      shown
+        ? el("img", { src: viewUrl(shown, { preview: true }), alt: "", draggable: false })
+        : el("span", { class: "mmc-ch-sound" }, [icon("audio", 18)]),
+      el("button", {
+        class: "mmc-ch-unchip", title: t("Remove"),
+        onclick: () => {
+          this.pending = this.pending.filter((other) => other !== asset);
+          this.paintComposer();
+        },
+      }, [icon("close", 11)]),
+    ]);
   }
 
   /** The text box grows with what is in it, to a few lines, then scrolls. */
   grow() {
     this.box.style.height = "auto";
-    this.box.style.height = `${Math.min(160, this.box.scrollHeight)}px`;
+    this.box.style.height = `${Math.min(200, this.box.scrollHeight)}px`;
+    this.sendButton.disabled = state.busy || (!this.box.value.trim() && !this.pending.length);
   }
 
-  // ---- the rail --------------------------------------------------------------
+  // ---- the choices ------------------------------------------------------------
 
-  paintRail() {
+  /** The bar's one changing thing: the model's name. */
+  paintBar() {
+    const current = refinerSettings();
+    const local = current.backend !== "remote";
+    const name = chosenModel(current) || t("Choose a model");
+    this.modelHost.replaceChildren(el("button", {
+      class: "mmc-ch-modelpill",
+      title: local
+        ? t("A model in this ComfyUI. It shares the card with your renders, so a "
+            + "reply waits behind whatever is sampling — a server is the better "
+            + "setting on one GPU.")
+        : t("A model on a server you already run."),
+      onclick: (event) => openSettings(event.currentTarget, () => this.paint(), rail().video_family),
+    }, [
+      el("span", { class: "mmc-ch-modelname", text: name }),
+      icon("chevron", 12),
+    ]));
+  }
+
+  /** What a message is made against, in the composer's foot: which family
+   *  draws a picture, which makes a clip, the canvas and the seed. The canvas
+   *  and seed pills are the simple view's own — the same aspect grid, the same
+   *  short-edge slider, the same die-and-mark — because a person who has set a
+   *  shape on the card should not meet a second way of setting one here. */
+  paintPills() {
     const bar = rail();
     const still = this.familyOr(bar.still_family, stillFamilies());
     const video = this.familyOr(bar.video_family, videoFamilies());
-    const current = refinerSettings();
-    const local = current.backend !== "remote";
-    const shape = video?.canvas ?? still?.canvas ?? {};
+    // The canvas the piece will be compiled on. Read through the video
+    // family's rules, as the room's pieces are: every family here offers the
+    // same shapes, and the short edge is one number for both kinds.
+    const rules = rulesFor(video?.id ?? bar.video_family);
+    const ratio = rules.aspects.find(([label]) => label === bar.aspect)?.[1] ?? 16 / 9;
+    const [width, height] = resolveCanvas(ratio, Number(bar.short_edge) || rules.nativeShortEdge, rules);
 
-    const rows = [
-      this.group(t("The model"), [
-        this.row(t("Refiner"), local ? t("this ComfyUI") : t("a server"),
-                 (anchor) => openSettings(anchor, () => this.paint(), bar.video_family)),
-        this.row(t("Model"), chosenModel(current) || t("none chosen"),
-                 (anchor) => openSettings(anchor, () => this.paint(), bar.video_family)),
-        local
-          ? el("p", { class: "mmc-ch-hint",
-                      text: t("A model in this ComfyUI shares the card with your renders, "
-                              + "so a reply waits behind whatever is sampling. A server is "
-                              + "the better setting on one GPU.") })
-          : null,
-        this.row(t("Skill"), bar.skill || t("none"), (anchor) => openChoicePopover(anchor, {
-          title: t("Append to the room's prompting"),
-          options: ["", ...this.skills.map((entry) => entry.name)],
-          value: bar.skill || "",
-          label: (name) => name || t("none"),
-          onPick: (name) => setRail({ skill: name }),
-        }), t("A file from the node's skills folder, added to this room's own "
-              + "prompting. It is only ever added: the room's reply contract is "
-              + "what turns an answer into a render.")),
-      ]),
+    const aspectPill = (seg) => el("button", {
+      class: pillClass(seg), title: t("Aspect Ratio"),
+      onclick: (event) => {
+        // The popover writes onto a piece; this one is the rail's two fields
+        // wearing a piece's names, read back when it commits.
+        const target = { family: video?.id ?? bar.video_family, aspect: bar.aspect || rules.aspects[0]?.[0] };
+        openAspectPopover(event.currentTarget, target, () => setRail({ aspect: target.aspect }));
+      },
+    }, [aspectGlyph(ratio, PILL_GLYPH), el("span", { text: bar.aspect || rules.aspects[0]?.[0] || "" })]);
+    const resPill = (seg) => el("button", {
+      class: pillClass(seg),
+      title: t("Short edge. Lower is faster; 768 is what the open weights were trained at."),
+      onclick: (event) => this.openEdge(event.currentTarget, rules, ratio),
+    }, [
+      icon("res", 16),
+      el("span", { text: `${Number(bar.short_edge) || rules.nativeShortEdge}p` }),
+      el("span", { class: "mmc-pill-sub", text: `${width} × ${height}` }),
+    ]);
 
-      this.group(t("What it makes"), [
-        this.pick(t("Pictures"), still, stillFamilies(),
-                  (id) => setRail({ still_family: id })),
-        still && !takesPictures(still)
-          ? el("p", { class: "mmc-ch-hint",
-                      text: t("{family} draws from words alone — it cannot be given a "
-                              + "picture to change.", { family: t(still.label) }) })
-          : null,
-        this.pick(t("Clips"), video, videoFamilies(),
-                  (id) => setRail({ video_family: id })),
-        this.row(t("Shape"), bar.aspect || t("the family's own"), (anchor) => openChoicePopover(anchor, {
-          title: t("Shape"),
-          options: Object.keys(shape.aspects ?? {}),
-          value: bar.aspect,
-          onPick: (name) => setRail({ aspect: name }),
-        })),
-        el("div", { class: "mmc-ch-row" }, [
-          el("span", { class: "mmc-ch-label", text: t("Short edge") }),
-          stepperPill({
-            value: Number(bar.short_edge) || 768,
-            min: shape.min_short_edge ?? 256, max: shape.max_short_edge ?? 2048, step: 64,
-            width: "46px", format: (value) => `${value}px`,
-            onChange: (value) => setRail({ short_edge: value }),
-          }),
-        ]),
-        this.toggle(t("Turbo"), bar.turbo, (on) => setRail({ turbo: on }),
-                    t("Sample the still on the family's distilled checkpoint. It has to be "
-                      + "picked in the weights, and the room says so if it is not.")),
-      ]),
+    const pills = [
+      this.pick("image", t("Pictures"), still, stillFamilies(), (id) => setRail({ still_family: id }),
+                still && !takesPictures(still)
+                  ? t("{family} draws from words alone — it cannot be given a picture to change.",
+                      { family: t(still.label) })
+                  : t("Which family draws a picture.")),
+      this.pick("video", t("Clips"), video, videoFamilies(), (id) => setRail({ video_family: id }),
+                t("Which family makes a clip.")),
+      pillSet([aspectPill, resPill]),
+      // The simple view's seed pill over the rail's two fields. `widgets.seed`
+      // is only asked whether it exists; nothing was queued through a widget,
+      // so there is no last seed to offer back and the ghost never appears.
+      ...seedPill({
+        widgets: { seed: true },
+        value: (name, fallback) => name === "seed" ? Number(bar.seed) || 0
+          : name === "control_after_generate" ? (bar.seed_policy === "random" ? "randomize" : "fixed")
+          : fallback,
+        set: (name, value) => {
+          if (name === "seed") setRail({ seed: value, seed_policy: "fixed" });
+          else if (name === "control_after_generate") setRail({ seed_policy: value === "fixed" ? "fixed" : "random" });
+        },
+      }),
+    ].filter(Boolean);
+    this.pills.replaceChildren(...pills);
+  }
 
-      this.group(t("How it renders"), [
-        this.row(t("Seed"), bar.seed_policy === "random" ? t("a new one each time")
-                                                        : String(bar.seed ?? 0),
-                 (anchor) => openChoicePopover(anchor, {
-                   title: t("Seed"),
-                   options: ["fixed", "random"],
-                   value: bar.seed_policy,
-                   label: (name) => t(name === "random" ? "a new one each time" : "the same every time"),
-                   onPick: (name) => setRail({ seed_policy: name }),
-                 })),
-        bar.seed_policy === "random" ? null : el("div", { class: "mmc-ch-row" }, [
-          el("span", { class: "mmc-ch-label", text: t("Number") }),
-          stepperPill({
-            value: Number(bar.seed) || 0, min: 0, max: 0xffffffff, step: 1, width: "66px",
-            onChange: (value) => setRail({ seed: value }),
-          }),
-        ]),
-        this.toggle(t("Refine"), bar.refine, (on) => setRail({ refine: on }),
-                    t("Put the model's prompt for a clip through the family's own prompting "
-                      + "before queueing, as the Refine button does — a second model call "
-                      + "per render, with the refiner's own settings. A still goes as written: "
-                      + "the families that draw one have no prompt refiner.")),
-      ]),
-
-      this.group(t("What has been made"), [
-        state.ledger.length
-          ? el("div", { class: "mmc-ch-tiles" }, state.ledger.map((entry) => this.tile(entry)))
-          : el("p", { class: "mmc-ch-hint", text: t("Nothing yet.") }),
-      ]),
-    ];
-    this.side.replaceChildren(...rows.filter(Boolean));
+  /** The short-edge slider, alone. The node's resolution popover carries a
+   *  second section — two passes, a finishing backend — that the room's blob
+   *  does not send, so offering it here would be a switch wired to nothing. */
+  openEdge(anchor, rules, ratio) {
+    const target = { short_edge: Number(rail().short_edge) || rules.nativeShortEdge };
+    const body = edgeSlider({
+      min: rules.minShortEdge, max: rules.maxShortEdge, step: rules.multiple,
+      value: target.short_edge, mark: rules.nativeShortEdge, markLabel: "native",
+      apply: (edge) => { target.short_edge = edge; },
+      describe: () => {
+        const [width, height] = resolveCanvas(ratio, target.short_edge, rules);
+        const over = target.short_edge > rules.nativeShortEdge;
+        return {
+          size: `${width} × ${height}`,
+          warn: over,
+          note: over
+            ? t("Above the trained {edge} px short edge — off-distribution, not just slower.",
+                { edge: rules.nativeShortEdge })
+            : target.short_edge === rules.nativeShortEdge
+              ? t("Native. What the open weights were trained at.")
+              : t("{ratio}× smaller short edge than native — faster, softer.",
+                  { ratio: (rules.nativeShortEdge / target.short_edge).toFixed(1) }),
+        };
+      },
+      commit: () => setRail({ short_edge: target.short_edge }),
+    });
+    const pop = el("div", { class: "mmc-pop mmc-slider" }, [body]);
+    document.body.appendChild(pop);
+    placeNear(pop, anchor);
+    dismissable(pop);
   }
 
   /** A family by id out of a list, or the first one. A rail remembered before a
@@ -754,68 +872,84 @@ class Room {
     return list.find((entry) => entry.id === id) ?? list[0] ?? null;
   }
 
-  group(title, children) {
-    const kept = children.filter(Boolean);
-    if (!kept.length) return null;
-    return el("div", { class: "mmc-ch-group" },
-              [el("div", { class: "mmc-ch-head", text: title }), ...kept]);
-  }
-
-  /** One rail line: what it is, what it says, and the popover behind it. */
-  row(label, value, opens, title) {
-    return el("div", { class: "mmc-ch-row", title }, [
-      el("span", { class: "mmc-ch-label", text: label }),
-      el("button", {
-        class: "mmc-pill mmc-ch-value", text: value,
-        onclick: (event) => opens(event.currentTarget),
-      }),
-    ]);
-  }
-
   /** A family pill. The label is the manifest's — no family id is ever drawn,
    *  and none is ever written here either. */
-  pick(label, chosen, options, onPick) {
+  pick(glyph, label, chosen, options, onPick, title) {
     if (!options.length) return null;
-    return this.row(label, chosen ? t(chosen.label) : t("none"),
-                    (anchor) => openChoicePopover(anchor, {
-                      title: label,
-                      options: options.map((entry) => entry.id),
-                      value: chosen?.id,
-                      label: (id) => t(familyOf(id).label),
-                      onPick,
-                    }));
+    return el("button", {
+      class: "mmc-ch-pill", title,
+      onclick: (event) => openChoicePopover(event.currentTarget, {
+        title: label,
+        options: options.map((entry) => entry.id),
+        value: chosen?.id,
+        label: (id) => t(familyOf(id).label),
+        onPick,
+      }),
+    }, [icon(glyph, 14), el("span", { text: chosen ? t(chosen.label) : t("none") })]);
+  }
+
+  /**
+   * The gear: the three switches with no pill of their own.
+   *
+   * Turbo, Refine and a skill to append are set once per machine and then left
+   * alone; everything a message is made against is in the composer's foot.
+   * Redrawn in place on every change: a popover that closed on each switch
+   * would be a popover reopened three times to set three things.
+   */
+  openMore(anchor) {
+    const pop = el("div", { class: "mmc-pop mmc-ch-more" });
+    const draw = () => {
+      const bar = rail();
+      const change = (patch) => { setRail(patch); draw(); };
+      pop.replaceChildren(
+        el("div", { class: "mmc-pop-title", text: t("How this room renders") }),
+        this.toggle(t("Turbo"), bar.turbo, (on) => change({ turbo: on }),
+                    t("Sample the still on the family's distilled checkpoint. It has to be "
+                      + "picked in the weights, and the room says so if it is not.")),
+        this.toggle(t("Refine"), bar.refine, (on) => change({ refine: on }),
+                    t("Put the model's prompt for a clip through the family's own prompting "
+                      + "before queueing, as the Refine button does — a second model call "
+                      + "per render, with the refiner's own settings. A still goes as written: "
+                      + "the families that draw one have no prompt refiner.")),
+        this.row(t("Skill"), el("button", {
+          class: "mmc-pill mmc-ch-value", text: bar.skill || t("none"),
+          onclick: (event) => openChoicePopover(event.currentTarget, {
+            title: t("Append to the room's prompting"),
+            options: ["", ...this.skills.map((entry) => entry.name)],
+            value: bar.skill || "",
+            label: (name) => name || t("none"),
+            onPick: (name) => change({ skill: name }),
+          }),
+        }), t("A file from the node's skills folder, added to this room's own "
+              + "prompting. It is only ever added: the room's reply contract is "
+              + "what turns an answer into a render.")),
+      );
+    };
+    draw();
+    document.body.appendChild(pop);
+    placeNear(pop, anchor, { above: false });
+    dismissable(pop);
+  }
+
+  /** One line of the gear: what it is, and the control. */
+  row(label, control, title) {
+    return el("div", { class: "mmc-ch-row", title }, [
+      el("span", { class: "mmc-ch-label", text: label }),
+      control,
+    ]);
   }
 
   toggle(label, on, onChange, title) {
-    return el("div", { class: "mmc-ch-row", title }, [
-      el("span", { class: "mmc-ch-label", text: label }),
-      el("button", {
-        class: `mmc-pill mmc-ch-value${on ? " accel-on" : ""}`,
-        "aria-checked": Boolean(on),
-        text: on ? t("on") : t("off"),
-        onclick: () => onChange(!on),
-      }),
-    ]);
+    return this.row(label, el("button", {
+      class: `mmc-pill mmc-ch-value${on ? " accel-on" : ""}`,
+      "aria-checked": Boolean(on),
+      text: on ? t("on") : t("off"),
+      onclick: () => onChange(!on),
+    }), title);
   }
 
-  /** One thing in the ledger, as the model sees it and as you do. */
-  tile(entry) {
-    const shown = entry.handle.startsWith(PREFIX.audio) ? null : entry.filename;
-    return el("button", {
-      class: "mmc-ch-tile",
-      title: `@${entry.handle} · ${entry.text}`,
-      onclick: () => this.cite(entry),
-    }, [
-      shown
-        ? el("img", { src: viewUrl(shown, { preview: true }), alt: "",
-                      loading: "lazy", draggable: false })
-        : el("span", { class: "mmc-ch-sound" }, [icon("audio", 20)]),
-      el("span", { text: `@${entry.handle}` }),
-    ]);
-  }
-
-  /** Put a handle in the box. Citing is how an edit is asked for, and hunting
-   *  for the right one among five tiles is what the tiles are for. */
+  /** Put a handle in the box. Citing is how an edit is asked for, and the
+   *  handle on a thumbnail is what there is to press. */
   cite(entry) {
     const text = this.box.value;
     this.box.value = `${text}${text && !text.endsWith(" ") ? " " : ""}@${entry.handle} `;
@@ -825,14 +959,32 @@ class Room {
 
   // ---- the turn ---------------------------------------------------------------
 
+  /**
+   * Send what is in the composer: the words, and whatever was attached.
+   *
+   * The attachments become ledger lines first, on this turn, and the message
+   * that goes to the server names them — the model has to know that "this
+   * coat" and `img-2` are the same thing, and it cannot see the thumbnail. A
+   * message of attachments alone is remembered and shown but asks nothing:
+   * a file that now exists is a thing to talk about on the next turn, not a
+   * turn.
+   */
   async send() {
     const text = this.box.value.trim();
-    if (!text || state.busy) return;
+    if ((!text && !this.pending.length) || state.busy) return;
     this.box.value = "";
     this.grow();
     state.turn += 1;
     state.error = null;
-    state.messages.push({ role: "user", text });
+    const attached = this.pending.map((asset) => remember({
+      media: asset.kind || "image",
+      kind: asset.kind === "video" ? "clip" : asset.kind === "audio" ? "sound" : "still",
+      filename: asset.path,
+      text: text || asset.name || asset.path,
+    }));
+    this.pending = [];
+    state.messages.push({ role: "user", text, attached });
+    if (!text) return this.paint();
     state.busy = true;
     this.paint();
 
@@ -955,15 +1107,18 @@ class Room {
 
   // ---- attachments -------------------------------------------------------------
 
-  /** The paperclip. A detached input rather than a hidden child of the room:
-   *  nothing on screen should be an element nobody can see, and the picker it
-   *  opens is the browser's own. */
-  browse() {
-    const input = el("input", {
-      type: "file", accept: "image/*,video/*,audio/*", multiple: true,
-      onchange: () => { for (const file of input.files ?? []) this.attach(file); },
+  /** The plus. The pack's own picker — the input folder by kind, the renders,
+   *  its upload button — rather than the browser's file dialog: a picture that
+   *  was already brought in for the node, or rendered by it, is a picture
+   *  already here, and the picker is where everything else in this pack finds
+   *  those. */
+  async browse() {
+    const chosen = await openPicker({
+      kinds: ["image", "video", "audio", "renders"], kind: "image",
     });
-    input.click();
+    if (!chosen?.length) return;
+    for (const asset of chosen) this.stage(asset);
+    this.box.focus();
   }
 
   pasted(event) {
@@ -973,30 +1128,21 @@ class Room {
     for (const file of files) this.attach(file);
   }
 
-  /**
-   * An uploaded file becomes a ledger line, and says so.
-   *
-   * Whatever is already typed in the box is its description — "the coat here",
-   * pasted with a photograph, is a better line than `image (7).png` — and the
-   * filename is the fallback. Nothing is sent to the model: an upload is a
-   * thing that now exists, and the next turn is where it gets talked about.
-   */
+  /** A pasted or dropped file: uploaded to the room's own shelf, then staged
+   *  like anything the picker chose. */
   async attach(file) {
     try {
-      const asset = await upload(file, UPLOADS);
-      const said = this.box.value.trim();
-      const entry = remember({
-        media: asset.kind || "image",
-        kind: asset.kind === "video" ? "clip" : asset.kind === "audio" ? "sound" : "still",
-        filename: asset.path,
-        text: said || asset.name,
-      });
-      state.messages.push({ role: "assistant",
-                            say: t("Added {handle} — {what}.",
-                                   { handle: `@${entry.handle}`, what: entry.text }) });
+      this.stage(await upload(file, UPLOADS));
     } catch (error) {
       state.error = String(error.message || error);
+      notify();
     }
-    notify();
+  }
+
+  /** Into the composer, not the ledger: it goes with the next message. */
+  stage(asset) {
+    if (this.pending.some((other) => other.path === asset.path)) return;
+    this.pending.push(asset);
+    this.paintComposer();
   }
 }

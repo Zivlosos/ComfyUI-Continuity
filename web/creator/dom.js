@@ -151,6 +151,11 @@ export const ICONS = {
   // same mark with a box round it, for the one place removing is done to a
   // picture rather than to a line of writing.
   close: `<path d="M6 6l12 12M18 6L6 18"/>`,
+  plus: `<path d="M12 5v14M5 12h14"/>`,
+  // Send. An arrow up rather than a paper plane or a play triangle: the message
+  // goes up into the transcript, and the two chat surfaces everybody already
+  // uses draw exactly this.
+  arrowUp: `<path d="M12 19V5"/><path d="M6 10.5L12 5l6 5.5"/>`,
   chevron: `<path d="M6 9l6 6 6-6"/>`,
   star: `<path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.9-5.2-2.8-5.2 2.8 1-5.9-4.3-4.1 5.9-.9z"/>`,
   // Which of a model's versions is kept as its one. Lucide's `pin`, verbatim,
