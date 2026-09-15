@@ -161,6 +161,7 @@ export const ICONS = {
   // Which of a model's versions is kept as its one. Lucide's `pin`, verbatim,
   // for the same reason `brain` is: it is drawn to survive being rendered at
   // twelve pixels on a pill row, which a hand-cut pushpin does not.
+  bookmark: `<path d="M6 3.5h12v17l-6-4.2-6 4.2z"/>`,
   pin: `<path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>`,
   folder: `<path d="M3 7.5A2.5 2.5 0 015.5 5h3.8l2 2.2h7.2A2.5 2.5 0 0121 9.7v6.8a2.5 2.5 0 01-2.5 2.5h-13A2.5 2.5 0 013 16.5z"/>`,
   // The same folder with its lid up: the Gallery's Open folder button, which

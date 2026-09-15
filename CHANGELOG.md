@@ -6,6 +6,23 @@ exactly as it was written, wall of text and all.
 
 ## Unreleased
 
+**A LoRA can be pinned to a family.** The clay-render style went on every
+Krea still by hand: after a trip to Flux the stack was Flux's, and coming back
+meant finding the file and dialling the same 0.8 in again. Every chip now
+wears a pin (on hover, where the version pin sits on a card). Pinned, the LoRA
+is the family's — strength, trigger words and checkpoint claim as they were
+when pinned — and every stack drawn for that family carries it: the face of
+a one-shot piece, a timeline's own stack, the pre-stage on that arch, on any
+node, after a reload or a restart. A file pins to one family, so pinning it
+on Flux takes it off Krea, and a stack on any other family drops it the next
+time it is drawn. On the row the pin collapses the chip to its tile — the
+accent square with the pin and three letters of the file — so a standing
+order does not take the room of today's choices; hover unfolds it to change
+the strength, mute it or unpin it, which leaves it in the stack as an
+ordinary chip. The pins live in `continuity.loras.json` beside the stars,
+and the card's version pin changed its glyph to a bookmark so the two are
+not confused.
+
 **The chat room's turbo is a switch per side, and the sampler row follows
 it.** The room had one turbo switch, wired to the still side, and it only ever
 swapped the checkpoint: the node's widgets stayed at the family's ordinary

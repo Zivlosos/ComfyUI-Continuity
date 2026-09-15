@@ -16,7 +16,7 @@ import { clearButton } from "./clear.js";
 import { el, icon, mountOverlay, swappable } from "./dom.js";
 import { CreatorEditor, pickTakes, takesHelp } from "./editor.js";
 import { t } from "./i18n.js";
-import { openLoras, loraBlock, loraBase } from "./loras.js";
+import { openLoras, loraBlock, loraBase, settlePins } from "./loras.js";
 import { openPicker } from "./picker.js";
 import { openPresetLibrary, styleCastMember } from "./presetlib.js";
 import * as P from "./presets.js";
@@ -655,9 +655,14 @@ class Timeline {
    * feature is introduced.
    */
   renderLoras() {
-    const entries = this.timeline.loras ?? [];
+    // The family's pins go on before the stack is read; see loras.js.
+    this.timeline.loras ??= [];
+    if (settlePins(this.timeline, S.pieceFamily(this.timeline), () => this.commit())) this.onCommit?.();
+    const entries = this.timeline.loras;
     this.loraHost.replaceChildren(...(entries.length ? [loraBlock(this.timeline, {
       family: S.pieceFamily(this.timeline),
+      pinTo: S.pieceFamily(this.timeline),
+      onPinChange: () => this.commit(),
       targets: S.timelineCheckpoints(this.timeline),
       // Which of these the turbo switch put there. It is drawn as the switch's
       // rather than as a file somebody picked — see `loraChip`. The shot face
@@ -3498,6 +3503,8 @@ export class TimelineBody {
       // about where they live — which is what makes growing a second one a
       // matter of adding a card and not of moving any settings.
       piece: this.timeline,
+      // The face's rail is the family's stack — it is where a pin is made.
+      pinFamily: () => S.pieceFamily(this.timeline),
       // The face is wearing the piece's only card, and the piece is what a cast
       // member is cast into — see the window's own hook of the same name.
       castFromLibrary: (member) => {

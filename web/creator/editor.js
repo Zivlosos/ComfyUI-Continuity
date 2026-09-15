@@ -16,7 +16,7 @@ import { CastShelf } from "./cast.js";
 import { keepAsMod } from "./refmod.js";
 import { t } from "./i18n.js";
 import { openPicker } from "./picker.js";
-import { openLoras, loraBlock } from "./loras.js";
+import { openLoras, loraBlock, settlePins } from "./loras.js";
 import { openSettings } from "./settings.js";
 import { openPresetLibrary, styleCastMember } from "./presetlib.js";
 import { castIntoPiece, keepSubject } from "./presets.js";
@@ -219,7 +219,7 @@ export class CreatorEditor {
                 durationPill = true, extraPills = null, modelPill = null, extraTools = null,
                 settingsTool = true, stage = null, editorTitle = null,
                 piece = null, castPiece = null, growShot = null, presetTarget = null,
-                samplingStore = null,
+                samplingStore = null, pinFamily = null,
                 clearTool = null, seedTarget = null, compiledPrompt = null,
                 castFromLibrary = null, fullscreen = null, varies = null,
                 openCast = null }) {
@@ -231,6 +231,9 @@ export class CreatorEditor {
     // `segmentSeedPill`. Null on a node body, which owns the whole row.
     this.seedTarget = seedTarget;
     this.presetTarget = presetTarget;
+    // Which family this rail's LoRA pins are filed under, or null where the
+    // rail is not a family's stack — a card in a strip. See loras.js's pins.
+    this.pinFamilyOf = pinFamily;
     // Who to hand a kept cast member to. Not derivable here: this body is a
     // node face on one host and one card of a strip on another, and only the
     // second one is a shot whose cast is owned a level up. See the `@` menu's
@@ -1560,6 +1563,9 @@ export class CreatorEditor {
     this.assetsHost.replaceChildren(
       ...(state.assets.length ? [this.renderAssets()] : []));
     this.renderCastShelf();
+    // The family's pins go on before the row is read: a stack that does not
+    // hold them yet takes them here, and is written out with them.
+    if (settlePins(state, this.pinFamily(), () => this.commit())) this.onCommit?.();
     this.loraHost.replaceChildren(...(state.loras.length ? [this.renderLoras()] : []));
     this.pillsHost.replaceChildren(
       this.renderPills(geometry, S.mode(state, this.piece)));
@@ -1761,6 +1767,7 @@ export class CreatorEditor {
       onCommit: () => { this.onCommit?.(); this.render(); },
       canvasPills: this.canvasPills,
       piece: this.piece,
+      pinFamily: this.pinFamilyOf,
       castPiece: this.castPiece,
       durationPill: this.durationPill,
       extraPills: this.extraPills,
@@ -2171,9 +2178,18 @@ export class CreatorEditor {
     this.commit();
   }
 
+  /** Where this stack's pins are filed. The host says: the one shot's face
+   *  and the pre-stage's still are a family's stack; a card in a strip is not,
+   *  and a pin there would put the file on every card of the family. */
+  pinFamily() {
+    return this.pinFamilyOf?.() ?? null;
+  }
+
   renderLoras() {
     return loraBlock(this.state, {
       family: S.pieceFamily(this.piece),
+      pinTo: this.pinFamily(),
+      onPinChange: () => this.commit(),
       targets: S.checkpointsFor(this.state, S.pieceFamily(this.piece)),
       // Only where this rail *is* the piece's — a node body's own stack. A
       // strip's card draws the segment's, and the switch's LoRA is never in it.

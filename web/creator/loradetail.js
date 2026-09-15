@@ -516,7 +516,7 @@ class LoraDetailSheet {
             ? t("Kept as this model's version. Click to stop keeping it.")
             : t("Keep {label} as this model's version.", { label }),
           onclick: () => this.pin(row.name),
-        }, [svg(ICONS.pin, 12)]),
+        }, [svg(ICONS.bookmark, 12)]),
       ]);
     }));
   }

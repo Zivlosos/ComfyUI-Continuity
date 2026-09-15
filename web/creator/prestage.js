@@ -30,7 +30,7 @@
 import { el, icon, ICONS, svg, dismissable, keepScroll, placeNear, swappable } from "./dom.js";
 import { DEFAULT_STILL_ARCH, stillFamily } from "./manifest.js";
 import { openPicker } from "./picker.js";
-import { openLoras, loraBlock, loraBase } from "./loras.js";
+import { openLoras, loraBlock, loraBase, settlePins } from "./loras.js";
 import { openFrameGrab } from "./framegrab.js";
 import { openContactSheet } from "./contact.js";
 import { openChoicePopover, stepperPill, aspectGlyph, aspectGrid, edgeSlider, PILL_GLYPH,
@@ -641,6 +641,9 @@ export class PreStageEditor {
       ...state.refs.map((ref, slot) => this.renderRefChip(ref, slot)),
     ];
     this.assetsHost.replaceChildren(...(chips.length ? [keepScroll(el("div", { class: "mmc-assets" }, chips))] : []));
+    // The arch's pins go on before the row is read — and, since one stack
+    // serves every arch on this node, a pin made for another arch comes off.
+    if (settlePins(state, S.preStageFamilyId(state.arch), () => this.commit())) this.onCommit?.();
     this.loraHost.replaceChildren(...(state.loras.length ? [this.renderLoras()] : []));
     this.pillsHost.replaceChildren(this.renderPills());
     this.noticeHost.replaceChildren(
@@ -935,6 +938,8 @@ export class PreStageEditor {
     // reason the manager drops the mode row for them.
     return loraBlock(this.state, {
       targets: null,
+      pinTo: S.preStageFamilyId(this.state.arch),
+      onPinChange: () => this.commit(),
       onToggle: (entry) => { S.toggleLora(this.state, entry.name); this.commit(); },
       onManage: (entry) => this.manageLoras(entry),
       onSwap: (entry) => this.swapLora(entry),
@@ -1553,6 +1558,8 @@ export class PreStageBody {
       // shot face. Forwarding to the node alone left the rail's Clear stale
       // until something else redrew it.
       onCommit: () => this.commit(),
+      // A still on H3 is H3's: what the family always wears, it wears here.
+      pinFamily: () => S.preStageFamilyId(S.PRESTAGE_STILL_ARCH),
       samplingWidgets: this.samplingWidgets,
       onWidgetChange: this.onWidgetChange,
       nodeId: this.nodeId,

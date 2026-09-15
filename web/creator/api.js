@@ -552,6 +552,25 @@ function normalizePinned(raw) {
   return out;
 }
 
+/**
+ * What each family always wears: the LoRAs pinned to it from a chip, with the
+ * settings the pin was made at. Keyed by family id (`h3`, `krea2`, ...), each
+ * entry in the stack's own serialized shape so it can be put back into a
+ * stack as it was — strength, trigger words, checkpoint claim, sound damping.
+ * A file pins to one family: pinning it elsewhere moves the record.
+ */
+function normalizeWears(raw) {
+  const out = {};
+  if (!raw || typeof raw !== "object") return out;
+  for (const [family, list] of Object.entries(raw)) {
+    if (typeof family !== "string" || !Array.isArray(list)) continue;
+    const entries = list.filter((entry) => entry && typeof entry.name === "string" && entry.name)
+      .map((entry) => ({ ...entry, name: entry.name, strength: Number(entry.strength) || 0 }));
+    if (entries.length) out[family] = entries;
+  }
+  return out;
+}
+
 /** What the guide-LoRA pass was last set to: which role, and the file each
  *  role last ran — so switching the pass on in a new piece is one click, not
  *  a search. Files are checked against the disk when they are used, like the
@@ -570,9 +589,15 @@ function normalizeLoraPrefs(raw) {
     favorites: names(raw?.favorites),
     used: normalizeUsed(raw?.used),
     pinned: normalizePinned(raw?.pinned),
+    wears: normalizeWears(raw?.wears),
     guide: normalizeGuide(raw?.guide),
   };
 }
+
+/** The prefs as already loaded, or null before the first `loadLoraPrefs`
+ *  resolves. For the faces, which draw synchronously and cannot wait: a chip
+ *  row asks this, and kicks the load when it is told nothing yet. */
+export const loraPrefsNow = () => loraPrefsCache;
 
 export async function loadLoraPrefs() {
   if (loraPrefsCache) return loraPrefsCache;
@@ -626,7 +651,8 @@ export async function clearLoraPrefs() {
 export async function loraPrefsHeld() {
   const prefs = await loadLoraPrefs();
   return new Set([...prefs.favorites, ...Object.keys(prefs.used),
-                  ...Object.values(prefs.pinned), ...Object.values(prefs.guide.files)]).size;
+                  ...Object.values(prefs.pinned), ...Object.values(prefs.guide.files),
+                  ...Object.values(prefs.wears).flat().map((entry) => entry.name)]).size;
 }
 
 /** The card's image or clip, from wherever the server found one — a sidecar's

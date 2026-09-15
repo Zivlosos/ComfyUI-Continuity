@@ -168,6 +168,43 @@ export const css = `
   font-size: calc(15px * var(--mmc-type)); line-height: 1; padding: 2px 3px; font-family: inherit;
 }
 .mmc-asset-x:hover { color: var(--mmc-text); }
+/* The pin on an open chip: the version pin's weight, shown on hover so a row
+   of four controls does not become five at rest. Lit when it is the unpin. */
+.mmc-asset-pin { display: inline-flex; align-items: center; opacity: 0; }
+.mmc-asset:hover .mmc-asset-pin, .mmc-asset-pin:focus-visible, .mmc-asset-pin.on { opacity: 1; }
+.mmc-asset-pin.on { color: var(--mmc-accent); }
+.mmc-asset-pin.on svg { fill: currentColor; }
+
+/* --- pinned: the tack ----------------------------------------------------- */
+/* A pinned LoRA is the chip's tile alone — 30px, in the accent, wearing the
+   pin and three letters of the file — with the whole chip folded under it.
+   Hover or focus unfolds the chip over the row rather than into it, so the
+   row never reflows for a look. The tack is the height of a chip so the row's
+   baseline holds either way. */
+.mmc-tack { position: relative; display: flex; align-items: center; height: calc(40px * var(--mmc-type)); flex: none; }
+.mmc-tack-stub {
+  width: 30px; height: 30px; border-radius: 7px; border: 0; padding: 0; cursor: pointer;
+  background: var(--mmc-accent); color: #2a1c05;
+  display: flex; align-items: center; justify-content: center; position: relative; flex: none;
+}
+.mmc-tack-stub svg { fill: currentColor; }
+.mmc-tack-stub:focus-visible { outline: 2px solid var(--mmc-accent); outline-offset: 2px; }
+.mmc-tack-mono {
+  position: absolute; right: -4px; bottom: -4px; padding: 2px 3px; border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px; line-height: 1; letter-spacing: .02em;
+  background: var(--mmc-surface); color: var(--mmc-accent); border: 1px solid var(--mmc-accent);
+}
+.mmc-tack.off .mmc-tack-stub { background: var(--mmc-surface-3); color: var(--mmc-off); }
+.mmc-tack.off .mmc-tack-mono { color: var(--mmc-off); border-color: var(--mmc-off); text-decoration: line-through; }
+.mmc-tack.idle .mmc-tack-stub { box-shadow: 0 0 0 2px color-mix(in srgb, var(--mmc-warn) 55%, transparent); }
+.mmc-tack-open {
+  display: none; position: absolute; left: 0; top: 0; z-index: 3; white-space: nowrap;
+  border-color: var(--mmc-accent); box-shadow: 0 6px 20px rgba(0, 0, 0, .4);
+}
+.mmc-tack:hover .mmc-tack-open, .mmc-tack:focus-within .mmc-tack-open { display: flex; }
+.mmc-tack-thumb { background: var(--mmc-accent); color: #2a1c05; }
+.mmc-tack-open .mmc-asset-pin { opacity: 1; }
 /* Somebody's picture rather than a file you attached: the cast put it here, and
    on a strip of more than one card the piece's shelf is where it has to live.
    The cast card's own device, borrowed — a rule down the left edge in the

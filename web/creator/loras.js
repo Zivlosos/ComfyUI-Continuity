@@ -29,11 +29,12 @@
 // the same data would be a second set of those answers to keep in step.
 
 import { el, ICONS, svg, drawFrame, mountOverlay } from "./dom.js";
-import { listLoras, listLorasNamed, loraPreviewUrl, loadLoraPrefs, saveLoraPrefs } from "./api.js";
+import { listLoras, listLorasNamed, loraPreviewUrl, loadLoraPrefs, loraPrefsNow, saveLoraPrefs } from "./api.js";
 import { openLoraDetail } from "./loradetail.js";
 import { forgetLoraNames } from "./turbo.js";
 import { listPresets, loadBody, savePreset, deletePreset } from "./presets.js";
 import { t } from "./i18n.js";
+import { family as familyOf } from "./manifest.js";
 import * as S from "./state.js";
 
 // Cards added per pass, and how far below the fold to keep filling. One card is
@@ -254,6 +255,129 @@ const modeChoices = (family) => [
   ["both", "Both", "Patch whichever checkpoint is routed."],
 ];
 
+// ---- pins -------------------------------------------------------------------
+//
+// A LoRA a family always wears.
+//
+// The clay-render style goes on every Krea still, and it went on by hand every
+// time: after a trip to Flux the stack was whatever Flux needed, and coming
+// back meant finding the file again and dialling the same 0.8 back in. A pin
+// says it once. The record — file, strength, trigger words, checkpoint claim —
+// lives in `loraPrefs` beside the stars, keyed by family, so it outlives the
+// node, the workflow and the restart; and `settlePins` puts it back into any
+// stack drawn for that family that does not already hold it.
+//
+// A pin is one family's. Pinning the file on Flux moves the record off Krea,
+// and a stack on any other family drops the file the next time it is settled:
+// a pinned LoRA is the family's, not the node's.
+//
+// On the row the pin collapses the chip to its tile — the 30px square every
+// chip already leads with — so a standing order does not take the room of a
+// choice made today. Hover unfolds it.
+
+/** What a pin's tooltip calls the family — video or image, the manifest's
+ *  own label. */
+const familyLabel = (id) => t(familyOf(id).label);
+
+let prefsLanding = null;
+
+/** The pins a family holds, from the loaded prefs. */
+const wornBy = (family) => loraPrefsNow()?.wears?.[family] ?? [];
+
+/** Whether this file is pinned to this family. */
+export const isPinned = (name, family) =>
+  Boolean(family) && wornBy(family).some((entry) => entry.name === name);
+
+/** The family a file is pinned to, or null. */
+function pinnedTo(name) {
+  const wears = loraPrefsNow()?.wears ?? {};
+  return Object.keys(wears).find((family) => wears[family].some((entry) => entry.name === name)) ?? null;
+}
+
+/** The record a pin keeps: the entry as the blob writes it, minus the mute —
+ *  a pin muted today is not a pin muted forever. */
+function pinRecord(entry, family) {
+  const { enabled: _mute, ...record } = S.serializeLoras([entry], family)[0];
+  return record;
+}
+
+/** Pin this entry to this family, moving it off any other. */
+function pinLora(entry, family) {
+  const prefs = loraPrefsNow();
+  if (!prefs) return;
+  const wears = {};
+  for (const [id, list] of Object.entries(prefs.wears)) {
+    const kept = list.filter((held) => held.name !== entry.name);
+    if (kept.length) wears[id] = kept;
+  }
+  wears[family] = [...(wears[family] ?? []), pinRecord(entry, family)];
+  saveLoraPrefs({ ...prefs, wears });
+}
+
+/** Take the pin off; the chip stays in the stack as an ordinary one. */
+function unpinLora(name, family) {
+  const prefs = loraPrefsNow();
+  if (!prefs) return;
+  const wears = { ...prefs.wears };
+  const kept = (wears[family] ?? []).filter((held) => held.name !== name);
+  if (kept.length) wears[family] = kept; else delete wears[family];
+  saveLoraPrefs({ ...prefs, wears });
+}
+
+/**
+ * Bring a stack in line with its family's pins. Called by every face before
+ * it draws its row, and again by each edit it commits.
+ *
+ * Adds each of the family's pins the stack does not hold, as the pin recorded
+ * it. Drops any file pinned to a *different* family — the one place the row
+ * removes something on its own, and it is the family's own file coming off a
+ * family it was never meant for. And writes back the pins the stack does
+ * hold: a strength dialled on a pinned chip is the pin's new strength, so the
+ * record follows the entry rather than the entry snapping back to the record.
+ *
+ * Synchronous on a warm cache, which is every call but the first. Cold, it
+ * starts the load and hands `onLoaded` the moment there is something to
+ * settle against; the face commits then, and that commit settles.
+ *
+ * @returns {boolean} whether the stack changed
+ */
+export function settlePins(state, family, onLoaded) {
+  if (!family) return false;
+  const prefs = loraPrefsNow();
+  if (!prefs) {
+    // One load for every face that asks before it lands; each gets its call.
+    prefsLanding ??= loadLoraPrefs().catch(() => null);
+    prefsLanding.then(() => onLoaded?.());
+    return false;
+  }
+  let changed = false;
+  const before = state.loras.length;
+  state.loras = state.loras.filter((entry) => {
+    const home = pinnedTo(entry.name);
+    return !home || home === family;
+  });
+  changed = state.loras.length !== before;
+  const held = new Set(state.loras.map((entry) => entry.name));
+  const worn = wornBy(family);
+  // Pins lead the row, in the order they were made.
+  const missing = worn.filter((pin) => !held.has(pin.name))
+    .map((pin) => ({ ...pin, enabled: true, triggers: [...(pin.triggers ?? [])],
+                     modes: pin.modes ? [...pin.modes] : [...S.checkpointsOf(family)] }));
+  if (missing.length) {
+    state.loras.unshift(...missing);
+    changed = true;
+  }
+  // The record follows the entry.
+  const next = worn.map((pin) => {
+    const entry = state.loras.find((held) => held.name === pin.name);
+    return entry ? pinRecord(entry, family) : pin;
+  });
+  if (JSON.stringify(next) !== JSON.stringify(worn)) {
+    saveLoraPrefs({ ...prefs, wears: { ...prefs.wears, [family]: next } });
+  }
+  return changed;
+}
+
 /**
  * The stack, as every face that has one draws it.
  *
@@ -276,6 +400,11 @@ const modeChoices = (family) => [
  *                                     the timeline, where the prefix is
  *                                     composed per segment and one line under
  *                                     the strip would be a guess at which.
+ * @param {string|null} [spec.pinTo]  the family id this stack's pins are filed
+ *                                     under, or null where the stack is not a
+ *                                     family's — a shot's own rail. See pins.
+ * @param {() => void} [spec.onPinChange] commits after a pin or unpin.
+ *                                     Required with `pinTo`.
  */
 export function loraBlock(state, spec) {
   const parts = [el("div", { class: "mmc-assets" },
@@ -308,9 +437,11 @@ export function loraBlock(state, spec) {
  *  the tooltip: the same trade the pill made when the filename came off it,
  *  where forty characters of `..._turbo_v4_step600_ema_pruned` crowded out
  *  everything the row was for. */
-function loraChip(entry, { targets = null, family = S.DEFAULT_VIDEO_FAMILY, turbo = null,
-                           onToggle, onManage, onSwap, onRemove }) {
+function loraChip(entry, spec) {
+  const { targets = null, family = S.DEFAULT_VIDEO_FAMILY, turbo = null, pinTo = null,
+          onToggle, onManage, onSwap, onRemove, onPinChange } = spec;
   const isTurbo = Boolean(turbo) && entry.name === turbo;
+  if (!isTurbo && isPinned(entry.name, pinTo)) return loraTack(entry, spec);
   const modes = S.loraModes(entry, family);
   const label = S.checkpointLabels(family);
   // Whether this chip has a checkpoint to say anything about at all. A family
@@ -353,6 +484,15 @@ function loraChip(entry, { targets = null, family = S.DEFAULT_VIDEO_FAMILY, turb
         : Number(entry.strength ?? 1).toFixed(2),
       onclick: () => onManage(entry),
     }),
+    // The pin, only where the stack is a family's, and only once the prefs it
+    // writes to are here — a press before that would be a press on nothing.
+    // Not on the switch's LoRA: that one is the switch's to put on and take off.
+    ...(pinTo && !isTurbo && loraPrefsNow() ? [el("button", {
+      class: "mmc-asset-x mmc-asset-pin",
+      title: t("Pin {name} to {family}: always in this family's stack, at these settings, on every machine restart. Takes it off any other family.",
+               { name: baseName(entry.name), family: familyLabel(pinTo) }),
+      onclick: () => { pinLora(entry, pinTo); onPinChange(); },
+    }, [svg(ICONS.pin, 13)])] : []),
     swapLoraButton(entry, () => onSwap(entry)),
     el("button", {
       class: "mmc-asset-x", text: "✕", title: t("Remove {name}", { name: entry.name }),
@@ -360,6 +500,61 @@ function loraChip(entry, { targets = null, family = S.DEFAULT_VIDEO_FAMILY, turb
     }),
   ]);
 }
+
+/**
+ * A pinned entry: the tile alone, unfolding on hover.
+ *
+ * The tile is the accent, wearing the pin and three letters of the filename —
+ * enough to tell `cla` from `fil` across the row without opening it. Unfolded,
+ * the chip is the ordinary one less a ✕ and a swap: a standing order is taken
+ * off by unpinning, and a swap on a pin would be a pin on a file nobody chose.
+ * The mute stays — the question it answers is asked of pinned LoRAs too.
+ */
+function loraTack(entry, { family = S.DEFAULT_VIDEO_FAMILY, targets = null, pinTo,
+                           onToggle, onManage, onPinChange }) {
+  const off = entry.enabled === false;
+  const modes = S.loraModes(entry, family);
+  const label = S.checkpointLabels(family);
+  const routes = Boolean(targets?.length) && S.routing(family);
+  const idle = routes ? !modes.some((mode) => targets.includes(mode)) : false;
+  const home = familyLabel(pinTo);
+  return el("div", { class: `mmc-tack${off ? " off" : ""}${idle ? " idle" : ""}` }, [
+    el("button", {
+      class: "mmc-tack-stub",
+      "aria-label": t("{name} — pinned to {family}", { name: baseName(entry.name), family: home }),
+      onclick: () => onManage(entry),
+    }, [
+      svg(ICONS.pin, 14),
+      el("span", { class: "mmc-tack-mono", text: monogram(entry.name) }),
+    ]),
+    el("div", { class: `mmc-asset mmc-tack-open${idle ? " idle" : ""}${off ? " off" : ""}` }, [
+      el("span", { class: "mmc-asset-thumb mmc-tack-thumb" }, [svg(ICONS.pin, 14)]),
+      loraName(entry, () => onToggle(entry)),
+      el("button", {
+        class: "mmc-ghost",
+        style: { fontSize: "11px" },
+        title: routes
+          ? t("Strength, and which checkpoint this LoRA belongs to")
+          : t("Strength — edit on the LoRA card"),
+        text: routes
+          ? `${Number(entry.strength ?? 1).toFixed(2)} · ${S.claimsBoth(entry, family) ? t("both") : label[modes[0]]}`
+          : Number(entry.strength ?? 1).toFixed(2),
+        onclick: () => onManage(entry),
+      }),
+      el("button", {
+        class: "mmc-asset-x mmc-asset-pin on",
+        title: t("Pinned to {family}. Click to unpin — it stays in this stack as an ordinary LoRA.",
+                 { family: home }),
+        onclick: () => { unpinLora(entry.name, pinTo); onPinChange(); },
+      }, [svg(ICONS.pin, 13)]),
+    ]),
+  ]);
+}
+
+/** Three letters of the filename, for the tile: the first three that are
+ *  letters or digits, so `clay-render_v2` and `clay_render_v3` both say `cla`
+ *  — which is the point, and the limit. */
+const monogram = (name) => baseName(name).replace(/[^a-z0-9]/gi, "").slice(0, 3).toLowerCase();
 
 /** The name, which is the mute switch: click to take this LoRA out of the run
  *  and click again to bring it back, with everything you set up still on it. */
@@ -914,7 +1109,7 @@ class LoraManager {
               { label: label(shown) })
           : t("Open this card on {label} from now on.", { label: label(shown) }),
         onclick: (event) => { event.stopPropagation(); this.togglePin(group, shown.name); },
-      }, [svg(ICONS.pin, 12)]));
+      }, [svg(ICONS.bookmark, 12)]));
     }
     return el("div", { class: "mmc-vers" }, pills);
   }
