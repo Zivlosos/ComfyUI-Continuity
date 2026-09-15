@@ -6,91 +6,15 @@ exactly as it was written, wall of text and all.
 
 ## Unreleased
 
-**The chat room's Refine switch does what it says.** It was on the rail from
-the first build and refused every render it was thrown on, because a switch that
-silently does nothing is worse than one that says it is not here yet. Now a clip
-whose rail has it on goes through the family's own prompting before it is
-queued — the Refine button's call, `refine_routes._run` on the piece the room
-built, with the button's own settings sent alongside the render request so the
-same skill, the same server and the same dials write it — and the rewrite lands
-on the shot in the shape the panel writes, `refined` with its `@handles` intact,
-so the compiler reads it exactly as it reads a rewrite made on the node and
-*Open in the editor* finds it in the panel afterwards. The compiler is asked
-again after the rewrite: a stray handle the refine route would only note under a
-panel with a Revert on it is, here, a render about to go out, so its refusal is
-the assistant's next line rather than a failed queue item. On the remote backend
-the rewrite is a call inside the request, as the button's is; on the in-process
-one it is a model on the GPU, so the rewrite and the render go on the queue as
-one job that does the rewrite and then puts the render on behind itself, and the
-card says *Refining…* with the token count until it does. The render route
-answers in the envelope `queue.run` already reads — `{result}` when the render
-went straight on, a job's id when it did not — so the room has one call site
-either way. A still is never refined, whatever the switch says: the families
-that draw one have no prompt refiner, the pre-stage has no Refine button for the
-same reason, and the hint under the switch says so. The refiner's half of a
-request is spelled once now, `refineRequest` in `refine.js`, which the button
-and the room both send and `chat.REFINE_FIELDS` reads by name, with the mirror
-test holding the two lists together.
-
-**And the room it is reached from.** A **Chat** card on the tools dashboard,
-beside Upscale, opens a room in the benches' own shell: the conversation down
-the middle, a rail of standing choices on the right, a box at the foot where
-Enter sends. A render appears inline as a card the moment it is queued and
-shows the real thing while it runs — the queue's own progress, the sampler's
-own preview frames — then becomes the finished picture or a player, with its
-handle under it. Cite that handle in what you say next and the model builds on
-it; press a tile in the rail and the handle lands in the box. The paperclip, a
-paste and a dropped file upload into `input/continuity/chat/` and get a handle
-too. Two doors on a finished card: **Open in the editor** lifts that render's
-own setup out of the file it was saved into and puts it on the pre-stage or the
-shot before going there, and **Retake** runs the same request again on a new
-seed. The rail reuses the Refine button's model picker whole, offers the
-families off the served catalog and never by name, remembers what you picked
-per machine, and says the two things a person needs told: that a local model
-shares the card with your renders and waits behind them, and that a still
-family which reads pictures only through a LoRA adapter cannot be handed one to
-change. Leaving the room keeps the conversation; reloading starts fresh, and
-the renders stay in the output folder. The card's plate is drawn rather than
-photographed — two said lines and the frame that came of them — because a room
-where you talk has no frame of its own to be a picture of.
-
-**The chat surface, headless.** A room where you talk to the refiner and it
-makes pictures and clips needs a server half before it needs a room, and this
-is the server half. One flat action is all the model may answer with — say or
-render, a kind, the prompt exactly as a person would type it into the prompt
-box, handles from the ledger, seconds and an aspect — because the refiner is
-whatever the pack was already pointed at and a 4B model given a catalogue of
-tools stops choosing between them. The fenced reply is parsed tolerantly and
-validated strictly, every refusal is a sentence naming the field, and that
-sentence is quoted back to the model once inside the same job rather than
-bouncing off the browser; a `say` in answer to a plain request for a picture
-buys the same one more go, and a second failure puts the model's own words in
-the bubble. `POST /continuity/chat/turn` builds each turn out of a machine
-card, the ledger and the last five exchanges and answers `{say, action?, raw}`,
-with the remote backend answered inside the request and the in-process one
-riding the queue the way a refine does. `POST /continuity/chat/render` turns
-the action into a pre-stage or a Creator blob, fills the weights from what this
-machine last picked, runs the compiled-prompt dry run — a duration off the
-frame grid or a checkpoint nobody chose comes back as the assistant's next
-line, verbatim — and puts a one-node prompt on ComfyUI's own queue, so Cancel
-reaches it, the progress bar is the real one and the file lands in the gallery
-with its blob in its metadata like any other render. The machine card is the
-join nothing made before: every family's manifest, the files on this disk and
-this machine's picks, in about a hundred and fifty tokens, ending in "not
-ready: no file is picked for …" so the model can say so instead of trying —
-with the turbo switch thrown, the Turbo checkpoint is one of the files it
-counts, since that is the one the render will load. It also says where a
-family cannot be handed a picture at all: Krea 2, the default, reads an
-attached reference only through an adapter in the pre-stage's LoRA stack and
-this room has no stack to fill, so "make it bluer" is answered in the room's
-own words — naming the still families that do read pictures — instead of being
-spent on the compiler's refusal about a control you cannot see from the chat.
-Making that join turned up a manifest that never served H3's optional flag, so
-the ControlNet branch a guide loads was being demanded of every render; it says
-what it is now. `tools/chat_bench.py` runs a scripted conversation against any
-OpenAI-compatible server with no browser and no queue, which is where the
-system prompt is tuned per small model. This is the headless half — the room
-off the dashboard is next.
+**Chat: a room on the tools dashboard where you talk to the refiner and it
+renders.** Ask for a picture or a shot, then ask for changes; the model writes
+what you would have typed into the prompt box and the render goes on the
+ordinary queue, so Cancel reaches it and the file lands in the gallery. Each
+render gets a handle you can cite, uploads get one too, and a finished card can
+be opened in the editor or retaken. The rail holds the model, the still and
+video families, shape, seed and a Refine switch that puts a clip's prompt
+through the family's own prompting first. Stills and one-shot video only; no
+timeline, cast or saved conversations yet.
 
 **The simple view shows the seed.** A seed pill on the simple card, drawn as
 two halves, and the card scrolls; a pre-stage `{a|b}` chooses on the seed.
