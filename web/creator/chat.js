@@ -31,10 +31,11 @@
 // shows the real progress and the real preview frames rather than a spinner.
 
 import { el, icon, mark, spinner, dragsFiles, mountOverlay, keepScroll, placeNear, dismissable } from "./dom.js";
-import { openChoicePopover, openAspectPopover, edgeSlider, pillSet, pillClass,
-         aspectGlyph, PILL_GLYPH } from "./pills.js";
+import { openChoicePopover, openAspectPopover, edgeSlider, aspectGlyph } from "./pills.js";
 import { seedPill } from "./sampling.js";
 import { rulesFor, resolveCanvas } from "./canvas.js";
+import { resolvedPreStage, PRESTAGE_CANVAS_MULTIPLE, PRESTAGE_MIN_EDGE, PRESTAGE_MAX_EDGE,
+         PRESTAGE_DEFAULT_EDGE } from "./state.js";
 import { openPicker } from "./picker.js";
 import { outputUrl, upload, uiSetting, patchSettings, primeSettings, viewUrl } from "./api.js";
 import { settings as refinerSettings, chosenModel, openSettings, listSkills, refineRequest } from "./refine.js";
@@ -146,7 +147,11 @@ function defaultRail() {
     video_family: (video.find((entry) => ready.includes(entry.id))
                    ?? familyOf(DEFAULT_VIDEO_FAMILY))?.id ?? "",
     aspect: shape.default_aspect ?? Object.keys(shape.aspects ?? {})[0] ?? "",
-    short_edge: shape.native_short_edge ?? shape.default_short_edge ?? 768,
+    // One short edge per kind, because they are not one number: a still is
+    // drawn past 1024 on every family that draws one, and a clip at the video
+    // family's trained edge. Each is the family's own default until touched.
+    still_edge: PRESTAGE_DEFAULT_EDGE,
+    video_edge: shape.native_short_edge ?? 768,
     turbo: false,
     seed: 0,
     seed_policy: "fixed",
@@ -163,7 +168,13 @@ function defaultRail() {
 
 /** The rail, loaded once from the settings and held for the page. */
 function rail() {
-  if (!state.rail) state.rail = { ...defaultRail(), ...(uiSetting(SETTING, {}) ?? {}) };
+  if (!state.rail) {
+    const saved = uiSetting(SETTING, {}) ?? {};
+    state.rail = { ...defaultRail(), ...saved };
+    // A rail saved before the edge was split carried one number for both
+    // kinds. It was the clip's — the still's default is its family's own.
+    if (saved.short_edge && !saved.video_edge) state.rail.video_edge = saved.short_edge;
+  }
   return state.rail;
 }
 
@@ -774,40 +785,17 @@ class Room {
   }
 
   /** What a message is made against, in the composer's foot: which family
-   *  draws a picture, which makes a clip, the canvas and the seed. The canvas
-   *  and seed pills are the simple view's own — the same aspect grid, the same
-   *  short-edge slider, the same die-and-mark — because a person who has set a
-   *  shape on the card should not meet a second way of setting one here. */
+   *  draws a picture, which makes a clip, and the shape. The shape is the
+   *  simple view's own pill and grid — a person who has set one on the card
+   *  should not meet a second way of setting one here. Size and seed are
+   *  behind the gear: they are set once and left. */
   paintPills() {
     const bar = rail();
     const still = this.familyOr(bar.still_family, stillFamilies());
     const video = this.familyOr(bar.video_family, videoFamilies());
-    // The canvas the piece will be compiled on. Read through the video
-    // family's rules, as the room's pieces are: every family here offers the
-    // same shapes, and the short edge is one number for both kinds.
     const rules = rulesFor(video?.id ?? bar.video_family);
-    const ratio = rules.aspects.find(([label]) => label === bar.aspect)?.[1] ?? 16 / 9;
-    const [width, height] = resolveCanvas(ratio, Number(bar.short_edge) || rules.nativeShortEdge, rules);
-
-    const aspectPill = (seg) => el("button", {
-      class: pillClass(seg), title: t("Aspect Ratio"),
-      onclick: (event) => {
-        // The popover writes onto a piece; this one is the rail's two fields
-        // wearing a piece's names, read back when it commits.
-        const target = { family: video?.id ?? bar.video_family, aspect: bar.aspect || rules.aspects[0]?.[0] };
-        openAspectPopover(event.currentTarget, target, () => setRail({ aspect: target.aspect }));
-      },
-    }, [aspectGlyph(ratio, PILL_GLYPH), el("span", { text: bar.aspect || rules.aspects[0]?.[0] || "" })]);
-    const resPill = (seg) => el("button", {
-      class: pillClass(seg),
-      title: t("Short edge. Lower is faster; 768 is what the open weights were trained at."),
-      onclick: (event) => this.openEdge(event.currentTarget, rules, ratio),
-    }, [
-      icon("res", 16),
-      el("span", { text: `${Number(bar.short_edge) || rules.nativeShortEdge}p` }),
-      el("span", { class: "mmc-pill-sub", text: `${width} × ${height}` }),
-    ]);
-
+    const label = bar.aspect || rules.aspects[0]?.[0] || "";
+    const ratio = rules.aspects.find(([name]) => name === label)?.[1] ?? 16 / 9;
     const pills = [
       this.pick("image", t("Pictures"), still, stillFamilies(), (id) => setRail({ still_family: id }),
                 still && !takesPictures(still)
@@ -816,49 +804,70 @@ class Room {
                   : t("Which family draws a picture.")),
       this.pick("video", t("Clips"), video, videoFamilies(), (id) => setRail({ video_family: id }),
                 t("Which family makes a clip.")),
-      pillSet([aspectPill, resPill]),
-      // The simple view's seed pill over the rail's two fields. `widgets.seed`
-      // is only asked whether it exists; nothing was queued through a widget,
-      // so there is no last seed to offer back and the ghost never appears.
-      ...seedPill({
-        widgets: { seed: true },
-        value: (name, fallback) => name === "seed" ? Number(bar.seed) || 0
-          : name === "control_after_generate" ? (bar.seed_policy === "random" ? "randomize" : "fixed")
-          : fallback,
-        set: (name, value) => {
-          if (name === "seed") setRail({ seed: value, seed_policy: "fixed" });
-          else if (name === "control_after_generate") setRail({ seed_policy: value === "fixed" ? "fixed" : "random" });
+      el("button", {
+        class: "mmc-ch-pill", title: t("Aspect Ratio"),
+        onclick: (event) => {
+          // The popover writes onto a piece; this is the rail's two fields
+          // wearing a piece's names, read back when it commits. Every family
+          // here offers the same shapes, so the video family's list serves.
+          const target = { family: video?.id ?? bar.video_family, aspect: label };
+          openAspectPopover(event.currentTarget, target, () => setRail({ aspect: target.aspect }));
         },
-      }),
+      }, [aspectGlyph(ratio, 14), el("span", { text: label })]),
     ].filter(Boolean);
     this.pills.replaceChildren(...pills);
   }
 
-  /** The short-edge slider, alone. The node's resolution popover carries a
-   *  second section — two passes, a finishing backend — that the room's blob
-   *  does not send, so offering it here would be a switch wired to nothing. */
-  openEdge(anchor, rules, ratio) {
-    const target = { short_edge: Number(rail().short_edge) || rules.nativeShortEdge };
+  /**
+   * The short-edge slider for one kind — the pack's own control, alone.
+   *
+   * Two of these, because a picture and a clip are drawn on different canvases
+   * with different ceilings: the still's is the pre-stage's (the image
+   * families share one block), the clip's is the video family's. The node's
+   * resolution popover carries a second section — two passes, a finishing
+   * backend — that the room's blob does not send, so it is not offered here.
+   */
+  openEdge(anchor, kind, onChange) {
+    const bar = rail();
+    const label = bar.aspect || "16:9";
+    const still = kind === "still";
+    const rules = still ? null : rulesFor(bar.video_family);
+    const ratio = still ? null : (rules.aspects.find(([name]) => name === label)?.[1] ?? 16 / 9);
+    const mark = still ? PRESTAGE_DEFAULT_EDGE : rules.nativeShortEdge;
+    const target = { short_edge: Number(bar[`${kind}_edge`]) || mark };
+    const size = () => {
+      if (still) {
+        const { width, height } = resolvedPreStage({ aspect: label, short_edge: target.short_edge });
+        return [width, height];
+      }
+      return resolveCanvas(ratio, target.short_edge, rules);
+    };
     const body = edgeSlider({
-      min: rules.minShortEdge, max: rules.maxShortEdge, step: rules.multiple,
-      value: target.short_edge, mark: rules.nativeShortEdge, markLabel: "native",
+      min: still ? PRESTAGE_MIN_EDGE : rules.minShortEdge,
+      max: still ? PRESTAGE_MAX_EDGE : rules.maxShortEdge,
+      step: still ? PRESTAGE_CANVAS_MULTIPLE : rules.multiple,
+      value: target.short_edge, mark, markLabel: still ? "default" : "native",
       apply: (edge) => { target.short_edge = edge; },
       describe: () => {
-        const [width, height] = resolveCanvas(ratio, target.short_edge, rules);
-        const over = target.short_edge > rules.nativeShortEdge;
+        const [width, height] = size();
+        const over = !still && target.short_edge > mark;
         return {
           size: `${width} × ${height}`,
           warn: over,
-          note: over
-            ? t("Above the trained {edge} px short edge — off-distribution, not just slower.",
-                { edge: rules.nativeShortEdge })
-            : target.short_edge === rules.nativeShortEdge
-              ? t("Native. What the open weights were trained at.")
-              : t("{ratio}× smaller short edge than native — faster, softer.",
-                  { ratio: (rules.nativeShortEdge / target.short_edge).toFixed(1) }),
+          note: still
+            ? (target.short_edge === mark
+                ? t("The image families' default. Higher is slower and sharper.")
+                : t("Short edge of the picture. Higher is slower and sharper."))
+            : over
+              ? t("Above the trained {edge} px short edge — off-distribution, not just slower.",
+                  { edge: mark })
+              : target.short_edge === mark
+                ? t("Native. What the open weights were trained at.")
+                : t("{ratio}× smaller short edge than native — faster, softer.",
+                    { ratio: (mark / target.short_edge).toFixed(1) }),
         };
       },
-      commit: () => setRail({ short_edge: target.short_edge }),
+      commit: () => onChange(target.short_edge),
     });
     const pop = el("div", { class: "mmc-pop mmc-slider" }, [body]);
     document.body.appendChild(pop);
@@ -889,20 +898,46 @@ class Room {
   }
 
   /**
-   * The gear: the three switches with no pill of their own.
+   * The gear: what is set once per machine and then left alone.
    *
-   * Turbo, Refine and a skill to append are set once per machine and then left
-   * alone; everything a message is made against is in the composer's foot.
-   * Redrawn in place on every change: a popover that closed on each switch
-   * would be a popover reopened three times to set three things.
+   * The size of a picture and the size of a clip, each with its own slider
+   * because they are different canvases; the seed, as the simple view's own
+   * pill; turbo, the Refine switch and a skill to append. Redrawn in place on
+   * every change: a popover that closed on each switch would be a popover
+   * reopened six times to set six things.
    */
   openMore(anchor) {
     const pop = el("div", { class: "mmc-pop mmc-ch-more" });
     const draw = () => {
       const bar = rail();
       const change = (patch) => { setRail(patch); draw(); };
+      const sizePill = (kind) => el("button", {
+        class: "mmc-pill mmc-ch-value",
+        onclick: (event) => this.openEdge(event.currentTarget, kind,
+                                          (edge) => change({ [`${kind}_edge`]: edge })),
+      }, [icon("res", 16), el("span", { text: `${bar[`${kind}_edge`]}p` })]);
       pop.replaceChildren(
         el("div", { class: "mmc-pop-title", text: t("How this room renders") }),
+        this.row(t("Picture size"), sizePill("still"),
+                 t("The short edge a picture is drawn at.")),
+        this.row(t("Clip size"), sizePill("video"),
+                 t("The short edge a clip is sampled at.")),
+        this.row(t("Seed"), el("span", { class: "mmc-ch-seed" }, seedPill({
+          // The simple view's pill over the rail's two fields. `widgets.seed`
+          // is only asked whether it exists; nothing was queued through a
+          // widget, so there is no last seed to offer and the ghost never draws.
+          widgets: { seed: true },
+          value: (name, fallback) => name === "seed" ? Number(bar.seed) || 0
+            : name === "control_after_generate" ? (bar.seed_policy === "random" ? "randomize" : "fixed")
+            : fallback,
+          set: (name, value) => {
+            if (name === "seed") change({ seed: value, seed_policy: "fixed" });
+            else if (name === "control_after_generate") {
+              change({ seed_policy: value === "fixed" ? "fixed" : "random" });
+            }
+          },
+        }))),
+        el("div", { class: "mmc-ch-rule" }),
         this.toggle(t("Turbo"), bar.turbo, (on) => change({ turbo: on }),
                     t("Sample the still on the family's distilled checkpoint. It has to be "
                       + "picked in the weights, and the room says so if it is not.")),

@@ -210,16 +210,10 @@ export const css = `
   outline: 2px solid var(--mmc-accent); outline-offset: 2px;
 }
 
-/* What a message is made against. The family pills are the composer's own —
-   text with a glyph, no box — and the canvas and seed pills are the simple
-   view's, drawn as they are drawn there: the same split pill, the same die
-   and mark, so the row reads as one row on both surfaces. */
-.mmc-ch-pills { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
-.mmc-ch-pills .mmc-pill { height: 30px; font-size: calc(12.5px * var(--mmc-type)); }
-.mmc-ch-pills .mmc-pill-seg { font-size: calc(12.5px * var(--mmc-type)); }
-/* Shown here as it is on the simple card; its stylesheet folds it away
-   everywhere the full seed group is a line below, and nothing is below this. */
-.mmc-ch-pills .mmc-seed-pill { display: flex; padding: 0; }
+/* What a message is made against: text with a glyph, no box, so the three
+   read as the composer's own foot and not as a row of controls lifted off a
+   node. The shape opens the simple view's own aspect grid. */
+.mmc-ch-pills { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; min-width: 0; }
 .mmc-ch-pill {
   display: inline-flex; align-items: center; gap: 6px; max-width: 22ch;
   height: 30px; padding: 0 10px; border-radius: 15px; cursor: pointer;
@@ -253,6 +247,11 @@ export const css = `
 .mmc-ch-row { display: flex; align-items: center; gap: 8px; min-height: var(--mmc-pill-h); padding: 2px 0; }
 .mmc-ch-label { flex: 1; min-width: 0; font-size: calc(12.5px * var(--mmc-type)); }
 .mmc-ch-value { max-width: 62%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mmc-ch-rule { height: 1px; margin: 8px 0; background: var(--mmc-line); }
+/* The simple view's seed pill, in a row of the gear. Its stylesheet folds it
+   away everywhere the full seed group is a line below; nothing is below this. */
+.mmc-ch-seed { display: flex; gap: 6px; }
+.mmc-ch-seed .mmc-seed-pill { display: flex; padding: 0; }
 
 /* --- narrow --------------------------------------------------------------- */
 @media (max-width: 720px) {

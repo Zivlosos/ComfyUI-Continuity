@@ -69,7 +69,7 @@ LEDGER = [
 ]
 
 RAIL = {"still_family": "krea2", "still_arch": "krea2", "video_family": "h3",
-        "aspect": "16:9", "short_edge": 1024, "turbo": False,
+        "aspect": "16:9", "still_edge": 1024, "video_edge": 768, "turbo": False,
         "seed": 7, "seed_policy": "fixed"}
 
 
@@ -491,9 +491,18 @@ check("and the rail's is used when the action says nothing",
 # repeated here would be a third copy of one two modules already own.
 bare_canvas = chat.still_piece(
     chat.validate({"act": "render", "kind": "still", "prompt": "a fox"}, LEDGER),
-    LEDGER, {**RAIL, "aspect": None, "short_edge": None})
+    LEDGER, {**RAIL, "aspect": None, "still_edge": None})
 check("a shape nobody chose is left to the family",
       ("aspect" in bare_canvas, "short_edge" in bare_canvas), (False, False))
+# The short edge is the kind's own: a still at the still edge, a clip at the
+# clip edge, and a rail from before the split still lands its one number.
+check("a still is drawn at the still edge", still["short_edge"], 1024)
+check("a clip is sampled at the clip edge",
+      chat.video_piece(chat.validate({"act": "render", "kind": "video", "prompt": "a fox"}, LEDGER),
+                       LEDGER, RAIL)["short_edge"], 768)
+check("an older rail's one short edge is read for both",
+      chat.still_piece(chat.validate({"act": "render", "kind": "still", "prompt": "a fox"}, LEDGER),
+                       LEDGER, {**RAIL, "still_edge": None, "short_edge": 896})["short_edge"], 896)
 check("a cited handle becomes a reference carrying its file",
       still["refs"], [{"handle": "img-1", "filename": "continuity/chat/fox.png"}])
 # The promotion of a first reference to the thing being edited is

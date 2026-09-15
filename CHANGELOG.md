@@ -13,11 +13,12 @@ ordinary queue, so Cancel reaches it and the file lands in the gallery. Each
 render gets a handle you can cite, uploads get one too, and a finished card can
 be opened in the editor or retaken. It is laid out like any chat surface:
 one column, a composer at the foot whose **+** opens the pack's own picker,
-attachments as chips until they are sent, and the simple view's own pills
-under the text for the families, the canvas and the seed. The model's name is
-in the bar; turbo, a Refine switch that puts a clip's prompt through the
-family's own prompting first, and a skill to append are behind the gear
-beside it. Stills and one-shot video only; no timeline, cast or saved
+attachments as chips until they are sent, and under the text the families
+and the shape — the simple view's own aspect grid. The model's name is in the
+bar; behind the gear beside it are a picture size and a clip size (a still is
+drawn larger than a clip is sampled, so they are two numbers), the seed, turbo,
+a Refine switch that puts a clip's prompt through the family's own prompting
+first, and a skill to append. Stills and one-shot video only; no timeline, cast or saved
 conversations yet.
 
 **The simple view shows the seed.** A seed pill on the simple card, drawn as

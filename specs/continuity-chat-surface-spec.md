@@ -244,12 +244,13 @@ the way back.
   the editor** (the chat's piece becomes the node's blob) and **Retake**
   (same blob, new seed). A refusal is a bubble.
 - **No rail.** The model's name is in the bar, the way ChatGPT places it,
-  and opens the refine popover; a gear beside it holds the three switches
-  that are set once per machine — turbo, the **Refine** switch (off), a skill
-  to append. Everything a message is made against is in the composer's foot,
-  drawn with the simple view's own pills: the still family and video family
-  for `kind`, the aspect + short-edge split pill, the die-and-mark seed pill.
-  The ledger has no tiles: each thing is in the transcript where it was made
+  and opens the refine popover; a gear beside it holds what is set once per
+  machine — the picture size and the clip size (two short edges, because a
+  still is drawn on the image canvas and a clip on the video family's), the
+  seed as the simple view's die-and-mark pill, turbo, the **Refine** switch
+  (off), a skill to append. The composer's foot holds what changes between
+  messages: the still family and video family for `kind`, and the shape,
+  which opens the simple view's own aspect grid. The ledger has no tiles: each thing is in the transcript where it was made
   or attached, wearing its handle, and pressing it cites it.
 - **The composer**, bottom. One rounded sheet: attachments waiting to go,
   the text, and a foot with **+** on the left and the send arrow on the

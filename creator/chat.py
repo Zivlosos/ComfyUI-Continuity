@@ -867,19 +867,27 @@ def _cited(action, ledger):
     return out
 
 
-def _canvas(action, rail):
+def _canvas(action, rail, kind):
     """The shape and size fields, where anybody has an opinion about them.
 
     Left out of the blob entirely where nobody has. Both compilers read these as
     `data.get("aspect", <the family's own>)`, so an absent key is the family's
     default said by the family — and a default written here instead would be
     this module's third copy of a number two compilers already own.
+
+    The short edge is per kind — `still_edge` for a picture, `video_edge` for a
+    clip — because the two are not one number: a still is drawn at 1024 or more
+    on every family that draws one, and a clip at 768 is already the trained
+    size. A rail saved before the split carries one `short_edge`, read for both.
     """
     canvas = {}
-    aspect = action.get("aspect") or (rail or {}).get("aspect")
+    rail = rail or {}
+    aspect = action.get("aspect") or rail.get("aspect")
     if aspect:
         canvas["aspect"] = aspect
-    edge = (rail or {}).get("short_edge")
+    edge = rail.get(f"{kind}_edge")
+    if edge is None:
+        edge = rail.get("short_edge")
     if isinstance(edge, (int, float)) and not isinstance(edge, bool):
         canvas["short_edge"] = int(edge)
     return canvas
@@ -938,7 +946,7 @@ def still_piece(action, ledger, rail):
         "init": None,
         "refs": refs,
         "loras": [],
-        **_canvas(action, rail),
+        **_canvas(action, rail, "still"),
         # Per-arch, the way the pre-stage's own block is: the pill does not mean
         # the same thing on both sides, and a flat block would carry one
         # family's file onto another the moment the arch moved.
@@ -986,7 +994,7 @@ def video_piece(action, ledger, rail):
         "prompt": "",
         "family": family,
         "models": {},
-        **_canvas(action, rail),
+        **_canvas(action, rail, "video"),
         "segments": [{
             "prompt": action["prompt"],
             "assets": assets,
