@@ -117,13 +117,25 @@ function card(item, index, onLeave) {
  * neither has ever had to learn the other's half.
  */
 function plate(item) {
-  const treat = item.art?.url ? TREATMENTS[item.art.kind] : null;
+  const art = item.art;
+  const treat = art && (art.url || DRAWN.has(art.kind)) ? TREATMENTS[art.kind] : null;
   return el("div", { class: "mmc-dash-plate" }, [
     treat
-      ? treat(item.art)
+      ? treat(art)
       : item.glyph ? el("span", { class: "mmc-dash-glyph" }, [icon(item.glyph, 108)]) : null,
   ]);
 }
+
+/** The treatments that make their own picture rather than being handed one.
+ *
+ *  Every other card on this surface is a photograph — a frame off the piece, or
+ *  one of the plates shipped beside the code — and that is the right material
+ *  for a tool whose subject is an image. A room where you *talk* has no such
+ *  frame: the thing it does is the exchange, and the honest picture of an
+ *  exchange is the exchange. So one kind is drawn here in the same vocabulary
+ *  the rest of the plate is styled in, rather than a photograph being found for
+ *  it that would be a picture of something else. */
+const DRAWN = new Set(["chat"]);
 
 /** A picture, at the plate's size and cropped to it. */
 const frame = (url, cls = "") =>
@@ -206,6 +218,19 @@ const TREATMENTS = {
       el("span", { class: "mmc-dash-seam" }),
     ]));
   },
+
+  /** Two lines said, and a frame that came of them.
+   *
+   *  Drawn rather than photographed — see `DRAWN`. The shapes are the room's
+   *  own: a short line from the person, a shorter one back, and under them the
+   *  picture that answer turned into, arriving on hover the way a render
+   *  arrives in the room. Nothing in it is text, because a card with words on
+   *  it at two hundred pixels wide is a card with a smudge on it. */
+  chat: () => el("div", { class: "mmc-dash-chat" }, [
+    el("span", { class: "mmc-dash-ask" }),
+    el("span", { class: "mmc-dash-back" }),
+    el("span", { class: "mmc-dash-made" }),
+  ]),
 
   /** The frame, dealt out. A preset is a setup you can put back, so the card is
    *  the same picture three times over — one setting, saved, and saved again —

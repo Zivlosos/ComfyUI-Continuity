@@ -1120,6 +1120,73 @@ async def clear_latent_cache(request):
     return web.json_response({"freed": freed, "entries": 0, "bytes": 0})
 
 
+# What "this blob does not compile" arrives as. `CompileError` is the pack's own
+# refusal and carries a sentence; the four below are what a hand-edited or
+# half-typed blob raises on the way there — a string where a number belongs, a
+# key nothing filled in. Named as one tuple because two callers now answer them
+# identically and a third would otherwise catch a different four.
+COMPILE_FAILURES = (compiler.CompileError, ValueError, KeyError, TypeError, IndexError)
+
+
+def compiled_passes(blob, seed=None):
+    """The prompt each pass of `blob` will read: `{"passes": [...], "cards": {...}}`.
+
+    The body of the route below, lifted out so that the chat room can run the
+    same dry run before it queues anything. That is the whole point of the dry
+    run — a missing weight or a duration off the frame grid becomes a sentence
+    before any GPU time — and a second copy of it in another module would be a
+    second opinion that agrees until the disagreement is what mattered.
+
+    Raises: `COMPILE_FAILURES`. Both callers turn that into a sentence; neither
+    treats it as an error, because a blob that does not compile yet is the
+    ordinary state of one being typed and of one a chat model just wrote.
+    """
+    # `timeline_payloads` and nothing else: it is what `creator_node.py`
+    # builds the graph from, so it is what the render will actually be, one
+    # entry per pass, merged runs already merged.
+    # The choices a `{a|b|c}` makes are the render's, on the number the
+    # node will queue — passed in so the panel shows the take this seed
+    # would shoot rather than the braces as typed. An older frontend
+    # sends none, and the braces are shown as they stand.
+    if isinstance(seed, (int, float)) and not isinstance(seed, bool):
+        blob = compiler.varied_piece(blob, int(seed))
+    payloads = compiler.timeline_payloads(blob, media.image_size)
+    # Which pass each card ended up in. A run of merged cards is one
+    # generation with one prompt, so the box has to be able to ask "the pass
+    # holding card 4" rather than "pass 4" — they are only the same number
+    # on a strip nothing merged.
+    piece = compiler.as_piece(blob)
+    segments = compiler.timeline_segments(piece)
+    runs = compiler.timeline_runs(piece, segments)
+    card_pass = {}
+    for position, (start, end) in enumerate(runs):
+        for card in range(start, end):
+            card_pass[card] = position
+
+    passes = []
+    for index, payload in enumerate(payloads):
+        if payload.get("clip"):
+            # Supplied footage. There is nothing to compile and nothing the
+            # model reads, and saying so is better than showing an empty box.
+            passes.append({"index": index, "clip": True, "prompt": "",
+                           "mode": "", "checkpoint": ""})
+            continue
+        compiled = compiler.compile_segment(payload, media.image_size)
+        passes.append({
+            "index": index,
+            "clip": False,
+            "mode": compiled.mode,
+            "checkpoint": compiled.checkpoint,
+            # A hand-written blob may replace the composed prompt outright,
+            # and `timeline.py` swaps it in after compiling. What the model
+            # reads is the override where there is one, so that is what the
+            # box has to show.
+            "prompt": payload.get("prompt_override") or compiled.prompt,
+            "overridden": bool(payload.get("prompt_override")),
+        })
+    return {"passes": passes, "cards": card_pass}
+
+
 @PromptServer.instance.routes.post("/continuity/compiled_prompt")
 async def compiled_prompt(request):
     """The prompt the model will actually read, for the blob the editor holds.
@@ -1154,53 +1221,8 @@ async def compiled_prompt(request):
         return web.json_response({"error": "creator_data must be a JSON object"}, status=400)
 
     try:
-        # `timeline_payloads` and nothing else: it is what `creator_node.py`
-        # builds the graph from, so it is what the render will actually be, one
-        # entry per pass, merged runs already merged.
-        # The choices a `{a|b|c}` makes are the render's, on the number the
-        # node will queue — sent by the box so the panel shows the take this
-        # seed would shoot rather than the braces as typed. An older frontend
-        # sends none, and the braces are shown as they stand.
-        seed = data.get("seed")
-        if isinstance(seed, (int, float)) and not isinstance(seed, bool):
-            blob = compiler.varied_piece(blob, int(seed))
-        payloads = compiler.timeline_payloads(blob, media.image_size)
-        # Which pass each card ended up in. A run of merged cards is one
-        # generation with one prompt, so the box has to be able to ask "the pass
-        # holding card 4" rather than "pass 4" — they are only the same number
-        # on a strip nothing merged.
-        piece = compiler.as_piece(blob)
-        segments = compiler.timeline_segments(piece)
-        runs = compiler.timeline_runs(piece, segments)
-        card_pass = {}
-        for position, (start, end) in enumerate(runs):
-            for card in range(start, end):
-                card_pass[card] = position
-
-        passes = []
-        for index, payload in enumerate(payloads):
-            if payload.get("clip"):
-                # Supplied footage. There is nothing to compile and nothing the
-                # model reads, and saying so is better than showing an empty box.
-                passes.append({"index": index, "clip": True, "prompt": "",
-                               "mode": "", "checkpoint": ""})
-                continue
-            compiled = compiler.compile_segment(payload, media.image_size)
-            passes.append({
-                "index": index,
-                "clip": False,
-                "mode": compiled.mode,
-                "checkpoint": compiled.checkpoint,
-                # A hand-written blob may replace the composed prompt outright,
-                # and `timeline.py` swaps it in after compiling. What the model
-                # reads is the override where there is one, so that is what the
-                # box has to show.
-                "prompt": payload.get("prompt_override") or compiled.prompt,
-                "overridden": bool(payload.get("prompt_override")),
-            })
-    except compiler.CompileError as problem:
-        return web.json_response({"passes": [], "problem": str(problem)})
-    except (ValueError, KeyError, TypeError, IndexError) as problem:
+        compiled = compiled_passes(blob, data.get("seed"))
+    except COMPILE_FAILURES as problem:
         return web.json_response({"passes": [], "problem": str(problem)})
 
-    return web.json_response({"passes": passes, "cards": card_pass})
+    return web.json_response(compiled)

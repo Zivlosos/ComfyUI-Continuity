@@ -26,6 +26,7 @@ import { css as upscale } from "./styles/upscale.js";
 import { css as neural } from "./styles/neural.js";
 import { css as loupe } from "./styles/loupe.js";
 import { css as blockout } from "./styles/blockout.js";
+import { css as chat } from "./styles/chat.js";
 
 const CSS = [
   base,
@@ -58,6 +59,10 @@ const CSS = [
   neural,
   loupe,
   blockout,
+  // After the bench sheet: the chat room is that room with its rail on the
+  // other side, so the two rules it turns round have to win over the ones they
+  // are turning round.
+  chat,
   // Last: the shell hosts every body in the pack and lifts the caps the node
   // face put on them, so its rules have to win over the sections that set them.
   fullscreen,

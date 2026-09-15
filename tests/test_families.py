@@ -206,9 +206,17 @@ for entry in h3["weights"]:
     slot = h3slots.SLOTS[entry["id"]]
     check(f"h3 slot {entry['id']} mirrors the table",
           (entry["folder"], entry["label"], entry["loads"],
-           entry["routed"], entry["audio"]),
+           entry["routed"], entry["audio"], entry["required"]),
           (slot.folder, slot.label, bool(slot.loader),
-           slot.routed, slot.audio))
+           slot.routed, slot.audio, not slot.optional))
+
+# The files an H3 render never asks for by itself: the background remover the
+# picker's scissors run, and the ControlNet branch a guide loads. Both were
+# served without the flag, so everything reading the catalog demanded them of
+# every render — `models.check` never did, which is how the two disagreed.
+check("the opt-in H3 slots say they are opt-in",
+      sorted(w["id"] for w in h3["weights"] if not w["required"]),
+      ["control", "cutout"])
 
 check("h3 routes are the family's own ROUTES",
       (h3["routes"]["options"], h3["routes"]["default"]),

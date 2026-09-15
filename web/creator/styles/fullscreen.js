@@ -1618,6 +1618,44 @@ export const css = `
 .mmc-dash-card:hover .mmc-dash-deck-2 { transform: scale(.8) rotate(-7.5deg) translate(-11%, -4%); opacity: .76; }
 .mmc-dash-card:hover .mmc-dash-deck-1 { transform: scale(.8) rotate(3.5deg) translate(6%, 2%); }
 
+/* The chat card, drawn rather than photographed — see DRAWN in navigate.js. Two
+   said lines and the frame that came of them, on the same lit ground the deck
+   stands on. Everything is a bar or a box: at two hundred and thirty pixels
+   wide nothing smaller than that reads, and letters least of all. The frame
+   arrives under the pointer, which is what the room does. */
+.mmc-dash-chat {
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(120% 95% at 50% 38%,
+                    color-mix(in srgb, var(--mmc-ink) 13%, transparent), transparent 74%),
+    var(--mmc-surface-3);
+}
+.mmc-dash-ask, .mmc-dash-back, .mmc-dash-made { position: absolute; display: block; }
+/* The asking line: short, to the right, in the ink the user's own bubble wears. */
+.mmc-dash-ask {
+  right: 13%; top: 15%; width: 40%; height: 11%;
+  border-radius: 999px; background: color-mix(in srgb, var(--mmc-ink) 42%, transparent);
+}
+/* And the answer: shorter, flush left, quieter — the room's own asymmetry. */
+.mmc-dash-back {
+  left: 13%; top: 33%; width: 28%; height: 9%;
+  border-radius: 999px; background: color-mix(in srgb, var(--mmc-ink) 22%, transparent);
+}
+/* What it made. Landed a little low and lifting into place on hover, which is
+   the one motion on this card and the one thing the tool actually does. */
+.mmc-dash-made {
+  left: 13%; right: 13%; top: 52%; height: 34%;
+  border-radius: 7px; background: var(--mmc-media-bg);
+  border: 1px solid color-mix(in srgb, var(--mmc-ink) 30%, transparent);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, .55);
+  transform: translateY(8%); opacity: .72;
+  transition: transform 320ms cubic-bezier(.2, .7, .3, 1), opacity 220ms ease;
+}
+.mmc-dash-card:hover .mmc-dash-made { transform: translateY(0); opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .mmc-dash-made { transition: none; }
+}
+
 /* The first day, and the fallback everywhere else: no picture on the piece, so
  * the card wears its own glyph at poster size, anchored to the plate's lower
  * left and cropped by its bottom edge. Cropped deliberately — a glyph centred

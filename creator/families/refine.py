@@ -418,7 +418,13 @@ def dropped_variations(requests, written):
 # ---- the reply --------------------------------------------------------------
 
 _FENCE_RE = re.compile(r"^```(?:\w+)?\s*(.*?)\s*```$", re.DOTALL)
-_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+
+# A reasoning model's trace, which is never addressed to whoever asked. Public
+# because three readers of a reply strip it — this module's `json_object`, the
+# skill path's `parse_reply`, and the chat surface's, which has to strip it off
+# prose as well as off JSON — and two copies of one regex are two things that
+# can drift apart while both keep passing.
+THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 
 
 def json_object(content):
@@ -430,7 +436,7 @@ def json_object(content):
     sentence in front of it. What the object *holds* is each family's own
     `parse_reply` to judge, and that half is strict.
     """
-    text = _THINK_RE.sub("", content).strip()
+    text = THINK_RE.sub("", content).strip()
     fenced = _FENCE_RE.match(text)
     if fenced:
         text = fenced.group(1).strip()

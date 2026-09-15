@@ -341,7 +341,7 @@ def parse_reply(content):
     skill's output and is not judged here — the panel is an editor and
     `refine.check` reports what points at nothing.
     """
-    text = refine._THINK_RE.sub("", content or "").strip()
+    text = refine.THINK_RE.sub("", content or "").strip()
     fenced = _FENCED_RE.search(text)
     if fenced:
         text = fenced.group(1).strip()

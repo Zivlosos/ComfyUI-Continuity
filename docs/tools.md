@@ -232,6 +232,66 @@ figures — within 0.005 of the driver on game renders — are its own, not this
 pack's. Optical flow for the clip history uses OpenCV where a ComfyUI already
 has it and falls back to zero motion where it does not; the log says which.
 
+## Chat
+
+A room where you talk to the refiner model and it makes the pictures and the
+clips: *"a fox in a snowy wood at dusk"* gets you a still, *"now a clip of it,
+she looks up"* gets you a shot built on that still, *"bluer"* gets you another
+still. The model writes what you would have typed into the prompt box, and that
+text goes to the compiler as typed — there is no second rewrite in between.
+
+What it makes is an ordinary render. It goes on the same queue, Cancel reaches
+it, the progress bar under the card is the real one, and the finished file
+lands in your output folder beside everything else, with the blob that made it
+in its metadata.
+
+Each render gets a handle — `img-1`, `vid-2` — and the handles are how you ask
+for a change: cite one and the model builds the next request on it. A still
+cited on a clip is that clip's first frame. Press a tile in the rail to drop
+its handle into the box. The paperclip, a paste and a dropped file all upload
+into `input/continuity/chat/` and get a handle of their own.
+
+The rail on the right holds the standing choices a turn is made against:
+
+- **The model.** The same picker the Refine button uses — this ComfyUI, or a
+  server you already run. A skill file from the node's skills folder can be
+  appended to the room's own prompting; it is only ever appended, because the
+  room's reply contract is what turns an answer into a render.
+- **What it makes.** Which family draws the pictures and which renders the
+  clips, the shape, the short edge and the turbo switch. A family that reads
+  attached pictures only through a LoRA adapter says so under its pill — it can
+  still draw from words, it just cannot be handed a picture to change.
+- **How it renders.** The seed, kept or rolled each time, and the **Refine**
+  switch. Off, the model's prompt goes to the compiler as written. On, a clip's
+  prompt goes through the family's own prompting first — the Refine button's
+  call, on the Refine button's settings, so the same skill and the same
+  server — and the card says *Refining…* with the token count while it does,
+  then *Refined by* the model once it is done, with the rewrite under the
+  hover. A second model call per render, which is what it costs. A still is
+  never refined: the families that draw one have no prompt refiner, and the
+  pre-stage has no Refine button for the same reason.
+- **What has been made**, as tiles.
+
+Everything on the rail is remembered per machine — it is a statement about this
+install rather than about any piece — so the room opens where you left it. The
+conversation is not: that is kept for the life of the page and a reload starts a
+fresh one.
+
+Two doors on a finished card. **Open in the editor** takes that render's own
+setup out of the file it was saved into and puts it on the piece — the
+pre-stage for a picture, the shot for a clip — then goes there, so you can
+carry on in the editor with everything the conversation set up. **Retake** runs
+the same request again on a new seed.
+
+**On one GPU.** A model running inside this ComfyUI shares the card with your
+renders, so a reply waits behind whatever is sampling and the room says so
+rather than spinning. A server — LM Studio, Ollama, anything
+OpenAI-compatible — is the better setting on a single card, and the rail says
+that too.
+
+Not in it yet: no timeline (a second shot is a new one-shot piece), no cast, no
+`@name`, no streaming, and no saved conversations. The renders stay.
+
 ## Contact sheet
 
 On the pre-stage's rail. Lays nine frames of a clip out as one gutterless
