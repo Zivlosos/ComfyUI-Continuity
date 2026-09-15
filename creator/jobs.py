@@ -128,22 +128,22 @@ def release_all():
 # ---- putting one on the queue -----------------------------------------------
 
 
-async def submit(kind, body, client_id=None):
-    """Queue `body` as a `kind` job. -> its `prompt_id`.
+async def enqueue(prompt, client_id=None):
+    """Put an already-built API-format `prompt` on the queue. -> its `prompt_id`.
 
     The same four steps `server.post_prompt` takes, because this is the same
     thing arriving by a different door: mint an id, validate, put it on the
     queue, hand the id back. Validation is not a formality — it is what catches
-    a `ContinuityJob` the frontend and the server disagree about the shape of,
-    and it is cheap on a one-node prompt.
+    a prompt the frontend and the server disagree about the shape of, and it is
+    cheap on the one-node prompts that come through here.
 
-    **The body is nested, not merged.** It was spread next to the kind at first,
-    and a refine went out as `{"kind": "refine", **payload}` — where the payload
-    is a refine request that has a `kind` of its own saying whether a shot, a
-    segment or the whole timeline is being rewritten. The payload's won, and the
-    queue got a job of kind "segment" that nothing in this pack does. Any of the
-    four bodies could collide the same way, so none of them share a namespace
-    with the envelope: `{kind, body}`, and the runner is handed `body` alone.
+    Separate from `submit` because a `ContinuityJob` is not the only one-node
+    prompt this pack queues without a node on the canvas. The chat room renders
+    by building a `MiniMaxH3PreStage` or a `MiniMaxH3Creator` around the blob it
+    is holding — an ordinary render that saves an ordinary file — and it needs
+    exactly these four steps and none of the envelope above them. Building the
+    prompt is the caller's; getting it onto ComfyUI's queue is one thing, said
+    once.
 
     `client_id` rides in `extra_data` so the `executed` message comes back to
     the tab that pressed the button, exactly as it does for a render.
@@ -151,14 +151,11 @@ async def submit(kind, body, client_id=None):
     import execution
 
     prompt_id = str(uuid.uuid4())
-    prompt = {"1": {"class_type": NODE_ID,
-                    "inputs": {"job": json.dumps({"kind": kind, "body": body})}}}
-
     valid = await execution.validate_prompt(prompt_id, prompt, None)
     if not valid[0]:
-        # A shape mismatch between this module and the node it just built, which
+        # A shape mismatch between this pack and the node it just built, which
         # is a bug here rather than anything the person pressing can act on.
-        log.error("[Continuity] a %s job would not validate: %s", kind, valid[1])
+        log.error("[Continuity] a queued prompt would not validate: %s", valid[1])
         raise JobError(f"this job could not be queued: {valid[1]}")
 
     server = PromptServer.instance
@@ -167,6 +164,23 @@ async def submit(kind, body, client_id=None):
     extra_data = {"client_id": client_id} if client_id else {}
     server.prompt_queue.put((number, prompt_id, prompt, extra_data, valid[2], {}))
     return prompt_id
+
+
+async def submit(kind, body, client_id=None):
+    """Queue `body` as a `kind` job. -> its `prompt_id`.
+
+    **The body is nested, not merged.** It was spread next to the kind at first,
+    and a refine went out as `{"kind": "refine", **payload}` — where the payload
+    is a refine request that has a `kind` of its own saying whether a shot, a
+    segment or the whole timeline is being rewritten. The payload's won, and the
+    queue got a job of kind "segment" that nothing in this pack does. Any of the
+    four bodies could collide the same way, so none of them share a namespace
+    with the envelope: `{kind, body}`, and the runner is handed `body` alone.
+    """
+    return await enqueue(
+        {"1": {"class_type": NODE_ID,
+               "inputs": {"job": json.dumps({"kind": kind, "body": body})}}},
+        client_id)
 
 
 def busy():

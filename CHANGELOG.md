@@ -6,6 +6,37 @@ exactly as it was written, wall of text and all.
 
 ## Unreleased
 
+**The chat surface, headless.** A room where you talk to the refiner and it
+makes pictures and clips needs a server half before it needs a room, and this
+is the server half. One flat action is all the model may answer with — say or
+render, a kind, the prompt exactly as a person would type it into the prompt
+box, handles from the ledger, seconds and an aspect — because the refiner is
+whatever the pack was already pointed at and a 4B model given a catalogue of
+tools stops choosing between them. The fenced reply is parsed tolerantly and
+validated strictly, every refusal is a sentence naming the field, and that
+sentence is quoted back to the model once inside the same job rather than
+bouncing off the browser; a `say` in answer to a plain request for a picture
+buys the same one more go, and a second failure puts the model's own words in
+the bubble. `POST /continuity/chat/turn` builds each turn out of a machine
+card, the ledger and the last five exchanges and answers `{say, action?, raw}`,
+with the remote backend answered inside the request and the in-process one
+riding the queue the way a refine does. `POST /continuity/chat/render` turns
+the action into a pre-stage or a Creator blob, fills the weights from what this
+machine last picked, runs the compiled-prompt dry run — a duration off the
+frame grid or a checkpoint nobody chose comes back as the assistant's next
+line, verbatim — and puts a one-node prompt on ComfyUI's own queue, so Cancel
+reaches it, the progress bar is the real one and the file lands in the gallery
+with its blob in its metadata like any other render. The machine card is the
+join nothing made before: every family's manifest, the files on this disk and
+this machine's picks, in about a hundred and fifty tokens, ending in "not
+ready: no file is picked for …" so the model can say so instead of trying.
+Making that join turned up a manifest that never served H3's optional flag, so
+the ControlNet branch a guide loads was being demanded of every render; it says
+what it is now. `tools/chat_bench.py` runs a scripted conversation against any
+OpenAI-compatible server with no browser and no queue, which is where the
+system prompt is tuned per small model. This is the headless half — the room
+off the dashboard is next.
+
 **The simple view shows the seed.** A seed pill on the simple card, drawn as
 two halves, and the card scrolls; a pre-stage `{a|b}` chooses on the seed.
 

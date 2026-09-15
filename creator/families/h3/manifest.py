@@ -143,6 +143,13 @@ def _weights():
         "loads": bool(slot.loader),
         "routed": slot.routed,
         "audio": slot.audio,
+        # Whether a render can go without the file at all — `models.check`
+        # reads the same flag off the table. Absent from this manifest until
+        # now, which meant every reader of the served catalog took the default
+        # ("required") for the ControlNet branch: a file loaded only where a
+        # guide is actually on the piece was being demanded of every H3 render,
+        # by the weights pill and by anything else that asks what is missing.
+        "required": not slot.optional,
         "gguf": slot.folder in core.GGUF_FOLDERS,
         # Asked of the wrapper table rather than of the slot list, the way
         # LTX 2.5's manifest asks: ComfyUI-MultiGPU subclasses the core
