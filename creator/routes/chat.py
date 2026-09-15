@@ -21,8 +21,11 @@ server and tuned on `tools/chat_bench.py` without a browser.
 exactly as the refine button's is and for the same reason: it spends somebody
 else's GPU, so there is nothing for it to queue behind. The in-process one is a
 4B model on the card the render wants, so it rides the queue as a `chat` job and
-the reply arrives on `executed` under `ui.continuity` — the same object, so the
-room reads one shape whichever backend it is pointed at.
+the reply arrives on `executed` under `ui.continuity`. The turn object is the
+same either way, and the remote one is wrapped in `{"result": …}` because that
+is the envelope `queue.run()` reads: it resolves with `answer.result` where the
+reply carries one and waits for `executed` where it does not, so one call site
+in the room covers both backends. `/continuity/refine` says it the same way.
 
 **The re-ask is a second call inside the same job**, never a round trip to the
 browser. The room asked one question and is owed one answer; a correction the
@@ -457,9 +460,11 @@ async def chat_turn(request):
 
     Stateless: the browser sends the trimmed history, the ledger and the rail
     every time, and this builds one turn out of them. The remote backend answers
-    inside the request; the in-process one is GPU work and rides the queue, so a
-    local chat waits behind a running render. That is the cost of one GPU and
-    the room shows the queue position rather than pretending otherwise.
+    inside the request, as `{"result": turn}`; the in-process one is GPU work
+    and rides the queue, answering `{"prompt_id": id}` and putting the same turn
+    on `executed`. A local chat waits behind a running render — that is the cost
+    of one GPU, and the room shows the queue position rather than pretending
+    otherwise.
     """
     try:
         body = await request.json()
@@ -484,7 +489,12 @@ async def chat_turn(request):
         # loop is also the prompt queue and the websocket.
         loop = asyncio.get_running_loop()
         try:
-            return web.json_response(await loop.run_in_executor(None, _run, body))
+            turn = await loop.run_in_executor(None, _run, body)
+            # Under `result`, which is the envelope `queue.run()` reads for a
+            # reply that did not need the queue. The queued path puts the same
+            # object on `executed` instead, so the room has one call site and
+            # one shape whichever backend it is pointed at.
+            return web.json_response({"result": turn})
         except (refine.RefineError, chat.ActionError) as problem:
             return web.json_response({"error": str(problem)}, status=400)
         except Exception as problem:  # noqa: BLE001

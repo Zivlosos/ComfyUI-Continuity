@@ -6,6 +6,28 @@ exactly as it was written, wall of text and all.
 
 ## Unreleased
 
+**And the room it is reached from.** A **Chat** card on the tools dashboard,
+beside Upscale, opens a room in the benches' own shell: the conversation down
+the middle, a rail of standing choices on the right, a box at the foot where
+Enter sends. A render appears inline as a card the moment it is queued and
+shows the real thing while it runs — the queue's own progress, the sampler's
+own preview frames — then becomes the finished picture or a player, with its
+handle under it. Cite that handle in what you say next and the model builds on
+it; press a tile in the rail and the handle lands in the box. The paperclip, a
+paste and a dropped file upload into `input/continuity/chat/` and get a handle
+too. Two doors on a finished card: **Open in the editor** lifts that render's
+own setup out of the file it was saved into and puts it on the pre-stage or the
+shot before going there, and **Retake** runs the same request again on a new
+seed. The rail reuses the Refine button's model picker whole, offers the
+families off the served catalog and never by name, remembers what you picked
+per machine, and says the two things a person needs told: that a local model
+shares the card with your renders and waits behind them, and that a still
+family which reads pictures only through a LoRA adapter cannot be handed one to
+change. Leaving the room keeps the conversation; reloading starts fresh, and
+the renders stay in the output folder. The card's plate is drawn rather than
+photographed — two said lines and the frame that came of them — because a room
+where you talk has no frame of its own to be a picture of.
+
 **The chat surface, headless.** A room where you talk to the refiner and it
 makes pictures and clips needs a server half before it needs a room, and this
 is the server half. One flat action is all the model may answer with — say or

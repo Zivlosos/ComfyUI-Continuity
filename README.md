@@ -45,7 +45,7 @@ directory, not in the pack folder.
 - [The node](docs/the-node.md) - prompting, references, the cast, Refine
 - [Timelines](docs/timeline.md) - pieces with more than one shot
 - [Model families](docs/families.md) - what each model can do
-- [Tools](docs/tools.md) - ControlNet, upscaling, presets, LoRAs
+- [Tools](docs/tools.md) - chat, ControlNet, upscaling, presets, LoRAs
 - [FAQ and troubleshooting](docs/faq.md)
 - [Changelog](CHANGELOG.md) - what changed, release by release
 
