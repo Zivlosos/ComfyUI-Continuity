@@ -798,6 +798,12 @@ DEFAULT_SECONDS = 6
 
 SEED_FIXED, SEED_RANDOM = "fixed", "random"
 
+# What the rail's seed control may be set to. Written down because three places
+# read it — the pill, this module's `render_seed`, and `settings.clean_chat`,
+# which refuses a rail holding anything else — and a fourth spelling of "random"
+# would be a policy that silently meant "fixed".
+SEED_POLICIES = (SEED_FIXED, SEED_RANDOM)
+
 # What the route stamps onto the rail about the still family's references, and
 # what a rail that says nothing means. `takes` is `takes_refs` of that family and
 # `refusal` is `refs_refusal` of it with the alternatives already named — both

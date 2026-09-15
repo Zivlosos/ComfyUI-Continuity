@@ -266,6 +266,11 @@ The rail on the right holds the standing choices a turn is made against:
   sentence saying so.
 - **What has been made**, as tiles.
 
+Everything on the rail is remembered per machine — it is a statement about this
+install rather than about any piece — so the room opens where you left it. The
+conversation is not: that is kept for the life of the page and a reload starts a
+fresh one.
+
 Two doors on a finished card. **Open in the editor** takes that render's own
 setup out of the file it was saved into and puts it on the piece — the
 pre-stage for a picture, the shot for a clip — then goes there, so you can
@@ -279,8 +284,7 @@ OpenAI-compatible — is the better setting on a single card, and the rail says
 that too.
 
 Not in it yet: no timeline (a second shot is a new one-shot piece), no cast, no
-`@name`, no streaming, and the conversation is kept for the life of the page
-rather than saved — reloading starts a fresh one. The renders stay.
+`@name`, no streaming, and no saved conversations. The renders stay.
 
 ## Contact sheet
 

@@ -239,6 +239,43 @@ refuses("a string", {"video_crf": "18"}, "whole number")
 refuses("a boolean", {"video_crf": True}, "whole number")
 refuses("something that is not an object", ["video_crf", 18], "must be an object")
 
+# ---- the chat room's rail ------------------------------------------------------
+#
+# The room sends its rail with every turn and every render, so nothing queued
+# reads this — it is only where the rail is remembered between sessions. Which
+# is exactly why it has to be checked: a block `clean` did not know about was
+# dropped on the way through, the page cached what came back, and every choice
+# on the rail was forgotten on reload with nothing anywhere saying so.
+
+RAIL = {"still_family": "qwenedit", "video_family": "h3", "aspect": "16:9",
+        "short_edge": 1024, "turbo": True, "seed": 7, "seed_policy": "fixed",
+        "refine": False, "skill": "noir"}
+
+check("an empty rail is the default", settings.clean({})["chat"], {})
+check("a rail is stored whole", settings.clean({"chat": RAIL})["chat"], RAIL)
+check("a null rail is the default", settings.clean({"chat": None})["chat"], {})
+
+# Structural only. A family this install no longer has is a preference to fall
+# back from — the room's own pill reads an absent family as the first one it
+# does have — not a settings file to refuse.
+check("a family id is kept as written, whatever the registry has",
+      settings.clean({"chat": {"still_family": "somethingelse"}})["chat"],
+      {"still_family": "somethingelse"})
+# And a field from a newer build costs nothing: dropped, so the rest of the
+# rail — and the rest of the settings — still saves.
+check("a field this build has never heard of is dropped",
+      settings.clean({"chat": {**RAIL, "cast": ["anna"]}})["chat"], RAIL)
+
+refuses("a seed policy that is neither", {"chat": {"seed_policy": "sometimes"}},
+        "one of fixed, random")
+refuses("a fractional short edge", {"chat": {"short_edge": 768.5}}, "whole number")
+refuses("a boolean short edge", {"chat": {"short_edge": True}}, "whole number")
+refuses("a short edge of no pixels", {"chat": {"short_edge": 0}}, "1 or more")
+refuses("a negative seed", {"chat": {"seed": -1}}, "0 or more")
+refuses("a family id that is not a name", {"chat": {"video_family": 3}}, "must be a name")
+refuses("a switch that is not one", {"chat": {"turbo": "yes"}}, "true or false")
+refuses("a rail that is not an object", {"chat": ["still_family"]}, "must be an object")
+
 # ---- the file -----------------------------------------------------------------
 
 with tempfile.TemporaryDirectory() as directory:
@@ -273,6 +310,15 @@ with tempfile.TemporaryDirectory() as directory:
           (settings.video_prefix("ltx25"), settings.video_prefix("h3"),
            settings.image_prefix("krea2")),
           ("client/shoot-3/take", DEFAULT_PREFIXES["video"]["h3"], "client/stills"))
+
+    # The whole point of the block existing: it survives the round trip through
+    # the file, which is what a rail that is forgotten on reload does not do.
+    check("a rail comes back off the disk as it went in",
+          settings.save({"chat": RAIL})["chat"], RAIL)
+    check("...and is still there after another field is saved",
+          settings.save({"video_crf": 14})["chat"], RAIL)
+    check("...and is what loads", settings.load()["chat"], RAIL)
+    settings.save({"chat": {}})
 
     settings.save({"video_crf": 14, "video_prefix": DEFAULT_PREFIXES["video"],
                    "image_prefix": DEFAULT_PREFIXES["still"]})

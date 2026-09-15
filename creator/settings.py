@@ -35,7 +35,7 @@ runs it standalone, the same way `outputs.py` is tested.
 import json
 import os
 
-from . import outputs
+from . import chat, outputs
 from .families.h3 import derope
 from .families import registry
 
@@ -184,6 +184,18 @@ DEFAULTS = {
     # pick survived exactly as long as the tab did.
     "upscale_weights": {},
     "control_weights": {},
+    # The chat room's rail: which family draws its pictures and which renders
+    # its clips, the shape and the short edge it asks for, the turbo and refine
+    # switches, and what happens to the seed between renders.
+    #
+    # Here rather than in the browser's own store for the same reason the
+    # weights above are: every one of these is a statement about this machine
+    # rather than about any piece — the families it has files for, the size its
+    # card can render, whether its GPU wants the distilled checkpoint — and a
+    # room that forgot them on every reload would ask the same four questions
+    # every morning. Nothing queued reads it; the room sends the rail with each
+    # turn and each render, and this is only where it is remembered between them.
+    "chat": {},
     # The DLSS refiner's saved setups, in the order they were saved:
     # `[{"name": "...", "block": {...}}]`. Six numbers is not much to keep, and
     # keeping them is the difference between a profile somebody found by eye and
@@ -441,6 +453,8 @@ def clean(raw):
     for key in ("upscale_weights", "control_weights"):
         if key in raw and raw[key] is not None:
             clean_settings[key] = clean_weights(raw[key], key)
+    if "chat" in raw and raw["chat"] is not None:
+        clean_settings["chat"] = clean_chat(raw["chat"])
     if "neural_profiles" in raw and raw["neural_profiles"] is not None:
         clean_settings["neural_profiles"] = clean_neural_profiles(raw["neural_profiles"])
     if "neural_start" in raw and raw["neural_start"] is not None:
@@ -548,6 +562,66 @@ def clean_weights(raw, label="weights"):
         if kept:
             out[family] = kept
     return out
+
+
+# The rail's fields, by what each one has to be. Listed rather than validated
+# one `if` at a time because they are one control panel and they are read back
+# as one block; what they *mean* is the room's and the manifest's, exactly as a
+# slot id's meaning is the family's in `clean_weights` above.
+CHAT_NAMES = ("still_family", "video_family", "aspect", "skill")
+CHAT_FLAGS = ("turbo", "refine")
+CHAT_COUNTS = (("short_edge", 1), ("seed", 0))
+
+
+def clean_chat(raw):
+    """The chat room's rail, as this file will store it.
+
+    Structural only, and deliberately: a family id is checked against the
+    served catalog where the pill is drawn, not here. The registry can lose a
+    family between one session and the next — an install downgraded, a package
+    removed — and a rail naming one is a preference to fall back from, not a
+    settings file to refuse. The room's `familyOr` already reads an absent
+    family as the first one it does have, which is the same forgiveness
+    `clean_weights` extends to a slot id it has never heard of.
+
+    What *is* enforced is that every field is the kind of thing it says it is,
+    because that is what makes the file safe to read back — and a field this
+    build has never heard of is dropped rather than refused, so a rail written
+    by a newer version does not cost somebody the rest of their settings.
+    """
+    if not isinstance(raw, dict):
+        raise ValueError("chat must be an object")
+    kept = {}
+    for key in CHAT_NAMES:
+        if raw.get(key) is None:
+            continue
+        if not isinstance(raw[key], str):
+            raise ValueError(f"chat.{key} must be a name")
+        kept[key] = raw[key]
+    for key in CHAT_FLAGS:
+        if raw.get(key) is None:
+            continue
+        if not isinstance(raw[key], bool):
+            raise ValueError(f"chat.{key} must be true or false")
+        kept[key] = raw[key]
+    for key, floor in CHAT_COUNTS:
+        if raw.get(key) is None:
+            continue
+        value = raw[key]
+        # `True` is an int in Python and would sail through as one pixel, the
+        # same trap every count in `clean` sets.
+        if isinstance(value, bool) or not isinstance(value, (int, float)) \
+                or value != int(value):
+            raise ValueError(f"chat.{key} must be a whole number")
+        if int(value) < floor:
+            raise ValueError(f"chat.{key} must be {floor} or more")
+        kept[key] = int(value)
+    if raw.get("seed_policy") is not None:
+        if raw["seed_policy"] not in chat.SEED_POLICIES:
+            raise ValueError("chat.seed_policy must be one of "
+                             + ", ".join(chat.SEED_POLICIES))
+        kept["seed_policy"] = raw["seed_policy"]
+    return kept
 
 
 # How long a saved refiner setup's name may be, and how many may be kept. Both
