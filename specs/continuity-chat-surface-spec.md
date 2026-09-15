@@ -1,22 +1,30 @@
 # Continuity — The chat surface
 
-Brainstorm and research notes, then a proposed design. High level:
-architecture and decisions, not code. Written 2026-09-15 against `main` at
-`2b561ab`.
+Spec for the first iteration. High level: architecture and decisions, not
+code. Written 2026-09-15 against `main` at `2b561ab`, after the research in
+§2 and §3.
 
-## 1. The ask
+## 1. Summary
 
 A room reached from the tools dashboard where you talk to the refiner model
 the way you talk to ChatGPT, and it makes pictures and clips: "a fox in a
-snowy wood at dusk" → a still; "make it a clip, she looks up" → a shot;
-"bluer, and closer on the face" → an edit. It has to work with small models,
-because the refiner is whatever the user pointed the pack at: a 4B Qwen3-VL
-loaded in-process, or an LM Studio / Ollama / hosted endpoint.
+snowy wood at dusk" → a still; "now a clip of it, she looks up" → a shot;
+"bluer" → another still. The refiner is whatever the user already pointed
+the pack at — a Qwen3-VL 4B in-process, or LM Studio, Ollama, a hosted
+endpoint — so it has to work with small models.
 
-Two questions decide everything: how does the model get at what it needs to
-know, and how does it run a render.
+**First iteration, deliberately small:**
 
-## 2. How ChatGPT does it (what to copy, what not to)
+- Stills, and video of **one shot**. No timeline, no seams, no cast.
+- **The model's prompt is the render's prompt.** The chat model writes what
+  a user would type into the prompt box, and that goes to the compiler as
+  typed. The Refine pass is a switch in the rail, **off by default**.
+- The server is stateless. The conversation and its media ledger live in the
+  browser for the life of the room; the server builds one turn at a time.
+- No token streaming, no vision captions, no saved conversations. Each is a
+  later step (§6) and none is needed to have the conversation.
+
+## 2. How ChatGPT does it
 
 ChatGPT's image generation is a **tool call**, and the tool is small. The
 leaked contract is one function, `text2im`, with five fields: `prompt`,
@@ -24,323 +32,267 @@ leaked contract is one function, `text2im`, with five fields: `prompt`,
 around it are shorter than this paragraph: use it whenever the user asks for
 a picture or a change to one; do not ask for confirmation; after the call,
 say nothing. Edits are a fresh call with a rewritten full prompt plus the
-**id** of the earlier image, never the pixels again. The public Responses API
-formalises the same thing with an `action: auto | generate | edit` switch and
-`previous_response_id` for multi-turn.
+**id** of the earlier image, never the pixels again. The public Responses
+API formalises the same thing with an `action: auto | generate | edit`
+switch and `previous_response_id` for multi-turn.
 
 Gemini is the other architecture: the chat model *is* the image model, so
 images come back as parts of the reply with no tool at all. We cannot be
-that — the refiner is a text (or vision-text) model and the renderers are six
-separate families — so we are in ChatGPT's shape, not Gemini's.
+that — the refiner is a text (or vision-text) model and the renderers are
+six separate families — so we are in ChatGPT's shape.
 
-The pieces that transfer:
+What transfers: one tool, a flat schema, the model rewrites the prompt,
+prior media by id, don't ask, just render. What we add: a refusal from the
+compiler (a missing weight, a duration off H3's grid) is a sentence, and the
+assistant relays it.
 
-- **One tool, a flat schema, the model rewrites the prompt.** Small models
-  choose well among ~5 fields and badly among 50 tools (BFCL-derived: tool
-  selection collapses as the catalogue grows; arXiv 2605.24660).
-- **Prior media by id.** Every upload and every render gets a short handle;
-  edits name it. This pack already has that: `@img-3`.
-- **A generate/edit switch the harness can force**, because "edit" in this
-  pack is a different family (Qwen Image Edit, Flux 2 Klein, or `edit`/
-  `continue` scope on a clip), not a flag on the same one.
-- **Don't ask, just render.** With one exception we already have: a refusal
-  from the compiler (a missing weight, an H3 duration off the grid) is a
-  sentence, and the assistant relays it.
+## 3. What the research says about small models
 
-## 3. What the pack already has
+- **Constrained decoding guarantees shape, not meaning.** On sub-3B models
+  hard schema decoding took JSON validity to 100% and accuracy *down*
+  (arXiv 2605.26128, "reason free, constrain late"). A one-line plan before
+  the JSON helps a small model pick the right action; a long one hurts
+  (arXiv 2604.02155: ~32 tokens of reasoning lifted a 1.5B model from 44%
+  to 64%; 256 tokens made it worse than none).
+- **Multi-turn tool use is where small models collapse.** Qwen3-4B scores
+  about 82% single-turn and about 35% multi-turn on BFCL. So the harness
+  carries every bit of state and each turn is a fresh single decision.
+- **Few, flat tools.** Tool selection degrades as the catalogue grows
+  (arXiv 2605.24660). One tool with five fields.
+- **Ollama drops tool calls when `tools` and `format` are both set**
+  (ollama#13750). Never send both.
+- **Which models.** Qwen3.5 4B/9B and Gemma 4 E4B/12B report tools and
+  vision and choose well single-turn; Gemma 3 has no tool template;
+  DeepSeek distills are not tool-trained. Capability is discoverable:
+  Ollama `POST /api/show` → `capabilities`, LM Studio `GET /api/v0/models`
+  → `capabilities` and `type: vlm`.
+- **The ecosystem** (Open WebUI, SillyTavern, LibreChat, the Comfy MCP,
+  ComfyUI-Copilot) either needs frontier models to drive many tools, or
+  maps generic fields onto a workflow template. None understands references
+  the way this pack's compiler does. The template approach is the one that
+  works for small models, and here the template is the blob.
 
-The refiner subsystem is single-shot by construction but every part of it
-is reusable. From the map (see `creator/refine_routes.py`,
-`creator/refine_remote.py`, `creator/refine_local.py`):
+## 4. What the pack already has
 
-- **Two backends behind one `chat(model, system, message, images, …)`
-  signature.** Local is a Qwen3-VL 4B/8B loaded through `comfy.sd.load_clip`
-  and driven by `CLIP.generate`; remote is one OpenAI-compatible
-  `/chat/completions` client with provider quirks table-driven
-  (`NEGOTIABLE`, `UNLOADS`). Both **see images** already (`_picture`,
-  `to_data_url`). Neither streams, neither knows tool calling, and there is
-  no message-list plumbing above them — every call is system + one user turn.
-- **`_plan()` compiles the blob first**, so the refiner already knows the
-  family, the mode, every reference and its ordinal label, the cast, the
-  timeline, the language and the duration. That is exactly the "what does
-  the node know" payload a chat turn needs, and it exists.
-- **Rendering without the node on the canvas works.** The whole piece is one
-  JSON blob in one widget, and `creator/sampling.py:29` says a headless
-  queue that never opens the node is supported on purpose. `jobs.submit`
-  builds a one-node API-format prompt and puts it on ComfyUI's queue;
-  `neuraltwin` re-queues a finished render from its embedded blob. A
-  `MiniMaxH3Creator` node with `creator_data` set is an output node that
-  expands its own graph and saves its own file.
-- **A dry run exists.** `POST /continuity/compiled_prompt` compiles a blob to
-  the prompt each pass will read, or returns `{problem}` — the refusal as a
+- **Rendering without the node on the canvas is supported on purpose.**
+  The piece is one JSON blob in one widget (`creator/sampling.py:29`).
+  `jobs.submit` builds a one-node API-format prompt and puts it on ComfyUI's
+  queue; `neuraltwin` re-queues a finished render from its embedded blob.
+  A `MiniMaxH3Creator` (or `MiniMaxH3PreStage`) node with its blob set is an
+  output node that expands its own graph and saves its own file.
+- **A dry run.** `POST /continuity/compiled_prompt` compiles a blob to the
+  prompt each pass will read, or returns `{problem}` — the refusal as a
   sentence, before any GPU time.
-- **The machine describes itself.** `GET /continuity/families` is the
-  validated catalogue (what each family makes, its canvas rules, durations,
-  reference limits, which weight slots it needs); `GET /continuity/models` is
-  what is on disk per slot; `settings["weights"]` is the machine's last pick
-  per family. Nothing today joins them into "which families are usable right
-  now", but it is a join, not a discovery.
-- **Every render carries its blob** in the file's metadata, and takes are
-  filed with card and seed. Provenance is free.
-- **The dashboard has a registration pattern**: a card in
-  `fullscreen.destinations()` with a `go` that opens an `mmc-bn-over` room
-  and a `back` that returns to the dash. Four tools use it today.
+- **The machine describes itself.** `GET /continuity/families` (what each
+  family makes, canvas rules, durations, reference limits, required weight
+  slots), `GET /continuity/models` (what is on disk per slot),
+  `settings["weights"]` (the machine's last pick per family). Nothing joins
+  them into "which families are usable now" yet; it is a join.
+- **Two refiner backends behind one `chat(model, system, message, images,
+  …)` signature**, both able to look at pictures. No message list above
+  them, no streaming, no tool plumbing. `json_object()` already strips
+  `<think>` and fences from a reply.
+- **The dashboard's card pattern**: an entry in `fullscreen.destinations()`
+  whose `go` opens an `mmc-bn-over` room and whose `back` returns to the
+  dash. Four tools use it.
+- **Every render carries its blob** in the file's metadata.
 
-What does not exist: a conversation, a per-conversation asset ledger, token
-streaming (the pack has no SSE path at all; long work rides the queue and the
-browser waits for `executed`), and any tool-call or JSON-schema plumbing.
+## 5. The design
 
-## 4. The design
+### 5.1 The model writes the prompt, the compiler renders it
 
-### 4.1 Two models' worth of work, in one model
-
-The trap is asking the chat model to write H3's Context-IR or LTX's shot
-list. A 4B model cannot, and a 70B one gets it wrong often enough that the
-Refine button exists. So the chat model **never writes the family prompt**.
-It writes what a user types into the prompt box: a short brief in the
-pack's own language — `@handles` for references, quotes for spoken lines,
-`{a|b}` if it wants — plus three or four knobs. Then the pipeline the node
-already runs takes over:
+The chat model writes what a user types into the prompt box: a description
+in the pack's own language — `@handles` for references, quotes for spoken
+lines or on-screen text, `{a|b}` if it likes — plus a few knobs. That text
+goes into the blob's segment prompt **as typed**, and the compiler wraps it
+the way it wraps any prompt: reference labels, mode, duration grid, the
+family's frame. No second model call.
 
 ```
-user turn ──► chat model ──► action JSON (brief + knobs)
-                                   │
-                                   ▼
-                         blob patch (the chat's piece)
-                                   │
+user turn ──► chat model ──► one line of plan + action JSON
+                                    │
+                                    ▼
+                          blob (the chat's piece)
+                                    │
                     compiled_prompt dry run → refusal? relay it
-                                   │
-                      Refine (the same backend, the family's
-                      own prompting) → structured prompt
-                                   │
-                          one-node prompt on the queue
-                                   │
-                    executed → file → ledger entry (+ caption)
+                                    │
+                     [Refine, only if the rail switch is on]
+                                    │
+                         one-node prompt on the queue
+                                    │
+                  executed → file → ledger entry in the browser
 ```
 
-The chat model is the director; the refiner is the writer; the compiler is
-the crew. This is the same division ChatGPT makes between the assistant and
-the image model, and it is what lets a small model drive the whole thing: it
-only ever has to produce a sentence and a handful of fields.
+Refine as an option, not a step: with the switch on, the chat's prompt goes
+through the family's own `Prompting` on the same backend before queueing,
+exactly as the button does, and the panel's `refined` field is written into
+the segment. It doubles the model calls per render and it is what a user
+with a small model and H3 will want eventually; it is off until they ask.
+The family's prompting rules (H3 wants structured prose) are available to
+the chat model a cheaper way: the user's chosen skill file from
+`creator/skills/` can be appended to the chat's system prompt, the same
+`add` mode the refiner offers.
 
-Cost: two model calls per render (brief, then refine). The refine call can be
-skipped for families whose manifest has no `refine` capability, and a
-setting can skip it when the user trusts the chat model to write prose
-directly (a large hosted model with the H3 skill loaded is fine at it).
+### 5.2 The one action
 
-### 4.2 The one action
-
-One tool, one schema, never more than one call per turn. Draft:
+One tool, one schema, at most one call per turn:
 
 ```json
 {
   "act":     "say" | "render",
   "kind":    "still" | "video",
-  "prompt":  "the brief, in the prompt box's language",
-  "from":    ["img-3"],          // handles from the ledger; first is the
-                                 // picture being edited, or the clip
-                                 // being continued
-  "seconds": 6,                  // video only; omitted = family default
+  "prompt":  "what would go in the prompt box",
+  "from":    ["img-3"],
+  "seconds": 6,
   "aspect":  "16:9",
-  "say":     "one line to show the user"
+  "say":     "one short line for the user"
 }
 ```
 
-Everything else — family, checkpoint, resolution, sampler row, turbo — is
-the harness's choice from the machine card and the conversation's settings
-rail, the way ChatGPT picks the model. `kind` + whether `from` is set
-resolves the family: still with nothing → the default still family; still
-from a picture → an edit family; video from a clip → H3 with `continue`
-scope; video from a still → a start frame. A `family` field can be added for
-users who want to name one in chat, but it is not in the small-model schema.
+- `kind` picks the family: the rail's standing still family or video
+  family. The model does not name families in this iteration.
+- `from` is zero or more handles from the ledger. They become references
+  on the segment, scope `full`. Under `kind: video` a still in `from` is
+  the **start frame**. Under an edit family (Qwen Image Edit, Flux 2 Klein)
+  the first one is the picture being edited, which is what those families
+  do with a first reference already. Nothing else is resolved: no
+  `continue`, no `camera`, no cast.
+- `seconds` and `aspect` are optional; the family's defaults apply, and the
+  compiler's grid snaps the seconds.
+- `say` is what the bubble shows on a `render`; on a `say` it is the whole
+  reply.
 
-Why this shape and not native tool calling with several tools:
+**Protocol.** The model replies with one line of plan, then the JSON in a
+fence. The harness parses tolerantly, validates, and on failure re-asks once
+with the error quoted. A second failure is a `say` with the model's text.
+Where the runtime reports native tool support the same schema is the one
+tool, `parallel_tool_calls: false`; the fenced form is the fallback and the
+default for the in-process backend. One nudge on top: if the user's message
+plainly asks for a picture or a clip and the model answered `say`, re-ask
+once saying a render was expected.
 
-- Constrained decoding guarantees shape, not meaning: on sub-3B models hard
-  schema decoding took validity to 100% and accuracy *down* (arXiv
-  2605.26128); "reason free, constrain late". A plan sentence before the
-  JSON helps a small model pick the right action (arXiv 2604.02155: ~32
-  tokens of reasoning lifted a 1.5B model 44% → 64%; 256 tokens made it
-  worse).
-- Multi-turn tool use is where small models collapse (Qwen3-4B: ~82%
-  single-turn, ~35% multi-turn on BFCL). So the **harness carries the
-  state** — the ledger, the piece, the last render's settings — and each turn
-  is a fresh single decision.
-- Ollama silently drops tool calls when `tools` and `format` are both set
-  (ollama#13750). Never send both.
+### 5.3 What the model gets to know
 
-So the protocol is: the model replies with one line of plan, then the JSON in
-a fence. The harness parses tolerantly (the pack's `json_object()` already
-strips `<think>` and fences), validates against the schema, and on failure
-re-asks once with the error quoted. A second failure is treated as `say`.
-Where the runtime reports native tool support (Ollama `/api/show`
-`capabilities: ["tools"]`, LM Studio `/api/v0/models` `capabilities:
-["tool_use"]`), the same single schema is offered as the one tool with
-`parallel_tool_calls: false`; the fenced form stays the fallback and the
-default for the in-process backend.
+Three blocks, short, in a fixed order that ends with the freshest thing,
+the way `families/h3/refine.py` orders its rules for small models.
 
-A cheap nudge on top, borrowed from SillyTavern: if the user's message
-matches an obvious "make / show / render me a picture / clip" pattern and
-the model answered `say`, re-ask once telling it a render was expected.
+1. **The machine card** (~150 tokens, built server-side, cached until
+   settings change). The still family and the video family the rail has
+   chosen, whether each is ready (required slots have a file), what each
+   makes, its duration range and grid, its aspect table, how many
+   references it takes. A family with missing weights says so, so the
+   model can say so instead of trying.
+2. **The ledger**, one line per item: `img-3 · still · 16:9 · turn 4 ·
+   "a fox on a snowy ridge at dusk, low sun behind"`. The description is
+   the model's own prompt for a render and the user's words (or the
+   filename) for an upload. This is `referenced_image_ids`; pixels never
+   enter the text context. An upload with no words and a vision-capable
+   backend gets one "what is this" call for its line; a text-only backend
+   gets the filename.
+3. **The last turns**, trimmed to a budget of about five exchanges, each
+   with its action JSON, so "same but at night" is a delta on a known
+   prompt.
 
-### 4.3 What the model gets to know
+The system prompt is one short file, `creator/prompts/chat/system.txt`,
+with three worked exchanges: a still, a video from an earlier still, and a
+question that is just `say`. Stable wording matters (BFCL's format
+sensitivity is real), so tuning happens on the bench (§7), not in the room.
 
-Three blocks, all assembled server-side, all short. Small models read the
-end of the prompt best, so the order is fixed and recency-weighted the way
-`families/h3/refine.py` already orders its rules.
+### 5.4 Running the render
 
-1. **The machine card** (~200 tokens, cached per settings change). The join
-   of `families` × `models` × `settings.weights`: for each family, whether
-   it is ready (its required slots have a file), what it makes, its
-   duration range and grid, its aspect table, whether it takes references
-   and how many, and which is the default still and video family. A family
-   with no weights is listed as "not installed" so the model can say so
-   instead of trying.
-2. **The ledger** — the conversation's media, one line each:
-   `img-3 · still · 16:9 · from turn 4 · "a fox on a snowy ridge, dusk,
-   low sun behind"`. The description is the model's own brief for renders,
-   the VLM's caption for uploads (§4.5), and the user's words if they
-   named it. This is the `referenced_image_ids` mechanism; the pixels are
-   never in the text model's context.
-3. **The last turns** — the last N exchanges with their action JSON,
-   trimmed to a token budget (Home Assistant's local-LLM guidance: 3–5
-   turns, under 25 entities, no thinking variant). The last render's full
-   knobs ride along so "same but at night" is a delta.
+The browser holds the chat's **piece**: a `creator_data` blob (or
+`prestage_data` for stills) it patches from each action and posts back. The
+server route `POST /continuity/chat/render` takes the blob and:
 
-The system prompt itself is short and stable (format sensitivity on BFCL is
-real), with three worked exchanges as few-shot: a plain still, an edit that
-names `from`, and a question that is just `say`. It ships as a file in
-`creator/prompts/chat/` beside the family mode files, and the existing
-skill mechanism lets a user add to or replace it.
+1. Fills `models` from `settings.weights` and the sampler block from the
+   rail (seed policy, turbo, resolution).
+2. Runs the `compiled_prompt` dry run. A `{problem}` comes back as the
+   assistant's line, verbatim.
+3. Optionally refines (§5.1).
+4. Submits a one-node prompt the way `jobs.submit` does — `MiniMaxH3Creator`
+   for a shot, `MiniMaxH3PreStage` for a still — and answers `{prompt_id}`.
 
-### 4.4 Running the render
+The room listens to `progress_state`, `b_preview*`, `executed` and
+`mmc_refused` keyed on that id, the way `stage.js` does. On `executed` the
+saved file becomes a ledger line with the next handle and the prompt as its
+description. It is an ordinary render in the output folder: in the gallery,
+citable from the node's picker, with its blob in its metadata.
 
-The chat owns a **piece**: a `creator_data` blob per conversation, kept
-server-side, never on a canvas. Each `render` action patches it — prompt,
-segment assets (the `from` handles resolved to input-folder paths, with
-scope set by the edit/continue resolution above), `duration_s`, `aspect`,
-`family`, and `models` filled from `settings.weights` — then:
+A render is one queue item like any other. Cancel reaches it, the progress
+bar is the real one, a render queued from the canvas ahead of it goes first.
 
-1. `compiled_prompt` dry run. A `{problem}` is relayed as the assistant's
-   line, with a fix where the sentence names one ("H3 has no 7-second shot;
-   nearest is 6.8").
-2. Refine through the family's `Prompting`, on the same backend, unless
-   skipped. `_plan()` is reused as-is; the result is written into the
-   segment's `refined` field the way the panel does.
-3. `jobs`-style submit of a one-node prompt: `MiniMaxH3Creator` for shots,
-   `MiniMaxH3PreStage` for stills, seed and sampler row from the piece's
-   `sampling` block. The route answers `{prompt_id}`; the room listens to
-   `progress_state`, `b_preview*`, `executed` and `mmc_refused` the way
-   `stage.js` does, keyed on that id.
-4. On `executed` the saved file becomes a ledger entry with the next handle
-   and the brief as its description. The file is an ordinary render in the
-   output folder — it is in the gallery, and the node's picker can cite it.
+### 5.5 The turn itself
 
-A render is one queue item like any other: Cancel reaches it, the progress
-bar is the real one, and a render from the canvas ahead of it goes first.
+`POST /continuity/chat/turn` takes `{messages, ledger, settings}` and
+answers `{say, action?, raw}`. It is stateless: the browser sends the trimmed
+history each time. The remote backend answers inline, as the refine route
+does, since it spends someone else's GPU. The local backend is GPU work and
+**rides the queue** as a `jobs.register("chat", …)` kind — the room shows
+the token counter the refine button already shows, and the reply arrives on
+`executed`. A local chat waits behind a running render; that is the cost of
+one GPU, and the room shows the queue position rather than pretending.
 
-### 4.5 Seeing what it made
-
-"Make the dog bigger" needs to know there is a dog and where. Both backends
-can already look at pictures, so after each render — and on each upload —
-the harness asks for a **fixed structured caption** (subject, composition,
-palette, style, anything wrong) of the first frame and stores it on the
-ledger line. That is a vision call with no action schema, so it cannot
-confuse the action turn. Feed the caption, not the picture, to the next
-text turn. Where the backend is not a vision model (a text-only hosted
-endpoint), the ledger line is the brief alone, which covers global edits
-(colour, style, aspect, "make it a clip") and not spatial ones; the room says
-so in the settings rail.
-
-### 4.6 Streaming, and what to do about the local backend
-
-Remote: the first SSE path in the pack. The turn route becomes an aiohttp
-`StreamResponse` that forwards `delta.content` as tokens, and the fenced
-JSON is withheld from the bubble until it parses. `refine_remote` gets a
-`stream=True` variant of its one request builder.
-
-Local: `CLIP.generate` yields nothing until it is done; it ticks a
-`ProgressBar` per token, which is the counter the refine button already
-shows. A local chat turn also **must** ride the queue — it is GPU work, and
-`jobs.py` explains what happens when it does not. So a local turn is a
-`jobs.register("chat", …)` kind, answers `{prompt_id}`, and the bubble shows
-the token counter until `executed` delivers the reply. That is honest and
-matches the button. It also means a local chat waits behind a five-minute
-render, which is the cost of one GPU; the room shows the queue position.
-
-### 4.7 The room
+### 5.6 The room
 
 A card on the dashboard beside Presets, ControlNet, Blockout and Upscale:
-**Chat** — "Ask for a picture or a shot, then ask for changes". It opens an
-`mmc-bn-over` room with the wordmark as the way back, in the bench
-stylesheet's vocabulary:
+**Chat** — "Ask for a picture or a shot, then ask for changes." It opens an
+`mmc-bn-over` room in the bench stylesheet's vocabulary, the wordmark as
+the way back.
 
-- **The conversation**, centre. User bubbles; assistant bubbles; render cards
-  inline with the thumbnail or player, the handle, and three doors: *Open in
-  the editor* (the chat's piece becomes the node's blob, on the current
-  node or a new one), *Retake* (same blob, new seed), *Use as reference*
-  (attaches to the node's piece). A refusal is a bubble with the sentence.
+- **The conversation**, centre. User and assistant bubbles; a render card
+  inline with the thumbnail or player, its handle, and two doors: **Open in
+  the editor** (the chat's piece becomes the node's blob) and **Retake**
+  (same blob, new seed). A refusal is a bubble.
 - **The rail**, right. The backend and model picker (the refine popover's,
-  reused), what the model can see (tools / vision / neither, probed and
-  cached per model), the machine card as the user sees it, and the
-  conversation's standing settings: default still and video family,
-  resolution, turbo, seed policy. Under it, the ledger as tiles.
-- **The composer**, bottom. A plain box, not the `PromptBox` — no chips —
-  with a paperclip that uploads into `input/continuity/chat/` and adds a
-  ledger line. Pasted images do the same.
-- **Conversations** persist as one JSON file each in ComfyUI's user
-  directory under `continuity.chats/`, for the same reason `settings.py`
-  gives: the turn runs server-side and has to read the ledger without a
-  browser present. A left drawer lists them by first line.
+  reused); what this model can do (tools, vision, neither — probed and
+  cached per model); the still family and video family for `kind`, seeded
+  from `settings.weights`; resolution, turbo, seed policy; the **Refine**
+  switch, off; a skill to append, none. Under it the ledger as tiles.
+- **The composer**, bottom. A plain box with a paperclip that uploads into
+  `input/continuity/chat/` and adds a ledger line; pasted images do the
+  same. Enter sends.
 
-### 4.8 Where it does not go
+Leaving the room keeps the conversation for the life of the page; reloading
+starts fresh. The renders stay, in the output folder.
 
-- Not a workflow builder. It never emits graph JSON or picks node ids; it
-  patches a blob the compiler already understands. ComfyUI-Copilot and the
-  Comfy MCP are that other thing, and they need frontier models.
-- Not the timeline, in the first version. A conversation is a run of single
-  pieces; "now add a second shot where…" becomes a *new* piece whose `from`
-  continues the last clip. Growing one piece into a strip is a later door
-  (*Open in the editor* is how you get there today).
-- Not the cast. `@anna` in a chat brief should resolve against the cast
-  library, since the compiler already knows how, but making members from
-  chat is out of scope.
-- No key ever reaches the browser; the remote client's rules stand.
+### 5.7 Not in this iteration
 
-## 5. Sequencing
+- No timeline. "A second shot" is a new one-shot piece; the strip is a
+  later door.
+- No cast; `@name` is an unknown handle and the compiler says so.
+- No `continue`, `camera`, `edit` scopes on clips in `from`.
+- No streaming, no captions of renders, no saved conversations.
+- No key in the browser; the remote client's rules stand.
+- No graph JSON, ever. The model patches a blob the compiler understands.
 
-1. **Backend, headless.** Conversation store; the machine card; the action
-   schema and its parser; `POST /continuity/chat/turn`; render-from-piece
-   through the one-node submit; the caption call. A `tools/chat_bench.py`
-   like `refine_bench.py` runs a scripted conversation against any backend
-   without a browser, which is also how the system prompt gets tuned per
-   small model.
+## 6. Later, in the order it earns
+
+1. Vision captions of each render for spatial edits ("make the dog bigger").
+2. Streaming for the remote backend — the pack's first SSE path.
+3. `continue` on a clip in `from`, and the edit scopes.
+4. Saved conversations, server-side under the user directory.
+5. The cast in chat; then the timeline.
+
+## 7. Sequencing
+
+1. **Backend, headless.** The machine card; the action schema and its
+   parser; the system prompt file; `chat/turn`; `chat/render` through the
+   one-node submit. A `tools/chat_bench.py` beside `refine_bench.py` runs a
+   scripted conversation against any backend with no browser, and is where
+   the system prompt is tuned per small model.
 2. **The room.** Dashboard card, conversation, render cards wired to the
-   queue events, the rail with the existing backend picker.
-3. **Refine in the loop, and vision captions.**
-4. **Streaming for remote; native tools where reported; the edit and
-   continue resolutions on `from`.**
-5. **Doors back into the editor**: open, retake, use as reference.
+   queue events, the rail with the existing picker.
+3. **Refine switch and skill append; Open in the editor; Retake.**
 
-## 6. Risks and open questions
+## 8. Risks
 
-- **One GPU.** A local chat model and a render share it. The refiner already
-  evicts like any model; the queue serialises them; but a user chatting
-  during a long render gets a reply after the render. Remote backends have
-  no such problem and should be the recommended setting on small cards.
-- **Which small models.** Qwen3.5 4B/9B and Gemma 4 E4B/12B report tools and
-  vision and do single-turn tool selection well; Gemma 3 has no tool
-  template; DeepSeek distills are not tool-trained. The bench in step 1 is
-  what settles the system prompt per model, and the room should say plainly
-  when a model has neither tools nor vision.
-- **LM Studio vision over REST** has open bug reports about data-URL image
-  parts on some versions; the existing refine path already exercises this,
-  so whatever it does today, the chat inherits.
-- **Family choice by the harness.** Resolving family from `kind` + `from`
-  is a rule table; the rule table is a product decision (Krea 2 or Ideogram
-  for a plain still? H3 stills or a stills family?). Default to the
-  conversation's standing settings, seeded from `settings.weights`.
-- **Refine's cost** doubles the model calls per render. Measure on the bench
-  before deciding the default; the alternative is asking the chat model for
-  the family prompt directly when it is large enough, via the existing
-  `replace`-mode skill.
+- **One GPU.** A local chat model and a render share it; the queue
+  serialises them and the room shows it. Remote is the better setting on a
+  small card, and the rail should say so.
+- **A 4B model writing prompts without Refine** will produce short prompts
+  and H3 rewards long ones. That is what the Refine switch and the skill
+  append are for, and the bench will show how much they buy.
+- **Expectation.** It will not feel like ChatGPT on a busy local GPU. The
+  room should be honest about waiting rather than spin.
+- **Family defaults** for a plain "make me a picture" are a product choice;
+  seed them from `settings.weights` and let the rail change them.
