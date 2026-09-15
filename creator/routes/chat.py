@@ -277,20 +277,146 @@ def _build(action, ledger, rail, stored):
     # The blob last: the schema's own default for that widget is in `widgets`
     # too — every input is, which is the point — and it is the one the render is
     # replacing.
-    return {"piece": piece,
+    return {"piece": piece, "node": node_id, "field": field,
             "prompt": {"1": {"class_type": node_id,
                              "inputs": {**widgets,
                                         field: json.dumps(piece, indent=2)}}}}
 
 
+# ---- the Refine switch --------------------------------------------------------
+
+
+def _has_prompting(family):
+    """Whether `family` has a prompt refiner at all.
+
+    Only the video families do: `refine.of` imports `families/<id>/refine.py`,
+    and the families that draw a picture outright have none — the Refine button
+    is not on the pre-stage either. So the switch is the clip side's, and a
+    still goes as the model wrote it, which the rail's hint says.
+    """
+    try:
+        refine.of(family)
+    except ModuleNotFoundError as missing:
+        # Only the family's own module being absent means "no refiner". A
+        # video family's refine module failing on something it imports is a
+        # broken install, and a switch that quietly skipped the rewrite over it
+        # would be the silent failure the switch was refused for in the first
+        # place.
+        if (missing.name or "").endswith(f".{family}.refine"):
+            return False
+        raise
+    return True
+
+
+def _refine(built, block):
+    """Put the chat's prompt through the family's own prompting, in place.
+
+    -> `{"model", "problems", "skill"?}` for the card, or `{"problem"}` when the
+    compiler will not take the rewrite. The blob in `built` is patched and the
+    prompt's widget re-dumped, so what is queued is what was refined.
+
+    The same call the button makes — `refine_routes._run` on a `creator`
+    target — with the refiner's own settings, which the room sends as the
+    button would: this is the switch the spec's §5.1 describes, a second model
+    call before queueing rather than a second copy of the prompting.
+
+    Dry-run again afterwards. The refine route reports a stray handle as a
+    problem and goes on, which is right under a panel with a Revert on it; here
+    the render is about to go out, and the compiler's own refusal of a rewrite
+    is the sentence the room should show instead of a failed queue item.
+    """
+    piece = built["piece"]
+    result = refine_routes._run(chat.refine_request(block, piece))
+    problems = chat.refine_into(piece, result, block.get("model"))
+    try:
+        server_routes.compiled_passes(piece)
+    except server_routes.COMPILE_FAILURES as refusal:
+        return {"problem": f"The rewrite could not be used: {refusal}"}
+    built["prompt"]["1"]["inputs"][built["field"]] = json.dumps(piece, indent=2)
+    out = {"model": block.get("model") or "", "problems": problems}
+    if result.get("skill"):
+        out["skill"] = result["skill"]
+    return out
+
+
+def _enqueue_from_job(prompt, client_id):
+    """Put a render on the queue from inside a running job. -> its `prompt_id`.
+
+    The runner is on `prompt_worker`'s thread; `jobs.enqueue` is a coroutine
+    that has to run on the server's loop, which is free — the loop is not what
+    is executing this node. A render queued this way lands behind the job that
+    queued it, which is the order it should run in.
+    """
+    future = asyncio.run_coroutine_threadsafe(
+        jobs.enqueue(prompt, client_id), PromptServer.instance.loop)
+    return future.result(timeout=60)
+
+
+# What a refine can raise that is a sentence for the room rather than a bug:
+# the refiner's own refusals, this module's, a file that will not open, and
+# whatever the compiler refuses a rewrite for.
+_REFINE_FAILURES = (refine.RefineError, chat.ActionError, media.MediaError,
+                    *server_routes.COMPILE_FAILURES)
+
+
+def _render_job(body):
+    """A refine and then a render, as one job. See `chat_render`.
+
+    Both halves of the answer are the render's: `{prompt_id, piece, refined}`
+    goes on `executed` for the room to hang its card on, exactly as the inline
+    reply does, and `{problem}` is the assistant's line when the rewrite cannot
+    be rendered.
+    """
+    try:
+        built = body["built"]
+        refined = _refine(built, body.get("refine") or {})
+        if "problem" in refined:
+            return refined
+        prompt_id = _enqueue_from_job(built["prompt"], body.get("client_id"))
+    except (*_REFINE_FAILURES, jobs.JobError) as problem:
+        raise jobs.JobError(str(problem)) from problem
+    return {"prompt_id": prompt_id, "piece": built["piece"], "refined": refined}
+
+
+jobs.register("chat-render", _render_job)
+
+
+def _no_model(block):
+    """The 400 a request with no refiner model gets, or None. Said once."""
+    if (block.get("model") or "").strip():
+        return None
+    if block.get("backend") == "remote":
+        return web.json_response({"error":
+            "No model chosen. Pick one of the server's models in the "
+            "refiner's settings."
+        }, status=400)
+    return web.json_response({"error":
+        "No text encoder chosen. Put a Qwen3-VL 4B or 8B text encoder in "
+        "models/text_encoders and pick it in the refiner's settings."
+    }, status=400)
+
+
 @PromptServer.instance.routes.post("/continuity/chat/render")
 async def chat_render(request):
-    """Render what the model asked for. -> `{prompt_id, piece}` or `{problem}`.
+    """Render what the model asked for.
+
+    -> `{"result": {prompt_id, piece, refined?}}` once the render is on the
+    queue, `{"result": {problem}}` when it cannot be, or `{"prompt_id"}` of a job
+    that will put the same object on `executed` — the envelope `queue.run()`
+    reads, so the room has one call site whichever way the answer comes.
 
     An ordinary queue item: Cancel reaches it, the progress bar is the real one,
     a render queued from the canvas ahead of it goes first, and what comes out
     is a file in the output folder with its blob in its metadata — citable from
     the picker like anything else this pack makes.
+
+    **The Refine switch.** With it on, a clip's prompt goes through the family's
+    own prompting before queueing, exactly as the button does. On the remote
+    backend that is a call inside this request, as the refine route's is; on the
+    in-process one it is a model on the GPU, so the refine and the render go on
+    the queue as one job (`chat-render`) that does the rewrite and then queues
+    the render itself. A still is not refined — the families that draw one have
+    no prompt refiner, and the rail's hint says so — and goes as written.
     """
     try:
         body = await request.json()
@@ -299,15 +425,6 @@ async def chat_render(request):
 
     ledger = body.get("ledger") or []
     rail = _rail(body.get("rail"))
-    if rail.get("refine"):
-        # The Refine switch is the spec's third step: the chat's prompt goes
-        # through the family's own `Prompting` on the same backend before
-        # queueing, exactly as the button does. Refused rather than ignored
-        # while it is not built, because a switch that silently does nothing is
-        # worse than one that says it is not here yet.
-        return web.json_response({"problem":
-            "Refine is not wired into this room yet — turn the switch off and "
-            "the prompt goes to the compiler as the model wrote it."})
 
     try:
         action = chat.validate(body.get("action"), ledger)
@@ -316,6 +433,14 @@ async def chat_render(request):
     if action["act"] != chat.ACT_RENDER:
         return web.json_response(
             {"error": "that action says nothing to render"}, status=400)
+
+    refining = (bool(rail.get("refine")) and action["kind"] == chat.KIND_VIDEO
+                and _has_prompting(rail["video_family"]))
+    block = body.get("refine") or {}
+    if refining:
+        refused = _no_model(block)
+        if refused is not None:
+            return refused
 
     # Everything below this line touches disk — the settings file, the model
     # folders, the compiler's size lookups — and this loop is also the prompt
@@ -331,13 +456,38 @@ async def chat_render(request):
         return web.json_response({"error": f"{type(problem).__name__}: {problem}"},
                                  status=500)
     if "problem" in built:
-        return web.json_response(built)
+        return web.json_response({"result": built})
+
+    client_id = body.get("client_id")
+    if refining and block.get("backend") != "remote":
+        try:
+            prompt_id = await jobs.submit(
+                "chat-render", {"built": built, "refine": block, "client_id": client_id},
+                client_id)
+        except jobs.JobError as problem:
+            return web.json_response({"error": str(problem)}, status=500)
+        return web.json_response({"prompt_id": prompt_id})
+
+    refined = None
+    if refining:
+        try:
+            refined = await loop.run_in_executor(None, _refine, built, block)
+        except _REFINE_FAILURES as problem:
+            return web.json_response({"error": str(problem)}, status=400)
+        except Exception as problem:  # noqa: BLE001
+            return web.json_response({"error": f"{type(problem).__name__}: {problem}"},
+                                     status=500)
+        if "problem" in refined:
+            return web.json_response({"result": refined})
 
     try:
-        prompt_id = await jobs.enqueue(built["prompt"], body.get("client_id"))
+        prompt_id = await jobs.enqueue(built["prompt"], client_id)
     except jobs.JobError as problem:
         return web.json_response({"error": str(problem)}, status=500)
-    return web.json_response({"prompt_id": prompt_id, "piece": built["piece"]})
+    result = {"prompt_id": prompt_id, "piece": built["piece"]}
+    if refined is not None:
+        result["refined"] = refined
+    return web.json_response({"result": result})
 
 
 # ---- the turn ---------------------------------------------------------------
@@ -473,16 +623,9 @@ async def chat_turn(request):
 
     block = body.get("settings") or {}
     remote = block.get("backend") == "remote"
-    if not (block.get("model") or "").strip():
-        if remote:
-            return web.json_response({"error":
-                "No model chosen. Pick one of the server's models in the "
-                "refiner's settings."
-            }, status=400)
-        return web.json_response({"error":
-            "No text encoder chosen. Put a Qwen3-VL 4B or 8B text encoder in "
-            "models/text_encoders and pick it in the refiner's settings."
-        }, status=400)
+    refused = _no_model(block)
+    if refused is not None:
+        return refused
 
     if remote:
         # Off the event loop even so: the call to the server blocks, and this

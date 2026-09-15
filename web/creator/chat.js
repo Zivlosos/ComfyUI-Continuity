@@ -32,7 +32,7 @@
 import { el, icon, mark, spinner, dragsFiles, mountOverlay, keepScroll } from "./dom.js";
 import { openChoicePopover, stepperPill } from "./pills.js";
 import { outputUrl, upload, uiSetting, patchSettings, primeSettings, viewUrl } from "./api.js";
-import { settings as refinerSettings, chosenModel, openSettings, listSkills } from "./refine.js";
+import { settings as refinerSettings, chosenModel, openSettings, listSkills, refineRequest } from "./refine.js";
 import { FAMILIES, VIDEO_FAMILIES, DEFAULT_VIDEO_FAMILY, STILL_ARCHES,
          DEFAULT_STILL_ARCH, family as familyOf } from "./manifest.js";
 import { run, watch as watchQueue } from "./queue.js";
@@ -588,11 +588,28 @@ class Room {
     const note = card.state === "failed" ? card.error
       : card.state === "done" ? null
       : card.state === "running" ? t("Rendering…")
+      : card.state === "refining"
+        ? (card.tokens?.value
+            ? t("Refining… {count} tokens", { count: card.tokens.value })
+            : t("Refining…"))
+      : card.state === "starting" ? t("Starting…")
       : this.queue.remaining > 1
         ? t("Queued — {count} ahead", { count: this.queue.remaining - 1 })
         : t("Queued");
     if (note) body.push(el("div", { class: `mmc-ch-note${card.state === "failed" ? " mmc-ch-bad" : ""}`,
                                     text: note }));
+    if (card.state === "done" && card.refined) {
+      // What the sampler actually read is under the hover, whole: the room has
+      // no panel to edit a rewrite in, and Open in the editor is where that is.
+      const wrote = card.refined.skill
+        ? t("Refined by {model} with {skill}", { model: card.refined.model, skill: card.refined.skill })
+        : t("Refined by {model}", { model: card.refined.model });
+      body.push(el("div", { class: "mmc-ch-note", text: wrote,
+                            title: card.piece?.segments?.[0]?.refined?.body || "" }));
+      for (const problem of card.refined.problems ?? []) {
+        body.push(el("div", { class: "mmc-ch-note mmc-ch-bad", text: problem }));
+      }
+    }
     if (card.state === "running" || card.state === "queued") {
       body.push(el("div", { class: "mmc-ch-bar" },
                    [el("span", { class: "mmc-ch-fill",
@@ -716,9 +733,10 @@ class Room {
           }),
         ]),
         this.toggle(t("Refine"), bar.refine, (on) => setRail({ refine: on }),
-                    t("Put the model's prompt through the family's own prompting before "
-                      + "queueing. Not wired into this room yet — with it on, a render "
-                      + "comes back as a sentence saying so.")),
+                    t("Put the model's prompt for a clip through the family's own prompting "
+                      + "before queueing, as the Refine button does — a second model call "
+                      + "per render, with the refiner's own settings. A still goes as written: "
+                      + "the families that draw one have no prompt refiner.")),
       ]),
 
       this.group(t("What has been made"), [
@@ -853,39 +871,57 @@ class Room {
   /**
    * Queue one render and hang a card off the turn that asked for it.
    *
+   * Through `run`, because the answer comes one of two ways and that helper
+   * already reads both: `{result}` when the render went straight onto the
+   * queue, or a job's `prompt_id` when the Refine switch is on and the in-
+   * process refiner has to rewrite the prompt first — GPU work, so the rewrite
+   * and the render ride the queue as one job and the object arrives on
+   * `executed`. The card exists from the first moment either way, so the wait
+   * for a rewrite has somewhere to show: the refine button's token counter,
+   * under "Refining…".
+   *
    * `{problem}` is the assistant's line verbatim — a duration off the frame
-   * grid, a checkpoint nobody picked — and is a bubble rather than an error:
-   * the model asked for something the machine cannot do, which is a thing to
-   * say back, not a failure of the room.
+   * grid, a checkpoint nobody picked, a rewrite the compiler will not take —
+   * and is a bubble rather than an error: the model asked for something the
+   * machine cannot do, which is a thing to say back, not a failure of the room.
    */
   async queueRender(action, message, over = {}) {
+    const bar = { ...rail(), ...over };
+    // Only a clip is refined — the families that draw a still have no prompt
+    // refiner, and the server says the same — so a still's card never says
+    // "Refining…" for a rewrite that is not going to happen.
+    const refining = Boolean(bar.refine) && action.kind === "video";
+    message.action = action;
+    const card = { action, state: refining ? "refining" : "starting", progress: 0, tokens: null };
+    message.card = card;
+    notify();
+
+    const said = (line) => {
+      message.card = null;
+      message.say = [message.say, line].filter(Boolean).join("\n\n");
+      message.bad = true;
+    };
     let answer;
     try {
-      const response = await api.fetchApi("/continuity/chat/render", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action, ledger: state.ledger, rail: { ...rail(), ...over },
-          client_id: api.clientId,
-        }),
+      answer = await run("/continuity/chat/render", {
+        action, ledger: state.ledger, rail: bar,
+        ...(refining ? { refine: refineRequest() } : {}),
+      }, {
+        onProgress: (_fraction, value, max) => {
+          card.tokens = { value, max };
+          notify();
+        },
       });
-      answer = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(answer.error || t("that render could not be started ({status})",
-                                                          { status: response.status }));
     } catch (error) {
-      message.say = [message.say, String(error.message || error)].filter(Boolean).join("\n\n");
-      message.bad = true;
-      return;
+      return said(String(error.message || error));
     }
-    if (answer.problem) {
-      message.say = [message.say, answer.problem].filter(Boolean).join("\n\n");
-      message.bad = true;
-      return;
-    }
-    message.action = action;
-    message.card = { promptId: answer.prompt_id, piece: answer.piece, action,
-                     state: "queued", progress: 0 };
-    watchRender(message.card);
+    if (!answer || answer.problem) return said(answer?.problem || t("the server queued nothing"));
+    card.promptId = answer.prompt_id;
+    card.piece = answer.piece;
+    card.refined = answer.refined || null;
+    card.tokens = null;
+    card.state = "queued";
+    watchRender(card);
   }
 
   /** The same request again, on a new seed. A turn of its own, so the model

@@ -301,8 +301,14 @@ export function chosenSkillMode(name, entries = skillCache.entries, current = se
  *   `scope: "shot"` marks bodies that compile joins the global prompt onto,
  *   like typed text; chained reference cards carry their own `sections`.
  */
-export async function refine(payload, options) {
-  const current = settings();
+/**
+ * The refiner's half of a refine request: which backend, which model, and the
+ * dials. One spelling, because two callers send it — the button here, and the
+ * chat room's Refine switch, which puts a render's prompt through the same
+ * prompting before queueing. `chat.REFINE_FIELDS` on the server reads exactly
+ * these names, and `tests/test_chat_mirror.py` holds the two lists together.
+ */
+export function refineRequest(current = settings()) {
   const { temperature, seed, language, maxTokens, skill } = current;
   // Only a mode the user actually picked travels. Absent, the server reads the
   // file's own `mode:` — so a prompt file that says what it wants behaves the
@@ -312,18 +318,24 @@ export async function refine(payload, options) {
   // active backend's. The URL and the key are already there — nothing about
   // the endpoint rides in the request.
   const backend = current.backend === "remote" ? "remote" : "local";
-  const model = chosenModel(current);
+  return {
+    model: chosenModel(current), backend, temperature, seed, language,
+    max_tokens: maxTokens, skill, skill_mode: skillMode,
+    // Meaningless to the in-process backend, which frees its weights after
+    // every generation regardless.
+    eject: backend === "remote" && current.eject === true,
+  };
+}
+
+export async function refine(payload, options) {
+  const current = settings();
   // Read off the blob being sent rather than passed in, because it is a fact
   // about that blob: the server resolves the same field to decide which
   // family's refiner writes the rewrite, and a template pinned for another
   // one must not ride along with it.
   const template = chosenTemplate(pieceFamily(payload.data), current);
   return await runJob("/continuity/refine", {
-    ...payload, model, backend, temperature, seed, language,
-    max_tokens: maxTokens, skill, skill_mode: skillMode, template,
-    // Meaningless to the in-process backend, which frees its weights after
-    // every generation regardless.
-    eject: backend === "remote" && current.eject === true,
+    ...payload, ...refineRequest(current), template,
   }, options);
 }
 

@@ -1007,3 +1007,97 @@ def piece_of(action, ledger, rail):
     if action.get("kind") == KIND_STILL:
         return "MiniMaxH3PreStage", "prestage_data", still_piece(action, ledger, rail)
     return "MiniMaxH3Creator", "creator_data", video_piece(action, ledger, rail)
+
+
+# ---- the Refine switch --------------------------------------------------------
+
+# What the room sends about the refiner when the rail's Refine switch is on, and
+# what `refine_routes._run` reads. The same nine fields the Refine button's
+# request carries, spelled once here and once in `refine.js`'s `refineRequest`,
+# which `tests/test_chat_mirror.py` holds together.
+REFINE_FIELDS = ("model", "backend", "temperature", "seed", "language",
+                 "max_tokens", "skill", "skill_mode", "eject")
+
+
+def refine_request(block, piece):
+    """The refine request for the chat's piece -> the body `refine_routes._run` takes.
+
+    The Creator's own target: a piece of one shot is one card, and `creator` is
+    how the refine route has always been asked for exactly that card. The
+    template is left to the route — `auto` is the derived mode, and a chat
+    render has nobody pinning one — and every other field is the refiner's own
+    setting, passed through by name so a setting added there is a line here
+    rather than a silent drop.
+    """
+    block = block or {}
+    request = {"kind": "creator", "data": piece, "index": 0}
+    for field in REFINE_FIELDS:
+        if field in block:
+            request[field] = block[field]
+    return request
+
+
+def refined_field(result, prompt, model):
+    """One refine result -> the `refined` block a segment carries.
+
+    The shape `refine.js`'s `RefinePanel.apply` writes, so the compiler reads a
+    chat render's rewrite exactly as it reads the button's: `body` with its
+    `@handles` intact, `scope` where the body is the shot alone and compile joins
+    the piece's prompt in front of it, `sections` on a chained reference card,
+    the skill or template that wrote it, and `source` — the prompt it was written
+    from — so a piece opened in the editor can say when the sentence has moved
+    on underneath its rewrite. `enabled` is the toggle the panel offers; a chat
+    render has no panel, so it is on.
+
+    What is *not* here is the panel's `replaced` — the soundscape and music the
+    rewrite overwrote, kept so `clear` can put them back. A chat segment has no
+    such fields to put back, and a key that means "undo" on a blob with nothing
+    to undo would be a lie the panel then reads.
+    """
+    shots = result.get("shots") or []
+    shot = shots[0] if shots and isinstance(shots[0], dict) else {}
+    refined = {"body": str(shot.get("body") or "")}
+    if result.get("scope"):
+        refined["scope"] = result["scope"]
+    if result.get("sections"):
+        refined["sections"] = result["sections"]
+    if result.get("skill"):
+        refined["skill"] = result["skill"]
+        refined["kind"] = result.get("kind") or "skill"
+    if result.get("template"):
+        refined["template"] = result["template"]
+        refined["forced"] = bool(result.get("forced"))
+    refined["source"] = prompt
+    refined["model"] = model or ""
+    refined["enabled"] = True
+    return refined
+
+
+def refine_into(piece, result, model):
+    """Write a refine result onto the chat's one-shot piece. -> its problems.
+
+    The segment gets the `refined` block, and the two audio fields only where
+    the reply carried them: an empty field is the model having nothing to add,
+    not an instruction to blank a line — the same reading `RefinePanel.apply`
+    takes, and the timeline before it. A reply with no body at all is left out
+    entirely, because a `refined` block whose body is empty reads as "typed
+    text" to the compiler and as "refined" to a person, and the two disagreeing
+    is worse than either.
+
+    The problems are the refine route's own sentences — a dropped quote, a
+    handle the rewrite never mentions — handed back for the card to show.
+    Advisory, as they are under the button: the render goes ahead.
+    """
+    segments = piece.get("segments") or []
+    if not segments or not isinstance(segments[0], dict):
+        raise ActionError("this piece has no shot to refine.")
+    segment = segments[0]
+    refined = refined_field(result, str(segment.get("prompt") or ""), model)
+    problems = [str(p) for p in (result.get("problems") or [])]
+    if not refined["body"].strip():
+        return problems + ["the refiner wrote nothing, so the prompt goes as the model wrote it"]
+    segment["refined"] = refined
+    for field in ("soundscape", "music"):
+        if result.get(field):
+            segment[field] = result[field]
+    return problems

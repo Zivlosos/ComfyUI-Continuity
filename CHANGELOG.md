@@ -6,6 +6,32 @@ exactly as it was written, wall of text and all.
 
 ## Unreleased
 
+**The chat room's Refine switch does what it says.** It was on the rail from
+the first build and refused every render it was thrown on, because a switch that
+silently does nothing is worse than one that says it is not here yet. Now a clip
+whose rail has it on goes through the family's own prompting before it is
+queued — the Refine button's call, `refine_routes._run` on the piece the room
+built, with the button's own settings sent alongside the render request so the
+same skill, the same server and the same dials write it — and the rewrite lands
+on the shot in the shape the panel writes, `refined` with its `@handles` intact,
+so the compiler reads it exactly as it reads a rewrite made on the node and
+*Open in the editor* finds it in the panel afterwards. The compiler is asked
+again after the rewrite: a stray handle the refine route would only note under a
+panel with a Revert on it is, here, a render about to go out, so its refusal is
+the assistant's next line rather than a failed queue item. On the remote backend
+the rewrite is a call inside the request, as the button's is; on the in-process
+one it is a model on the GPU, so the rewrite and the render go on the queue as
+one job that does the rewrite and then puts the render on behind itself, and the
+card says *Refining…* with the token count until it does. The render route
+answers in the envelope `queue.run` already reads — `{result}` when the render
+went straight on, a job's id when it did not — so the room has one call site
+either way. A still is never refined, whatever the switch says: the families
+that draw one have no prompt refiner, the pre-stage has no Refine button for the
+same reason, and the hint under the switch says so. The refiner's half of a
+request is spelled once now, `refineRequest` in `refine.js`, which the button
+and the room both send and `chat.REFINE_FIELDS` reads by name, with the mirror
+test holding the two lists together.
+
 **And the room it is reached from.** A **Chat** card on the tools dashboard,
 beside Upscale, opens a room in the benches' own shell: the conversation down
 the middle, a rail of standing choices on the right, a box at the foot where

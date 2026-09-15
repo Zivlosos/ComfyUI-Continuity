@@ -262,8 +262,14 @@ The rail on the right holds the standing choices a turn is made against:
   attached pictures only through a LoRA adapter says so under its pill — it can
   still draw from words, it just cannot be handed a picture to change.
 - **How it renders.** The seed, kept or rolled each time, and the **Refine**
-  switch. Refine is not wired in yet: with it on, a render comes back as a
-  sentence saying so.
+  switch. Off, the model's prompt goes to the compiler as written. On, a clip's
+  prompt goes through the family's own prompting first — the Refine button's
+  call, on the Refine button's settings, so the same skill and the same
+  server — and the card says *Refining…* with the token count while it does,
+  then *Refined by* the model once it is done, with the rewrite under the
+  hover. A second model call per render, which is what it costs. A still is
+  never refined: the families that draw one have no prompt refiner, and the
+  pre-stage has no Refine button for the same reason.
 - **What has been made**, as tiles.
 
 Everything on the rail is remembered per machine — it is a statement about this
