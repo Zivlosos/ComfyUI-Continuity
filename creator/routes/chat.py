@@ -57,23 +57,26 @@ _CARDS = {}
 _CARDS_KEEP = 4
 
 
-def machine_card(still_family, video_family, weights):
+def machine_card(still_family, video_family, weights, turbo=False):
     """What this machine can make, as the model reads it. See `chat.machine_card`.
 
     Keyed on its own inputs rather than invalidated from `settings.save`. A hook
     there would catch the settings page and miss everything else that moves this
     answer — the weights popover patches the same file from the node, and the
     rail will patch it again from the room — whereas the key is exactly the
-    three facts the card is made of, so anything that changes one of them
-    changes the key. The listing is not in the key: a walk of the model folders
-    on every turn is the cost this cache exists to avoid, and `settings.weights`
-    moving is what a *picked* file changing looks like from here.
+    facts the card is made of, so anything that changes one of them changes the
+    key. `turbo` is one of them: with the switch thrown the render loads the
+    Turbo checkpoint instead of the ordinary one, so which files are missing is
+    a different answer. The listing is not in the key: a walk of the model
+    folders on every turn is the cost this cache exists to avoid, and
+    `settings.weights` moving is what a *picked* file changing looks like here.
     """
-    key = json.dumps([still_family, video_family, weights], sort_keys=True, default=str)
+    key = json.dumps([still_family, video_family, weights, bool(turbo)],
+                     sort_keys=True, default=str)
     card = _CARDS.get(key)
     if card is None:
         card = chat.machine_card(still_family, video_family, manifest.catalog(),
-                                 core_models.available(), weights)
+                                 core_models.available(), weights, turbo=bool(turbo))
         while len(_CARDS) >= _CARDS_KEEP:
             _CARDS.pop(next(iter(_CARDS)))
         _CARDS[key] = card
@@ -104,6 +107,12 @@ def _rail(raw):
     Absent families fall back to the registry's own defaults, which is what a
     room that has not been set up yet is holding, and the same answer the node
     gives a freshly dropped blob.
+
+    Both routes pass it the same object: `chat/render` calls it the rail and
+    `chat/turn` sends it inside `settings` beside the backend and the model,
+    because a turn has to be told the same things a render does — which
+    families, and whether turbo is thrown — before it can say what this machine
+    can make.
 
     The still side is the *image* families and not every family that makes a
     still. H3's still branch is a video generation with one latent frame decoded
@@ -144,19 +153,22 @@ def _picked(family, stored):
             if name in ids and isinstance(value, str) and value.strip()}
 
 
-def _not_ready(family, picked, available):
+def _not_ready(family, picked, available, turbo=False):
     """The sentence a family with a required file missing gets, or None.
 
     The same reading the machine card takes, so what the model was told and what
     the render refuses cannot disagree — the card says a family is not ready and
-    this is the refusal if the model asks for it anyway.
+    this is the refusal if the model asks for it anyway. `turbo` is the rail's
+    switch, which moves the answer: with it thrown the Turbo checkpoint is the
+    file this render loads, and without this the dry run would pass and
+    `render_image.check` would refuse on the queue instead.
     """
-    gone = chat.missing_weights(family, picked, available)
+    gone = chat.missing_weights(family, picked, available, turbo=turbo)
     if not gone:
         return None
     return (f"{family['label']} cannot render yet: no file is picked for "
-            f"{chat.listed(gone)}. Choose them in the weights control and "
-            f"ask again.")
+            f"{chat.listed(gone)}. Choose {'it' if len(gone) == 1 else 'them'} "
+            f"in the weights control and ask again.")
 
 
 # ---- building the render ----------------------------------------------------
@@ -217,13 +229,23 @@ def _build(action, ledger, rail, stored):
     to build the blob anyway to queue it.
     """
     still = action["kind"] == chat.KIND_STILL
-    node_id, field, piece = chat.piece_of(action, ledger, rail)
     family = manifest.describe(rail["still_family"] if still else rail["video_family"])
     picked = _picked(family, stored)
 
-    problem = _not_ready(family, picked, core_models.available())
+    # The turbo switch is wired to the still side alone — `chat.video_piece`
+    # says why — so it only ever moves which checkpoint a *still* needs.
+    turbo = bool(rail.get("turbo")) and still
+    problem = _not_ready(family, picked, core_models.available(), turbo=turbo)
     if problem:
         return {"problem": problem}
+
+    # What the pure half has to know about this family's pictures, which is the
+    # catalog's answer and so the route's to look up. Only for a still: on a
+    # clip every handle is a reference or the first frame, and the video
+    # families read both.
+    if still:
+        rail = {**rail, "still_pictures": chat.still_pictures(family, manifest.catalog())}
+    node_id, field, piece = chat.piece_of(action, ledger, rail)
 
     if still:
         # Per-arch sub-blocks with one shared precision, which is the shape
@@ -391,7 +413,8 @@ def _run(body):
     rail = _rail(block)
 
     card = machine_card(rail["still_family"], rail["video_family"],
-                        settings.load().get("weights") or {})
+                        settings.load().get("weights") or {},
+                        turbo=rail.get("turbo"))
     system = chat.system_prompt(_skill(block))
     message = chat.context(messages, ledger, card)
     asked = _last_user(messages)

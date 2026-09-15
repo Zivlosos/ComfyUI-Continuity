@@ -98,6 +98,16 @@ def _machine(pkg, still_family, video_family):
                                  {"by_folder": by_folder}, picked)
 
 
+def _catalog(pkg):
+    """Every still family's manifest, for the questions the rail has to answer.
+
+    `manifest.catalog()` would do it and reaches for the neural backend and the
+    upscalers on the way, neither of which this bench has anything to ask.
+    """
+    return {"families": [pkg.manifest.describe(name)
+                         for name in pkg.registry.still_families()]}
+
+
 def _dry_run(pkg, action, ledger, rail):
     """The blob this action patches, compiled. -> the prompt, or the refusal."""
     chat, compiler = pkg.chat, getattr(pkg, "compile")
@@ -153,6 +163,12 @@ def main():
     rail = {"still_family": args.still,
             "still_arch": next(arch for arch, owner in pkg.registry.STILL_ARCHES.items()
                                if owner == args.still),
+            # What the room's own rail carries about this family's pictures, so
+            # a citation the family cannot be given is refused here in the same
+            # words the room would use — which on Krea 2, the default, is most
+            # of what a conversation about changing a picture runs into.
+            "still_pictures": chat.still_pictures(
+                pkg.manifest.describe(args.still), _catalog(pkg)),
             "video_family": args.video, "aspect": "16:9", "short_edge": 768,
             "turbo": False, "seed": args.seed, "seed_policy": "fixed"}
 

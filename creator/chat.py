@@ -101,9 +101,6 @@ class ActionError(ValueError):
     """
 
 
-_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
-
-
 def _shown(value):
     """What arrived, as something safe to put in a sentence."""
     if value is None:
@@ -124,7 +121,7 @@ def plan_of(reply):
     model was thinking when it chose wrong. Everything from the first fence or
     the first brace onwards is the object's.
     """
-    text = _THINK_RE.sub("", reply or "").strip()
+    text = refine.THINK_RE.sub("", reply or "").strip()
     marks = [at for at in (text.find("```"), text.find("{")) if at >= 0]
     head = text[:min(marks)] if marks else text
     for line in head.splitlines():
@@ -142,7 +139,7 @@ def spoken(reply):
     to the reader; if nothing survives that, the raw reply is shown rather than
     an empty bubble.
     """
-    text = _THINK_RE.sub("", reply or "").strip()
+    text = refine.THINK_RE.sub("", reply or "").strip()
     stripped = re.sub(r"```.*?```", "", text, flags=re.DOTALL).strip()
     return (stripped or text)[:MAX_SAY]
 
@@ -296,10 +293,16 @@ def read(reply, ledger):
 
 # What, in a user's message, plainly asks for something to be made. Deliberately
 # short and literal: this list only ever *adds* a model call, so a word that
-# fires on "that shot of yours was lovely" costs a wasted generation and a
-# confused re-ask. Everything here is a request for a thing, not praise for one.
-RENDER_WORDS = ("picture", "image", "still", "clip", "video", "shot", "render",
-                "draw", "make me", "show me")
+# fires on ordinary conversation costs a generation and hands the person a
+# correction demanding a render they never asked for. Two words were dropped
+# for exactly that. "still" is an adverb far more often than it is a noun —
+# "why is it still dark?" is a question, not a request for a picture — and
+# "shot" is as much praise for one as a request ("that shot was lovely"), while
+# somebody who wants one nearly always says "picture" or "image" instead. A
+# miss here costs nothing: the model chose the action already, and this only
+# ever asks it to think again.
+RENDER_WORDS = ("picture", "image", "clip", "video", "render", "draw",
+                "make me", "show me")
 
 NUDGE = ("that message asked for a picture or a clip, so answer with an "
          '"act": "render" action rather than a "say".')
@@ -308,9 +311,9 @@ NUDGE = ("that message asked for a picture or a clip, so answer with an "
 def asks_for_render(text):
     """Whether the user plainly asked for something to be made.
 
-    Whole words and their plurals, so "shot" and "shots" fire and "gunshot" does
-    not. This is a hint for the one nudge above and never a decision on its own
-    — the model still chooses the action, and a turn this reads wrong is one
+    Whole words and their plurals, so "clip" and "clips" fire and "paperclip"
+    does not. This is a hint for the one nudge above and never a decision on its
+    own — the model still chooses the action, and a turn this reads wrong is one
     extra generation, not a render nobody asked for.
     """
     lowered = (text or "").lower()
@@ -364,14 +367,17 @@ def judge(reply, ledger, user_text, second=False):
 
 # ---- what the model is told: the machine ------------------------------------
 
-# The weight slot every family's turbo pill loads from. Left out of the required
-# set below: it is a *choice* — the pill is off unless somebody throws it, and
-# `state.missingPreStageModels` likewise only ever requires the DiT the pill
-# actually selects.
+# The weight slot every family's turbo pill loads from. Required exactly when
+# that pill is thrown, which is why `required_slots` is asked rather than told:
+# `state.missingPreStageModels` requires whichever DiT the pill actually
+# selects, `compile_prestage` resolves the same field, and a card that left the
+# Turbo checkpoint out while the rail's switch was on would pass the dry run and
+# then be refused by `render_image.check` on the queue — the one thing the card
+# and the dry run exist between them to prevent.
 TURBO_SLOT = "turbo_model"
 
 
-def required_slots(family):
+def required_slots(family, turbo=False):
     """Which of a family's weight slots must hold a file before it can render.
 
     The reading both weights popovers take, said once. A slot counts when the
@@ -379,12 +385,16 @@ def required_slots(family):
     optional (`required`, absent meaning required, which is what every manifest
     written before that key existed needs) — that is `state.alwaysRequired`.
 
-    Two kinds of slot are left out, and both are a choice rather than a
-    component: the turbo checkpoint above, and the routed checkpoints, which a
-    generation picks between by what it attaches. The routed pair comes back
-    separately because one of them on disk is already enough to render
-    something, and refusing a machine that has Ref2VA but not FL2VA would be
-    refusing a machine that works.
+    `turbo` is whether the rail's turbo switch is on for this family, and it
+    moves exactly one slot: the turbo checkpoint is what the render will load
+    instead of the ordinary one, so with the switch thrown it is required and
+    with it off it is a file nobody needs. A family whose turbo pill is a LoRA
+    rather than a checkpoint declares no such slot and nothing changes.
+
+    The routed checkpoints stay out either way, because they are a choice rather
+    than a component: one of them on disk is already enough to render something,
+    so they come back separately and refusing a machine that has Ref2VA but not
+    FL2VA would be refusing a machine that works.
     """
     always, routed = [], []
     for slot in family.get("weights") or []:
@@ -392,19 +402,20 @@ def required_slots(family):
             continue
         if slot.get("routed"):
             routed.append(slot)
-        elif slot.get("id") != TURBO_SLOT:
+        elif slot.get("id") != TURBO_SLOT or turbo:
             always.append(slot)
     return always, routed
 
 
-def missing_weights(family, picked, available):
+def missing_weights(family, picked, available, turbo=False):
     """Which of `family`'s required slots have no file, as their popover titles.
 
     `picked` is this family's block of `settings["weights"]` and `available` is
     `models.available()`. Both are asked, not just the first: a pick is a
     filename somebody chose once, and a file deleted since is a render that
     fails at the loader with the node's own message instead of here, where the
-    model could have said so before spending the turn.
+    model could have said so before spending the turn. `turbo` is the rail's
+    switch — see `required_slots`.
     """
     listings = (available or {}).get("by_folder") or {}
 
@@ -417,11 +428,99 @@ def missing_weights(family, picked, available):
         # this install does not register would otherwise read as never ready.
         return name.strip() in files if files is not None else True
 
-    always, routed = required_slots(family)
+    always, routed = required_slots(family, turbo)
     missing = [slot["title"] for slot in always if not filled(slot)]
     if routed and not any(filled(slot) for slot in routed):
         missing += [slot["title"] for slot in routed]
     return missing
+
+
+def ref_limit(family):
+    """How many pictures may be cited for this family, or None where it is silent.
+
+    Two spellings, because a manifest answers this question in whichever half of
+    itself owns it. A video family declares a whole reference block — what each
+    kind of file may be taken for, and how many of each — and the picture cap is
+    `reference.max.image`, the grammar's own number and the one
+    `compile.plan_references` refuses against. A still family has no such block:
+    its pictures go into the encoder's slots, so the cap belongs beside the
+    prompt as `prompt.max_refs`. Read in one place rather than served twice,
+    which would put one number in two keys of one payload.
+
+    None and 0 are different answers: 0 is a family saying its weights read no
+    attached picture (Ideogram 4), and None is a family that says nothing.
+    """
+    limit = ((family.get("reference") or {}).get("max") or {}).get("image")
+    if limit is None:
+        limit = (family.get("prompt") or {}).get("max_refs")
+    return limit if isinstance(limit, int) and not isinstance(limit, bool) else None
+
+
+def needs_adapter(family):
+    """Whether this family reads references only through a LoRA in its stack.
+
+    `capabilities.refs.needs_lora` — Krea 2's arrangement, and the one thing in
+    the pre-stage blob this room cannot fill: the adapter is an entry in the
+    LoRA stack, and the chat has no stack and no way to offer one.
+    """
+    return bool(((family.get("capabilities") or {}).get("refs") or {}).get("needs_lora"))
+
+
+def takes_refs(family):
+    """Whether a picture cited in `from` can be handed to this family at all.
+
+    Two manifest keys, never a family id. Both ways of answering no end the same
+    way — `compile_prestage` refuses the render, with `REFS_REFUSAL` for weights
+    that read nothing and with `check_refs` for weights whose adapter is
+    missing — so the room has to know before it cites rather than after.
+    """
+    return bool(ref_limit(family)) and not needs_adapter(family)
+
+
+def refs_refusal(family, instead=()):
+    """Why this family cannot be given a picture, and what to do instead.
+
+    The room's own sentence rather than the compiler's. Krea 2's is true — "add
+    a reference LoRA to the stack" — and it is about a control that exists on
+    the node and not in this room, so relaying it would be telling somebody to
+    press something they cannot see. `instead` is the labels of the still
+    families that do read pictures, which is what they can actually change.
+    """
+    label = family.get("label") or "this family"
+    if needs_adapter(family):
+        why = ("reads an attached picture only through an adapter in the "
+               "pre-stage's LoRA stack, and this room has no stack to put one in")
+    else:
+        why = "reads no attached picture at all"
+    where = (f" {listed(list(instead))} do read pictures — switch the still "
+             f"family to one of those." if instead else "")
+    return f"{label} draws from words alone: it {why}.{where}"
+
+
+def refs_families(catalog):
+    """The labels of the still families that read pictures outright, in order.
+
+    The families that make *nothing but* stills, which is the set the room's
+    still pill offers — a video family's still branch is a video generation
+    under a blob of its own and the room does not drive it, so naming one here
+    would be pointing at a setting that is not on offer.
+    """
+    return [family["label"] for family in (catalog or {}).get("families") or []
+            if list(family.get("produces") or ()) == ["still"] and takes_refs(family)]
+
+
+def still_pictures(family, catalog):
+    """What the rail tells the blob patch about this still family's pictures.
+
+    The whole of the catalog's answer, reduced to the two things `still_piece`
+    needs: whether a citation may be honoured, and the sentence if it may not.
+    Here rather than in the route so the bench reaches the same answer the room
+    does — a bench that refused on different words would be tuning the prompt
+    against a machine nobody has. See `DEFAULT_STILL_PICTURES`.
+    """
+    if takes_refs(family):
+        return {"takes": True, "refusal": ""}
+    return {"takes": False, "refusal": refs_refusal(family, refs_families(catalog))}
 
 
 def _find(catalog, family_id):
@@ -458,7 +557,8 @@ def _durations(family):
     return f"{said}, snapped to a {step:.2f}s grid"
 
 
-def machine_card(still_family, video_family, catalog, available, weights):
+def machine_card(still_family, video_family, catalog, available, weights,
+                 turbo=False):
     """What this machine can make, in about a hundred and fifty tokens.
 
     The join nothing in the pack did before: the families route says what each
@@ -469,7 +569,9 @@ def machine_card(still_family, video_family, catalog, available, weights):
 
     Pure, and given everything it reads, so a suite can feed it a machine with
     no weights on it and read the sentence a user would actually be told. The
-    route does the joining and holds the result until the picks change.
+    route does the joining and holds the result until the picks change. `turbo`
+    is the rail's switch and reaches the still family alone, which is the only
+    side of the room it is wired to — see `video_piece`.
 
     The aspect table is printed once where both families agree on it, which on
     this pack's families they always do — eleven names twice is a fifth of the
@@ -480,16 +582,15 @@ def machine_card(still_family, video_family, catalog, available, weights):
     lines = ["WHAT THIS MACHINE MAKES"]
 
     if still:
-        refs = ((still.get("prompt") or {}).get("max_refs"))
-        attach = (f" Up to {refs} picture{'s' if refs != 1 else ''} may be cited "
-                  f"in \"from\"." if refs else "")
-        lines.append(f'"still" is {still["label"]}: one picture.{attach}')
+        lines.append(_sentences(f'"still" is {still["label"]}: one picture.',
+                                _attaches(still)))
     if video:
         sound = " with its own sound" if (video.get("capabilities") or {}).get("audio") else ""
-        lines.append(
-            f'"video" is {video["label"]}: one shot{sound}, {_durations(video)}. '
-            f'A still in "from" is the clip\'s first frame; anything else is a '
-            f"reference.")
+        lines.append(_sentences(
+            f'"video" is {video["label"]}: one shot{sound}, {_durations(video)}.',
+            'A still in "from" is the clip\'s first frame; anything else is a '
+            "reference.",
+            _attaches(video)))
 
     shapes = [_aspects(family) for family in (still, video) if family]
     if shapes and all(shape == shapes[0] for shape in shapes):
@@ -504,7 +605,8 @@ def machine_card(still_family, video_family, catalog, available, weights):
             lines.append(f"There is no {name} family set up, so nothing can be "
                          f"made of that kind — say so.")
             continue
-        gone = missing_weights(family, (weights or {}).get(family["id"]), available)
+        gone = missing_weights(family, (weights or {}).get(family["id"]),
+                               available, turbo=turbo and name == "still")
         if gone:
             # The slots are named by their popover titles, which are what the
             # person would have to go and click — "Video VAE", not "vae". They
@@ -514,6 +616,36 @@ def machine_card(still_family, video_family, catalog, available, weights):
                 f"{family['label']} is not ready: no file is picked for "
                 f"{listed(gone)}. Say so instead of asking for a {name}.")
     return "\n".join(lines)
+
+
+def _sentences(*parts):
+    """One line out of the sentences that had something to say."""
+    return " ".join(part for part in parts if part)
+
+
+def _attaches(family):
+    """What this family does with the handles cited in `from`, in one sentence.
+
+    A count where it reads pictures, a plain refusal where it cannot be given
+    one at all, and nothing where the family has not declared a limit. The model
+    has to know this before it cites something: afterwards the only thing left
+    is a refusal in the bubble where a picture should be, and on the default
+    still family that would be every "make it bluer" in the room.
+    """
+    limit = ref_limit(family)
+    if limit is None:
+        return ""
+    if not takes_refs(family):
+        return ('It cannot be given the pictures in "from" — cite nothing '
+                "there, and say so if you are asked to change a picture.")
+    said = f'Up to {limit} picture{"s" if limit != 1 else ""} may be cited in "from".'
+    if ((family.get("capabilities") or {}).get("refs") or {}).get("edits_first"):
+        # `compile_prestage` starts the render from the first reference on these
+        # families, so citing the thing being changed first is the difference
+        # between an edit of it and a new picture beside it — eight words, and
+        # they are what "make her coat white" depends on.
+        said += " The first is the picture being changed."
+    return said
 
 
 def listed(items):
@@ -666,6 +798,12 @@ DEFAULT_SECONDS = 6
 
 SEED_FIXED, SEED_RANDOM = "fixed", "random"
 
+# What the route stamps onto the rail about the still family's references, and
+# what a rail that says nothing means. `takes` is `takes_refs` of that family and
+# `refusal` is `refs_refusal` of it with the alternatives already named — both
+# are the catalog's answers, and the catalog is the route's.
+DEFAULT_STILL_PICTURES = {"takes": True, "refusal": ""}
+
 
 def render_seed(rail):
     """The number this render samples on.
@@ -757,6 +895,12 @@ def still_piece(action, ledger, rail):
     a first reference to the init at denoise 1 on exactly those families, which
     is where that rule belongs and where it already is.
 
+    A family that cannot be handed a picture refuses one here, in the room's own
+    words, before the compiler refuses it in words about the node's LoRA stack.
+    The rail carries that as a flag and the labels to point at instead, because
+    it is the catalog's answer and the route is the half with the catalog — see
+    `takes_refs` and `refs_refusal`.
+
     `models` is left empty and the route fills it from `settings["weights"]`:
     which files are on this disk is the machine's business and this module has
     no disk. The rail's arch is the pre-stage pill's name for a family — see
@@ -768,8 +912,14 @@ def still_piece(action, ledger, rail):
     if not arch:
         raise ActionError("this room has no still model set up yet.")
 
+    cited = _cited(action, ledger)
+    pictures = {**DEFAULT_STILL_PICTURES, **(rail.get("still_pictures") or {})}
+    if cited and not pictures.get("takes"):
+        raise ActionError(pictures.get("refusal") or
+                          "this still family cannot be given a picture.")
+
     refs = []
-    for handle, kind, filename in _cited(action, ledger):
+    for handle, kind, filename in cited:
         if kind != "image":
             raise ActionError(
                 f"@{handle} is a {kind} and a still can only be given pictures.")

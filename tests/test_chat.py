@@ -191,13 +191,26 @@ chatted = chat.judge('{"act": "say", "say": "It picks the starting noise."}',
 check("a say in answer to a question is just a say", chatted["act"], "say")
 
 check("the nudge reads a request", chat.asks_for_render("now a clip of it"), True)
+check("and its plural", chat.asks_for_render("can I have two pictures"), True)
 check("and two-word phrases in it", chat.asks_for_render("make me something nice"), True)
 # Whole words only: the list only ever *adds* a model call, so a word that fires
-# on ordinary prose costs a wasted generation and a confusing correction.
+# on ordinary prose costs a wasted generation and hands the person a correction
+# demanding a render they never asked for.
 check("but not a word that merely contains one",
-      chat.asks_for_render("the gunshot was loud"), False)
+      chat.asks_for_render("the videographer was late"), False)
 check("and not a turn that is only conversation",
       chat.asks_for_render("that came out lovely, thank you"), False)
+# Two words were dropped from the list for being commoner in conversation than
+# in a request: "still" is an adverb far more often than it is a noun, and
+# "shot" is as much praise for one as a request for one. Both pushed a model
+# that had correctly answered a question into a re-ask demanding a render.
+check("an adverb is not a request for a picture",
+      chat.asks_for_render("why is it still dark?"), False)
+check("and praise for a shot is not a request for another",
+      chat.asks_for_render("that shot of yours was lovely"), False)
+check("what the list holds is written down, so dropping from it is deliberate",
+      chat.RENDER_WORDS,
+      ("picture", "image", "clip", "video", "render", "draw", "make me", "show me"))
 
 # Second time round nothing is re-asked: the model has now been told exactly
 # what was wrong and answered anyway, and a person reading its prose is more
@@ -236,7 +249,21 @@ CATALOG = {"families": [
           "loads": True, "routed": False},
      ],
      "canvas": {"aspects": {"16:9": 1.77, "1:1": 1.0, "9:16": 0.56}},
-     "capabilities": {}, "prompt": {"max_refs": 3}},
+     # Krea 2 as it really is: it reads references, but only through an adapter
+     # in the pre-stage's LoRA stack, which this room has no way to fill.
+     "capabilities": {"refs": {"needs_lora": True}}, "prompt": {"max_refs": 3}},
+    {"id": "qwenedit", "label": "Qwen Image Edit", "produces": ["still"],
+     "weights": [
+         {"id": "model", "folder": "diffusion_models", "title": "the checkpoint",
+          "loads": True, "routed": False},
+         {"id": "clip", "folder": "text_encoders", "title": "the text encoder",
+          "loads": True, "routed": False},
+         {"id": "vae", "folder": "vae", "title": "the VAE",
+          "loads": True, "routed": False},
+     ],
+     "canvas": {"aspects": {"16:9": 1.77, "1:1": 1.0, "9:16": 0.56}},
+     "capabilities": {"refs": {"needs_lora": False, "edits_first": True}},
+     "prompt": {"max_refs": 3}},
     {"id": "h3", "label": "MiniMax H3", "produces": ["still", "video"],
      "weights": [
          {"id": "fl2va", "folder": "diffusion_models", "title": "the FL2VA checkpoint",
@@ -258,11 +285,17 @@ CATALOG = {"families": [
                 "fps": {"value": 24, "fixed": True},
                 "frames": {"step": 17, "offset": 5, "trained_min": 124,
                            "trained_max": 362, "min_seconds": 1, "max_seconds": 60}},
+     # A video family declares its caps in a reference block of its own rather
+     # than beside the prompt, which is the other spelling `ref_limit` reads.
+     "reference": {"max": {"image": 9, "video": 3, "audio": 3, "files": 12}},
      "capabilities": {"audio": {"supplied": True}}, "prompt": {}},
 ]}
 
+KREA2, QWENEDIT, H3 = CATALOG["families"]
+
 ON_DISK = {"by_folder": {
-    "diffusion_models": ["krea2.safetensors", "h3_fl2va.safetensors"],
+    "diffusion_models": ["krea2.safetensors", "h3_fl2va.safetensors",
+                         "qie.safetensors"],
     "text_encoders": ["qwen.safetensors", "minimax.safetensors"],
     "vae": ["krea2_vae.safetensors", "h3_vae.safetensors", "h3_audio.safetensors"],
     "checkpoints": [], "upscale_models": [],
@@ -271,6 +304,8 @@ ON_DISK = {"by_folder": {
 READY = {
     "krea2": {"model": "krea2.safetensors", "clip": "qwen.safetensors",
               "vae": "krea2_vae.safetensors"},
+    "qwenedit": {"model": "qie.safetensors", "clip": "qwen.safetensors",
+                 "vae": "krea2_vae.safetensors"},
     "h3": {"fl2va": "h3_fl2va.safetensors", "clip": "minimax.safetensors",
            "vae": "h3_vae.safetensors", "audio_vae": "h3_audio.safetensors"},
 }
@@ -283,8 +318,8 @@ check("and that a clip carries its own sound", "with its own sound" in card, Tru
 check("the duration range is the family's canvas",
       "1 to 60 seconds" in card and "trained on 5 to 15" in card, True)
 check("and so is the grid the compiler snaps to", "0.71s grid" in card, True)
-check("the reference limit is the family's own",
-      "Up to 3 pictures" in card, True)
+check("a clip's reference limit is its grammar's, off the reference block",
+      "Up to 9 pictures may be cited" in card, True)
 check("a still cited by a clip is named as its first frame",
       'A still in "from" is the clip\'s first frame' in card, True)
 # Both families offer the same shapes, which every family in this pack does, and
@@ -292,23 +327,67 @@ check("a still cited by a clip is named as its first frame",
 check("one aspect table serves both where they agree",
       card.count("16:9, 1:1, 9:16"), 1)
 # The point of the card being short: it rides in front of every turn.
-check("the card stays inside its budget", len(card.split()) < 130, True)
+check("the card stays inside its budget", len(card.split()) < 140, True)
+
+# What a still family does with a cited picture, and why the card has to say it
+# before the model cites one. Krea 2 is the default and reads references only
+# through an adapter in the pre-stage's LoRA stack, which this room cannot
+# reach — so "make it bluer" on a still would otherwise end, every time, in the
+# compiler's refusal about a control the person cannot see.
+check("a family whose references need an adapter says it takes none",
+      'It cannot be given the pictures in "from"' in card, True)
+check("and tells the model what to do instead",
+      "say so if you are asked to change a picture" in card, True)
+edits = chat.machine_card("qwenedit", "h3", CATALOG, ON_DISK, READY)
+check("while one that reads pictures outright says how many",
+      "Up to 3 pictures may be cited" in edits, True)
+# On an edit family the compile starts the render from the first reference, so
+# which one is cited first is the difference between changing a picture and
+# drawing a new one beside it.
+check("and an edit family says which one is being changed",
+      "The first is the picture being changed." in edits, True)
+check("which a family that only cites them does not",
+      "being changed" in card, False)
+check("read off the manifest, never off a family id",
+      (chat.takes_refs(KREA2), chat.takes_refs(QWENEDIT), chat.takes_refs(H3)),
+      (False, True, True))
+check("a family that declares no limit at all has nothing said about it",
+      chat.ref_limit({"prompt": {}}), None)
+
+# The turbo checkpoint is required exactly when the pill is thrown. Left out
+# either way, the dry run passes and `render_image.check` refuses on the queue —
+# the one failure the card and the dry run exist between them to prevent.
+check("with the pill thrown the Turbo checkpoint is required",
+      chat.missing_weights(KREA2, READY["krea2"], ON_DISK, turbo=True),
+      ["the Turbo checkpoint"])
+check("and with it thrown the card says so where the model can read it",
+      "no file is picked for the Turbo checkpoint" in
+      chat.machine_card("krea2", "h3", CATALOG, ON_DISK, READY, turbo=True), True)
+check("a machine that has the file is ready either way",
+      chat.missing_weights(
+          KREA2, {**READY["krea2"], "turbo_model": "krea2.safetensors"},
+          ON_DISK, turbo=True), [])
+# The switch is wired to the still side alone — see `video_piece` — so it must
+# not start demanding files of the video family.
+check("the switch does not reach the video family",
+      "MiniMax H3 is not ready" in
+      chat.machine_card("krea2", "h3", CATALOG, ON_DISK, READY, turbo=True), False)
 
 # The turbo checkpoint is a choice — the pill is off unless somebody throws it —
 # and a routed pair is a choice too: one of them on disk already renders
 # something, and refusing a machine that has Ref2VA but not FL2VA would be
 # refusing a machine that works.
 check("an unpicked turbo checkpoint is not missing weights",
-      chat.missing_weights(CATALOG["families"][0], READY["krea2"], ON_DISK), [])
+      chat.missing_weights(KREA2, READY["krea2"], ON_DISK), [])
 check("nor is a second routed checkpoint",
-      chat.missing_weights(CATALOG["families"][1], READY["h3"], ON_DISK), [])
+      chat.missing_weights(H3, READY["h3"], ON_DISK), [])
 check("nor a slot the family declares optional",
       "the x2 upscaler" in card, False)
 check("nor one whose file some other node opens for itself",
       "the face detector" in card, False)
 
 check("a family with no routed checkpoint at all cannot render",
-      chat.missing_weights(CATALOG["families"][1],
+      chat.missing_weights(H3,
                            {k: v for k, v in READY["h3"].items() if k != "fl2va"},
                            ON_DISK),
       ["the FL2VA checkpoint", "the Ref2VA checkpoint"])
@@ -317,7 +396,7 @@ check("a family with no routed checkpoint at all cannot render",
 # halves are asked, because a stale pick otherwise fails at the loader minutes
 # later instead of in the card, where the model could have said so.
 check("a pick naming a file that is no longer there is missing",
-      chat.missing_weights(CATALOG["families"][0],
+      chat.missing_weights(KREA2,
                            {**READY["krea2"], "vae": "deleted.safetensors"}, ON_DISK),
       ["the VAE"])
 
@@ -435,6 +514,34 @@ check("the weights are left for the route, which is the half with a disk",
 # family's file onto another the moment the arch pill moved.
 check("the turbo pill is written under the architecture it belongs to",
       still["turbo"], {"krea2": {"on": False}})
+
+# A family whose references arrive through an adapter cannot be given one here:
+# the adapter is an entry in the pre-stage's LoRA stack, and this room has no
+# stack. Refused in the room's own words rather than relayed from the compiler,
+# whose sentence names a control the person cannot see from the chat.
+NO_PICTURES = {**RAIL, "still_pictures": chat.still_pictures(KREA2, CATALOG)}
+refuses("a family that reads pictures only through an adapter refuses one",
+        lambda: chat.still_piece(
+            chat.validate({"act": "render", "kind": "still", "prompt": "bluer",
+                           "from": ["img-1"]}, LEDGER), LEDGER, NO_PICTURES),
+        "Krea 2 draws from words alone", "no stack to put one in")
+check("and the refusal names the families that do read pictures",
+      "Qwen Image Edit do read pictures" in NO_PICTURES["still_pictures"]["refusal"],
+      True)
+check("a still with nothing cited is made on that family all the same",
+      chat.still_piece(chat.validate(
+          {"act": "render", "kind": "still", "prompt": "a fox"}, LEDGER),
+          LEDGER, NO_PICTURES)["refs"], [])
+# The other way of reading no pictures: weights that take none at all.
+check("a family whose weights read no picture says so differently",
+      chat.refs_refusal({"label": "Ideogram 4", "prompt": {"max_refs": 0}}),
+      "Ideogram 4 draws from words alone: it reads no attached picture at all.")
+# A rail that says nothing means a family that takes pictures, which is what
+# every still family but Krea 2 and Ideogram 4 is.
+check("a rail with nothing to say about pictures lets one through",
+      chat.still_piece(chat.validate(
+          {"act": "render", "kind": "still", "prompt": "a fox", "from": ["img-1"]},
+          LEDGER), LEDGER, RAIL)["refs"][0]["handle"], "img-1")
 
 refuses("a still cannot be given a clip",
         lambda: chat.still_piece(

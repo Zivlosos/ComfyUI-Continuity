@@ -29,7 +29,14 @@ reaches it, the progress bar is the real one and the file lands in the gallery
 with its blob in its metadata like any other render. The machine card is the
 join nothing made before: every family's manifest, the files on this disk and
 this machine's picks, in about a hundred and fifty tokens, ending in "not
-ready: no file is picked for …" so the model can say so instead of trying.
+ready: no file is picked for …" so the model can say so instead of trying —
+with the turbo switch thrown, the Turbo checkpoint is one of the files it
+counts, since that is the one the render will load. It also says where a
+family cannot be handed a picture at all: Krea 2, the default, reads an
+attached reference only through an adapter in the pre-stage's LoRA stack and
+this room has no stack to fill, so "make it bluer" is answered in the room's
+own words — naming the still families that do read pictures — instead of being
+spent on the compiler's refusal about a control you cannot see from the chat.
 Making that join turned up a manifest that never served H3's optional flag, so
 the ControlNet branch a guide loads was being demanded of every render; it says
 what it is now. `tools/chat_bench.py` runs a scripted conversation against any
