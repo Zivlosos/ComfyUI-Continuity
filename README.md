@@ -16,14 +16,9 @@ Drop the node, type, press Render. Files you attach get an `@` name and you
 cite them in the sentence, so the prompt says which picture is the person and
 which is the room. The pills under the box are the whole setup: duration,
 aspect, resolution, the model, and a sampler row for when you want it.
+[The node](docs/the-node.md) walks every control.
 
 ![The node in the simple view](docs/img/simple.png)
-
-The full view lays the same piece out as a desk: the pre-stage on the left,
-the shot in the middle, the render on the right. Same node, same file; the
-view is a switch in the bar. [The node](docs/the-node.md) walks every control.
-
-![The full view](docs/img/full.png)
 
 ### References and the cast
 
@@ -50,13 +45,20 @@ pre-stage on Krea 2 feeding start frames into shots on LTX 2.5 is one strip.
 Seams carry picture and sound across the cut, or don't, independently.
 [Timelines](docs/timeline.md).
 
+### Chat
+
+The other way in. A room where you say what you want - *a fox in a snowy wood
+at dusk*, then *now a clip of it, she looks up*, then *bluer* - and the
+refiner model writes the prompt and renders. Every picture and clip gets a
+handle you can cite in the next line, so a still becomes a shot's first frame
+by naming it. It is the same node underneath, on the same queue, and
+everything lands in the same output folder. [Chat](docs/tools.md#chat).
+
 ### Tools
 
 The wordmark opens a dashboard of tools that work over the piece: presets, a
 ControlNet bench, a blockout bench for staging a scene out of boxes and
-walking a camera through it, an upscale bench, and a chat room where you
-describe what you want and the refiner model writes the prompts and renders.
-[Tools](docs/tools.md).
+walking a camera through it, and an upscale bench. [Tools](docs/tools.md).
 
 ![The tool dashboard](docs/img/dashboard.png)
 
