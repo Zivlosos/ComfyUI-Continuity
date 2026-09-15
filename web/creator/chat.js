@@ -605,14 +605,14 @@ class Room {
   }
 
   /** What an empty room says: a question, and three answers you can take as
-   *  they are. The three are the shape of a conversation here — a picture, a
-   *  clip of it, a change — which is more use on the first day than an
-   *  explanation of one. */
+   *  they are. Each is a first message on its own — a picture, a clip, a
+   *  picture with a shape named — not steps of one conversation: a line like
+   *  "now a clip of it" is nonsense as an opener. */
   emptyRoom() {
     const tries = [
       t("a fox in a snowy wood at dusk"),
-      t("now a clip of it, she looks up"),
-      t("bluer, and closer"),
+      t("a clip of rain on a café window at night, a tram passing behind"),
+      t("a portrait of an old lighthouse keeper, film still, 4:3"),
     ];
     return el("div", { class: "mmc-ch-empty" }, [
       el("h2", { text: t("What shall we make?") }),
