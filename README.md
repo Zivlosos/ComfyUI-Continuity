@@ -54,6 +54,8 @@ handle you can cite in the next line, so a still becomes a shot's first frame
 by naming it. It is the same node underneath, on the same queue, and
 everything lands in the same output folder. [Chat](docs/tools.md#chat).
 
+![The chat room, before the first line](docs/img/chat.png)
+
 ### Tools
 
 The wordmark opens a dashboard of tools that work over the piece: presets, a
