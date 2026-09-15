@@ -351,7 +351,15 @@ export function swappable(thumb, { title, onclick }) {
 export function dismissable(node, onClose) {
   floatAbove(node);
   const away = (event) => {
-    if (!node.contains(event.target)) close();
+    if (node.contains(event.target)) return;
+    // A popover opened from this one — a choice list under a row of the gear
+    // or the weights popover — is mounted on <body> after it, not inside it.
+    // Pressing in there is pressing in here: closing on it made every pick
+    // in a rebuilt-in-place popover the last one.
+    const other = event.target.closest?.(".mmc-pop");
+    if (other && other !== node
+        && node.compareDocumentPosition(other) & Node.DOCUMENT_POSITION_FOLLOWING) return;
+    close();
   };
   const key = (event) => {
     // A popover with something to clear first — a find line holding a query —

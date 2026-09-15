@@ -196,6 +196,15 @@ DEFAULTS = {
     # every morning. Nothing queued reads it; the room sends the rail with each
     # turn and each render, and this is only where it is remembered between them.
     "chat": {},
+    # The prompt refiner's choices: which backend answers, which model on each,
+    # and the dials around a rewrite. These lived in the browser's own store,
+    # which made them a property of one browser profile — a room set up in
+    # Firefox was a room with no model in Chrome, on the same machine, against
+    # the same server. Every one of them is an answer about this install (the
+    # text encoder on this disk, the server on this LAN), so they come here
+    # with the rest. The URL and the key are not in it: `refine_remote.py` keeps
+    # those, and only the backend's *name* and the model's travel.
+    "refiner": {},
     # The DLSS refiner's saved setups, in the order they were saved:
     # `[{"name": "...", "block": {...}}]`. Six numbers is not much to keep, and
     # keeping them is the difference between a profile somebody found by eye and
@@ -455,6 +464,8 @@ def clean(raw):
             clean_settings[key] = clean_weights(raw[key], key)
     if "chat" in raw and raw["chat"] is not None:
         clean_settings["chat"] = clean_chat(raw["chat"])
+    if "refiner" in raw and raw["refiner"] is not None:
+        clean_settings["refiner"] = clean_refiner(raw["refiner"])
     if "neural_profiles" in raw and raw["neural_profiles"] is not None:
         clean_settings["neural_profiles"] = clean_neural_profiles(raw["neural_profiles"])
     if "neural_start" in raw and raw["neural_start"] is not None:
@@ -528,6 +539,11 @@ def clean_prefixes(key, raw, defaults, legacy):
     return defaults
 
 
+# The settings that map a family or backend id to a block of files, which
+# `save` merges per id rather than replacing whole.
+KEYED_MAPS = ("weights", "upscale_weights", "control_weights")
+
+
 def clean_weights(raw, label="weights"):
     """The remembered weights, as this file will store them.
 
@@ -568,9 +584,20 @@ def clean_weights(raw, label="weights"):
 # one `if` at a time because they are one control panel and they are read back
 # as one block; what they *mean* is the room's and the manifest's, exactly as a
 # slot id's meaning is the family's in `clean_weights` above.
-CHAT_NAMES = ("still_family", "video_family", "aspect", "skill")
-CHAT_FLAGS = ("turbo", "refine")
-CHAT_COUNTS = (("short_edge", 1), ("seed", 0))
+# The `*_turbo_lora` names are the file each side's turbo switch reaches for,
+# empty meaning the family's distilled checkpoint; `*_turbo_quality` is the
+# switch's step stop, a name off the family's own table (`chat.turbo_row`).
+CHAT_NAMES = ("still_family", "video_family", "aspect", "skill",
+              "still_turbo_lora", "video_turbo_lora",
+              "still_turbo_quality", "video_turbo_quality")
+# `setup` is whether the room's first run has been answered on this machine —
+# the three questions are asked until it is, and "Set up again" clears it.
+# `turbo` is the one flag a rail saved before the switch was split per side
+# carries; the room reads it as `still_turbo`.
+CHAT_FLAGS = ("turbo", "still_turbo", "video_turbo", "refine", "setup")
+# `short_edge` is what a rail saved before the edge was split per kind holds;
+# the room reads it for both and writes the two it has now.
+CHAT_COUNTS = (("short_edge", 1), ("still_edge", 1), ("video_edge", 1), ("seed", 0))
 
 
 def clean_chat(raw):
@@ -621,6 +648,60 @@ def clean_chat(raw):
             raise ValueError("chat.seed_policy must be one of "
                              + ", ".join(chat.SEED_POLICIES))
         kept["seed_policy"] = raw["seed_policy"]
+    return kept
+
+
+REFINER_BACKENDS = ("local", "remote")
+REFINER_NAMES = ("model", "remoteModel", "language", "skill")
+REFINER_FLAGS = ("eject",)
+REFINER_TABLES = ("skillModes", "templates")
+
+
+def clean_refiner(raw):
+    """The prompt refiner's choices, as this file will store them.
+
+    Structural, on the same terms `clean_chat` sets: a model name is kept as
+    written and judged where it is loaded, a table maps names to names, and a
+    key this build has never heard of is dropped rather than refused. The
+    numbers are checked for being numbers and nothing more — `refine.py` clamps
+    a reply budget onto its own range where it is spent, and a temperature is
+    the model's to complain about.
+    """
+    if not isinstance(raw, dict):
+        raise ValueError("refiner must be an object")
+    kept = {}
+    if raw.get("backend") is not None:
+        if raw["backend"] not in REFINER_BACKENDS:
+            raise ValueError("refiner.backend must be one of " + ", ".join(REFINER_BACKENDS))
+        kept["backend"] = raw["backend"]
+    for key in REFINER_NAMES:
+        if raw.get(key) is None:
+            continue
+        if not isinstance(raw[key], str):
+            raise ValueError(f"refiner.{key} must be a name")
+        kept[key] = raw[key]
+    for key in REFINER_FLAGS:
+        if raw.get(key) is None:
+            continue
+        if not isinstance(raw[key], bool):
+            raise ValueError(f"refiner.{key} must be true or false")
+        kept[key] = raw[key]
+    for key in ("temperature", "seed", "maxTokens"):
+        if raw.get(key) is None:
+            continue
+        value = raw[key]
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"refiner.{key} must be a number")
+        kept[key] = value
+    for key in REFINER_TABLES:
+        if raw.get(key) is None:
+            continue
+        table = raw[key]
+        if not isinstance(table, dict) or not all(
+                isinstance(name, str) and isinstance(value, str)
+                for name, value in table.items()):
+            raise ValueError(f"refiner.{key} must map names to names")
+        kept[key] = dict(table)
     return kept
 
 
@@ -739,7 +820,19 @@ def save(raw):
     """
     if not isinstance(raw, dict):
         raise ValueError("settings must be an object")
-    stored = clean({**load(), **raw})
+    current = load()
+    merged = {**current, **raw}
+    # The three per-family (per-backend) maps merge one level down: a patch
+    # naming Krea 2's files says nothing about H3's. Every writer of these
+    # used to send the whole map from its own cache of it, and a cache primed
+    # before another tab, the chat room or the node had written — or never
+    # primed at all — put an empty map over every other family's picks. The
+    # block a patch does name replaces that family's whole block: a node
+    # writes only what is picked, so a slot it cleared is cleared here too.
+    for key in KEYED_MAPS:
+        if isinstance(raw.get(key), dict) and isinstance(current.get(key), dict):
+            merged[key] = {**current[key], **raw[key]}
+    stored = clean(merged)
     target = path()
     os.makedirs(os.path.dirname(target), exist_ok=True)
     # Written whole and moved into place: the save node reads this file while

@@ -4418,6 +4418,34 @@ function serializePreStageTurbo(turbo) {
 
 /** Fill empty weight fields from unambiguous filename matches — the same
  *  service `guessModels` does for the video nodes, for the same first-run. */
+/**
+ * Fill an image arch's empty weight fields from what this machine last picked
+ * for that family, in place. -> whether it changed anything.
+ *
+ * `remembered` is `settings.weights`, keyed by family id — the same block the
+ * chat room's first run writes and `adoptRemembered` reads for the video
+ * families. The pre-stage guessed from the folder listing alone before this,
+ * so a machine set up in the room opened its first pre-stage with the rows
+ * the room had already answered sitting empty. Runs before the guess for the
+ * reason `adoptRemembered` does: an answer somebody gave beats a filename read.
+ */
+export function adoptRememberedPreStage(models, remembered) {
+  let changed = false;
+  for (const arch of PRESTAGE_IMAGE_ARCHES) {
+    const block = remembered?.[IMAGE_FAMILY[arch].id];
+    if (!block || typeof block !== "object") continue;
+    for (const field of PRESTAGE_FIELDS[arch]) {
+      if (models[arch][field] || typeof block[field] !== "string" || !block[field].trim()) continue;
+      models[arch][field] = block[field].trim();
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+/** The family an image arch's picks are remembered under. */
+export const preStageFamilyId = (arch) => IMAGE_FAMILY[arch].id;
+
 export function guessPreStageModels(models, byFolder) {
   const lists = {
     model: byFolder?.diffusion_models ?? [], turbo_model: byFolder?.diffusion_models ?? [],

@@ -236,7 +236,7 @@ def _headers(url, key):
     return headers
 
 
-def _request(url, key, payload=None):
+def _request(url, key, payload=None, timeout=TIMEOUT):
     """One HTTP exchange -> the parsed JSON body, every failure a RefineError.
 
     The provider's own complaint is worth relaying — "model not found" beats
@@ -247,7 +247,7 @@ def _request(url, key, payload=None):
     request = urllib.request.Request(url, data=data, headers=_headers(url, key),
                                      method="POST" if data else "GET")
     try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             return json.load(response)
     except urllib.error.HTTPError as exc:
         detail = ""
@@ -280,23 +280,54 @@ def _request(url, key, payload=None):
         ) from None
 
 
-def list_models(url=None, key=None):
+# Where LM Studio and Ollama answer by default, and what the room's first run
+# knocks on to say "Ollama is running" before anybody has typed an address.
+# Loopback only, keyless, and a fixed list: a probe that took a URL from a
+# request would be the open relay the module docstring refuses, and one that
+# carried the stored key would hand it to whatever answered on that port.
+LOCAL_SERVERS = (
+    ("LM Studio", "http://localhost:1234/v1"),
+    ("Ollama", "http://localhost:11434/v1"),
+)
+PROBE_TIMEOUT = 1.5
+
+
+def list_models(url=None, key=None, timeout=TIMEOUT):
     """The model names the server offers, off its `/models` listing.
 
     Called with nothing, it lists for the stored endpoint — the only URL the
     routes ever hand it, so no request can point this fetch anywhere. Called
     with an explicit URL by `configure`'s connection test, before anything is
-    stored.
+    stored, and by `probe_local` with the two loopback defaults.
     """
     if url is None:
         stored = _read()
         url, key = stored.get("url", ""), stored.get("key", "")
     if not url:
         raise refine.RefineError("no refiner server is configured")
-    body = _request(f"{url}/models", key)
+    body = _request(f"{url}/models", key, timeout=timeout)
     names = [entry.get("id") for entry in body.get("data") or []
              if isinstance(entry, dict) and entry.get("id")]
     return sorted(names)
+
+
+def probe_local():
+    """Which of `LOCAL_SERVERS` is answering right now: `[{name, url, models}]`.
+
+    A server that is not running is refused on loopback at once, so the whole
+    walk costs nothing on a machine with neither; one that hangs is cut at
+    `PROBE_TIMEOUT` because this runs while somebody is waiting to be asked
+    their first question. Empty listings are reported too — a running LM
+    Studio with nothing loaded is still the server to pick.
+    """
+    up = []
+    for name, url in LOCAL_SERVERS:
+        try:
+            models = list_models(url, "", timeout=PROBE_TIMEOUT)
+        except refine.RefineError:
+            continue
+        up.append({"name": name, "url": url, "models": models})
+    return up
 
 
 # How long LM Studio may keep a JIT-loaded model after an ejecting press, in

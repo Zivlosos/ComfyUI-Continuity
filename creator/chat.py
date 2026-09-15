@@ -435,6 +435,70 @@ def missing_weights(family, picked, available, turbo=False):
     return missing
 
 
+def guess_weights(family, available):
+    """A file for each of `family`'s slots that exactly one name on disk fits.
+
+    The frontend's own guess (`state.guessModels`, `guessPreStageModels`) said
+    once more, here, because the room's first run asks the question before any
+    node exists to ask it: which families could render right now with what is
+    in the model folders? A slot is filled when exactly one file in its folder
+    carries one of the manifest's `hints` and none of its `avoid` patterns —
+    two candidates is a question for the person, not a coin toss — and a slot
+    with no hints is never guessed.
+    """
+    listings = (available or {}).get("by_folder") or {}
+    picks = {}
+    for slot in family.get("weights") or []:
+        hints = [needle.lower() for needle in slot.get("hints") or []]
+        if not hints:
+            continue
+        avoid = [re.compile(pattern, re.IGNORECASE) for pattern in slot.get("avoid") or []]
+        matched = [name for name in listings.get(slot.get("folder")) or []
+                   if any(needle in name.lower() for needle in hints)
+                   and not any(pattern.search(name) for pattern in avoid)]
+        if len(matched) == 1:
+            picks[slot["id"]] = matched[0]
+    return picks
+
+
+def setup_report(catalog, available, weights):
+    """Every family as the room's first run reads it: `[{id, label, produces,
+    picks, missing, turbo, slots}]`.
+
+    `picks` is what the family would render with — this machine's remembered
+    files where it has any, the guess above filling whatever those leave empty —
+    and `missing` is what would still refuse a render, by popover title, so the
+    room can say "everything Flux 2 Klein needs is here" or "2 of 4" without a
+    second reading of the same table. `turbo` is whether the turbo checkpoint
+    is among the picks, which is what decides whether the switch can be offered.
+    `slots` carries each slot's folder listing, so choosing by hand needs no
+    second request.
+    """
+    listings = (available or {}).get("by_folder") or {}
+    report = []
+    for family in (catalog or {}).get("families") or []:
+        remembered = {name: value for name, value in ((weights or {}).get(family["id"]) or {}).items()
+                      if isinstance(value, str) and value.strip()}
+        picks = {**guess_weights(family, available), **remembered}
+        always, routed = required_slots(family)
+        required = {slot["id"] for slot in always + routed}
+        report.append({
+            "id": family["id"],
+            "label": family.get("label", family["id"]),
+            "produces": list(family.get("produces") or []),
+            "picks": picks,
+            "missing": missing_weights(family, picks, available),
+            "turbo": bool(picks.get(TURBO_SLOT)),
+            "slots": [{
+                "id": slot["id"],
+                "title": slot.get("title") or slot.get("label") or slot["id"],
+                "required": slot["id"] in required,
+                "options": list(listings.get(slot.get("folder")) or []),
+            } for slot in family.get("weights") or [] if slot.get("loads")],
+        })
+    return report
+
+
 def ref_limit(family):
     """How many pictures may be cited for this family, or None where it is silent.
 
@@ -605,8 +669,12 @@ def machine_card(still_family, video_family, catalog, available, weights,
             lines.append(f"There is no {name} family set up, so nothing can be "
                          f"made of that kind — say so.")
             continue
-        gone = missing_weights(family, (weights or {}).get(family["id"]),
-                               available, turbo=turbo and name == "still")
+        # Memory over the folder's own guess — the join `setup_report` and
+        # the render route both take, so the three cannot disagree.
+        picked = {**guess_weights(family, available),
+                  **((weights or {}).get(family["id"]) or {})}
+        gone = missing_weights(family, picked, available,
+                               turbo=turbo and name == "still")
         if gone:
             # The slots are named by their popover titles, which are what the
             # person would have to go and click — "Video VAE", not "vae". They
@@ -893,6 +961,140 @@ def _canvas(action, rail, kind):
     return canvas
 
 
+# ---- the turbo switch ---------------------------------------------------------
+
+# One switch per side of the room, because "turbo" is not one thing: Krea 2's
+# is a distilled checkpoint or an SVD extraction of it as a LoRA over RAW, Flux
+# 2 Klein publishes the checkpoint alone, Ideogram 4 the LoRA alone, and H3's
+# is a distillation LoRA in the piece's own stack (or nothing at all, on a
+# checkpoint that ships with the distillation merged). The rail carries a
+# `<side>_turbo` flag, the `<side>_turbo_lora` file — empty meaning the
+# checkpoint — and a `<side>_turbo_quality` stop, and each family's
+# `capabilities.turbo` says what its switch may be set to.
+TURBO_SIDES = ("still", "video")
+
+
+def turbo_of(rail, side):
+    """The rail's turbo switch for one side -> `{on, lora, quality}`.
+
+    A rail written before the switch was split carried one `turbo` flag, and
+    it was the still side's: that is what it still reads as.
+    """
+    rail = rail or {}
+    on = rail.get(f"{side}_turbo")
+    if on is None and side == "still":
+        on = rail.get("turbo")
+    lora = rail.get(f"{side}_turbo_lora")
+    return {"on": bool(on),
+            "lora": lora.strip() if isinstance(lora, str) else "",
+            "quality": str(rail.get(f"{side}_turbo_quality") or "")}
+
+
+def turbo_spec(family):
+    """A family's turbo declaration, or None where it has no switch."""
+    spec = ((family or {}).get("capabilities") or {}).get("turbo")
+    return spec if isinstance(spec, dict) else None
+
+
+def _turbo_preset(spec, lora):
+    """The declaration's preset for a file, matched on its name. Only the video
+    families declare any; a still family's switch has one row for every file."""
+    for preset in spec.get("presets") or []:
+        try:
+            if re.search(preset.get("match", ""), lora or "", re.IGNORECASE):
+                return preset
+        except re.error:
+            continue
+    return {}
+
+
+def turbo_wants_checkpoint(family, block):
+    """Whether this switch, as set, loads the family's Turbo checkpoint — which
+    is when `required_slots` has to count that slot."""
+    return bool(block.get("on")) and not block.get("lora")
+
+
+def turbo_problem(family, block, lora_names):
+    """Why the switch cannot be thrown as it is set, as the assistant's line, or None.
+
+    Three refusals, all about a switch set to something the family does not
+    have: a LoRA on a family whose distillation is only a checkpoint, the
+    checkpoint on a family whose distillation is only a LoRA, and a LoRA that
+    is not in the models folder any more. `lora_names` is `models/loras`.
+    """
+    if not block.get("on"):
+        return None
+    spec = turbo_spec(family)
+    label = family.get("label", family.get("id"))
+    if spec is None:
+        return f"{label} has no turbo mode. Turn turbo off for it and ask again."
+    lora = block.get("lora")
+    if lora:
+        if spec.get("lora") is False:
+            return (f"{label}'s turbo is a checkpoint, not a LoRA. Set its turbo "
+                    f"to the checkpoint and ask again.")
+        if lora_names is not None and lora not in lora_names:
+            return (f"The turbo LoRA {lora} is not in the models folder any more. "
+                    f"Pick another one and ask again.")
+        return None
+    if spec.get("checkpoint") is False:
+        return (f"{label}'s turbo is a LoRA, not a checkpoint. Pick the turbo "
+                f"LoRA and ask again.")
+    return None
+
+
+def turbo_strength(family, block):
+    """What the switch engages the LoRA at — the file's preset, or the family's."""
+    spec = turbo_spec(family) or {}
+    preset = _turbo_preset(spec, block.get("lora"))
+    strength = preset.get("strength", spec.get("default_strength", 1.0))
+    try:
+        return float(strength)
+    except (TypeError, ValueError):
+        return 1.0
+
+
+def turbo_row(family, block):
+    """The widget values the switch sets on the node -> `{widget: value}`.
+
+    The chat's prompt carries the node's whole widget row at the family's
+    defaults (`routes/chat._node_widgets`), and a distilled checkpoint sampled
+    on RAW's forty steps at cfg 3.5 is a fried picture — which is what the room
+    made before this existed. So the switch writes the same row the pre-stage's
+    `throwTurbo` and the timeline's `turbo.js` write: the step count of the
+    picked quality, the sampler row the distillation was tuned against, and
+    on the video side the flow shifts the file's preset names. Empty with the
+    switch off, so the family's own row stands.
+    """
+    if not block.get("on"):
+        return {}
+    spec = turbo_spec(family)
+    if spec is None:
+        return {}
+    preset = _turbo_preset(spec, block.get("lora"))
+    steps = preset.get("steps") or spec.get("steps") or {}
+    quality = block.get("quality") or spec.get("default_quality") or ""
+    row = dict(preset.get("row") or spec.get("row") or {})
+    if quality in steps:
+        row["steps"] = int(steps[quality])
+    elif steps:
+        row["steps"] = int(steps.get(spec.get("default_quality")) or next(iter(steps.values())))
+    reset = spec.get("reset") or {}
+    for key in ("shift_video", "shift_audio"):
+        if key in preset:
+            row[key] = preset[key]
+        elif key in reset:
+            row[key] = reset[key]
+    return row
+
+
+def turbo_lora_entry(family, block):
+    """The stack entry the switch adds — the same entry the manager would
+    hold, so the compiler patches it like any other."""
+    return {"name": block["lora"], "strength": turbo_strength(family, block),
+            "enabled": True}
+
+
 def still_piece(action, ledger, rail):
     """A `render` of a still -> the `prestage_data` the PreStage node runs.
 
@@ -925,6 +1127,8 @@ def still_piece(action, ledger, rail):
     arch = rail.get("still_arch")
     if not arch:
         raise ActionError("this room has no still model set up yet.")
+    family = rail.get("still_spec") or {}
+    turbo = turbo_of(rail, "still")
 
     cited = _cited(action, ledger)
     pictures = {**DEFAULT_STILL_PICTURES, **(rail.get("still_pictures") or {})}
@@ -945,12 +1149,16 @@ def still_piece(action, ledger, rail):
         "prompt": action["prompt"],
         "init": None,
         "refs": refs,
-        "loras": [],
+        # The turbo LoRA is an entry in the stack like the pre-stage's — the
+        # switch is a shortcut into the stack, not a second stack.
+        "loras": [turbo_lora_entry(family, turbo)] if turbo["on"] and turbo["lora"] else [],
         **_canvas(action, rail, "still"),
         # Per-arch, the way the pre-stage's own block is: the pill does not mean
         # the same thing on both sides, and a flat block would carry one
-        # family's file onto another the moment the arch moved.
-        "turbo": {arch: {"on": bool(rail.get("turbo"))}},
+        # family's file onto another the moment the arch moved. `lora` empty
+        # is the checkpoint, which is how `krea2.still` reads it.
+        "turbo": {arch: {"on": turbo["on"], "lora": turbo["lora"] or None,
+                         "quality": turbo["quality"] or None}},
         "models": {},
     }
 
@@ -968,16 +1176,19 @@ def video_piece(action, ledger, rail):
     keyframe (a shot opens once) so it rides as a reference, and a clip or a
     sound is a reference whatever its position.
 
-    The rail's turbo switch does not reach here. H3's turbo is a distillation
-    LoRA in the piece's own stack rather than a checkpoint pill, and the chat
-    has no way to pick one — so the switch is the still side's until the room
-    offers the stack, which is honest and beats writing a block that turns
-    nothing on.
+    The rail's video turbo switch is the piece's `turbo` block and one entry
+    in its stack — exactly what `turbo.js` writes when the timeline's switch
+    is thrown: `render.LeadIn` reads the block, `compile.active_loras` patches
+    the entry, and the sampler row goes on the node's widgets (`turbo_row`).
+    With no file the block alone drops the steps, which is the merged-
+    checkpoint case the manager's "no LoRA" choice covers.
     """
     rail = rail or {}
     family = rail.get("video_family")
     if not family:
         raise ActionError("this room has no video model set up yet.")
+    spec = rail.get("video_spec") or {}
+    turbo = turbo_of(rail, "video")
 
     assets, opened = [], False
     for handle, kind, filename in _cited(action, ledger):
@@ -994,6 +1205,8 @@ def video_piece(action, ledger, rail):
         "prompt": "",
         "family": family,
         "models": {},
+        "loras": [turbo_lora_entry(spec, turbo)] if turbo["on"] and turbo["lora"] else [],
+        "turbo": {"on": turbo["on"], "lora": turbo["lora"]},
         **_canvas(action, rail, "video"),
         "segments": [{
             "prompt": action["prompt"],

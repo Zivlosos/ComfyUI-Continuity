@@ -6,6 +6,53 @@ exactly as it was written, wall of text and all.
 
 ## Unreleased
 
+**The chat room's turbo is a switch per side, and the sampler row follows
+it.** The room had one turbo switch, wired to the still side, and it only ever
+swapped the checkpoint: the node's widgets stayed at the family's ordinary
+row, so Krea 2 Turbo sampled at forty steps and cfg 3.5 and came out as noise.
+Now *Picture turbo* and *Clip turbo* each pick what the fast run is — the
+family's distilled checkpoint, a distillation LoRA over the ordinary one, or
+on the clip side no file at all for a merged checkpoint — offering only what
+the family declares, and the render's row is set the way the pre-stage's and
+the timeline's own switches set it: the picked stop's step count, the
+distillation's sampler, and the flow shifts a clip's file was distilled
+against. The gear grew a *Models* tab with every file each family loads and
+its turbo under it, so the machine's picks can be changed without setting up
+again. The room's render card now shows the pack's own step previews (it was
+listening for core's, which the pack suppresses), the transcript no longer
+jumps to the last finished render on every step (each finished picture was a
+fresh `<img>` loading from nothing once a second), and a popover opened from
+the gear or the weights popover no longer closes it.
+
+**The node and the chat room read the same model picks.** Every writer of the
+remembered weights — a node's weights popover, the pre-stage, the room, the
+two benches — sent the whole map from its own cache of it, and a cache primed
+before something else had written, or never primed, put an empty map over
+every other family's picks: the room set a family up and the node forgot it,
+or the reverse, until the files were picked again. The settings file now
+merges that map per family and each writer sends only the family it changed.
+The render route and the machine card also take the same reading the room's
+own forms show — this machine's memory over the folder listing's guess — so a
+family the room calls ready is a family it renders with, and the gear
+re-reads the file when it opens so a pick made on a node is what the Models
+tab shows.
+
+**The chat room sets itself up the first time it opens.** Three questions as
+the room's own first messages — who does the thinking, what does the drawing,
+what shape — each asked with the answer already found on the machine: the text
+encoders on disk, a running LM Studio or Ollama, the families whose files are
+all in the model folders. Every place the model can run opens a form with that
+place's model list, so nothing is typed that can be picked; a hosted API takes
+a provider and a key and lists what the key reaches. The answers are written
+where the node reads them — the files per family into the same memory a node
+fills its empty weight rows from (the pre-stage now reads and writes it too,
+for the image families), the model into the refiner's settings — so a node
+dropped on the canvas afterwards opens set up. The refiner's choices moved from
+the browser's own store to the settings file for that reason: a model chosen in
+one browser was no model in the next, on the same machine. *Set up again*
+behind the gear asks the three afresh. The room's two sizes are now remembered
+across reloads; the settings file was dropping them.
+
 **Chat: a room on the tools dashboard where you talk to the refiner and it
 renders.** Ask for a picture or a shot, then ask for changes; the model writes
 what you would have typed into the prompt box and the render goes on the

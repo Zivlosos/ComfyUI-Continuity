@@ -37,11 +37,13 @@ import { rulesFor, resolveCanvas } from "./canvas.js";
 import { resolvedPreStage, PRESTAGE_CANVAS_MULTIPLE, PRESTAGE_MIN_EDGE, PRESTAGE_MAX_EDGE,
          PRESTAGE_DEFAULT_EDGE } from "./state.js";
 import { openPicker } from "./picker.js";
-import { outputUrl, upload, uiSetting, patchSettings, primeSettings, viewUrl } from "./api.js";
+import { outputUrl, upload, uiSetting, patchSettings, primeSettings, loadSettings, noteSettings,
+         viewUrl } from "./api.js";
 import { settings as refinerSettings, chosenModel, openSettings, listSkills, refineRequest } from "./refine.js";
 import { FAMILIES, VIDEO_FAMILIES, DEFAULT_VIDEO_FAMILY, STILL_ARCHES,
          DEFAULT_STILL_ARCH, family as familyOf } from "./manifest.js";
 import { run, watch as watchQueue } from "./queue.js";
+import { FirstRun, freshSetup, scanMachine, turboRows, modelsPanel } from "./chatsetup.js";
 import { t } from "./i18n.js";
 import { api } from "../../../scripts/api.js";
 
@@ -70,7 +72,12 @@ const EXCHANGES = 5;
  *  comes back as the route's own `{error}` or `{problem}` and is already a
  *  bubble by the time a card exists. */
 const CARD_EVENTS = ["progress_state", "b_preview_with_metadata", "b_preview",
-                     "executed", "execution_error", "execution_interrupted"];
+                     "kj_preview_override", "executed", "execution_error",
+                     "execution_interrupted"];
+
+/** The one node a chat prompt has — `routes/chat._build` builds `{"1": ...}` —
+ *  so a preview from inside its expansion names `1.<something>`. */
+const CHAT_NODE = "1";
 
 /**
  * The conversation, for the life of the page.
@@ -95,6 +102,15 @@ const state = {
   // everything else here is: the turn outlives the overlay.
   tokens: null,
   error: null,
+  // The first run, while it is being answered — see `chatsetup.js`. Null once
+  // the card is in the transcript; the scan it was answered against is kept
+  // apart so a "change" on the card re-asks one question without a second
+  // walk of the model folders.
+  setup: null,
+  scan: null,
+  scanning: false,
+  // Which of the gear's two tabs was open last, for the page.
+  gearTab: "room",
 };
 
 /** The room, or null. One at a time: it is the room. */
@@ -152,7 +168,17 @@ function defaultRail() {
     // family's trained edge. Each is the family's own default until touched.
     still_edge: PRESTAGE_DEFAULT_EDGE,
     video_edge: shape.native_short_edge ?? 768,
-    turbo: false,
+    // One turbo switch per side, because "turbo" is a different file on each:
+    // the flag, the LoRA it reaches for (empty is the family's distilled
+    // checkpoint) and the step stop off the family's own table. What each
+    // family's switch may be set to is its `capabilities.turbo` — see
+    // `chatsetup.turboRows`.
+    still_turbo: false,
+    still_turbo_lora: "",
+    still_turbo_quality: "",
+    video_turbo: false,
+    video_turbo_lora: "",
+    video_turbo_quality: "",
     seed: 0,
     seed_policy: "fixed",
     // The spec's §5.1: the chat's prompt goes through the family's own
@@ -174,6 +200,10 @@ function rail() {
     // A rail saved before the edge was split carried one number for both
     // kinds. It was the clip's — the still's default is its family's own.
     if (saved.short_edge && !saved.video_edge) state.rail.video_edge = saved.short_edge;
+    // And one turbo flag, which was the still side's.
+    if (saved.turbo !== undefined && saved.still_turbo === undefined) {
+      state.rail.still_turbo = Boolean(saved.turbo);
+    }
   }
   return state.rail;
 }
@@ -231,6 +261,9 @@ function forServer() {
   let exchanges = 0;
   for (let at = state.messages.length - 1; at >= 0; at -= 1) {
     const message = state.messages[at];
+    // The first run's bubbles are the room's own and say nothing the model
+    // should read — the machine card already tells it what is set up.
+    if (message.local) continue;
     if (message.role === "user") {
       exchanges += 1;
       if (exchanges > EXCHANGES) break;
@@ -262,9 +295,24 @@ function requestBlock() {
     skill_mode: bar.skill ? "add" : "",
     still_family: bar.still_family,
     video_family: bar.video_family,
-    turbo: bar.turbo,
+    ...turboFields(bar),
   };
 }
+
+/** An aspect label as CSS: "4:3" -> "4 / 3", and the room's default where the
+ *  label is not one. */
+function aspectOf(label) {
+  const match = /^(\d+(?:\.\d+)?)\s*[:x\/]\s*(\d+(?:\.\d+)?)$/.exec(String(label ?? ""));
+  return match ? `${match[1]} / ${match[2]}` : "16 / 9";
+}
+
+/** The six turbo fields as the server reads them (`chat.turbo_of`). */
+const turboFields = (bar) => Object.fromEntries(
+  ["still", "video"].flatMap((side) => [
+    [`${side}_turbo`, Boolean(bar[`${side}_turbo`])],
+    [`${side}_turbo_lora`, bar[`${side}_turbo_lora`] || ""],
+    [`${side}_turbo_quality`, bar[`${side}_turbo_quality`] || ""],
+  ]));
 
 // ---- watching one render ----------------------------------------------------
 
@@ -306,6 +354,27 @@ function watchRender(card) {
         // the same picture, named.
         if (card.metaFrameAt && Date.now() - card.metaFrameAt < 2000) return;
         return frame(card, detail instanceof Blob ? detail : detail.blob);
+      }
+      case "kj_preview_override": {
+        // The pack's own previewer — `models.graph_preview` patches it onto
+        // every render of ours and suppresses core's, so on a stock install
+        // (previews off) this is the only frame that ever arrives. It names
+        // the emitting node, which is ours plus a GraphBuilder prefix, the
+        // way stage.js reads it; the queue runs one thing at a time, so the
+        // running card is the one it belongs to.
+        if (card.state !== "running") return;
+        const id = String(detail.node_id ?? "");
+        if (id !== CHAT_NODE && !id.startsWith(`${CHAT_NODE}.`)) return;
+        if (Number.isFinite(detail.total) && detail.total > 0) {
+          card.progress = Math.max(0, Math.min(1, (detail.step ?? 0) / detail.total));
+        }
+        if (!detail.image) return notify();
+        release(card);
+        card.frameUrl = `data:${detail.mime || "image/jpeg"};base64,${detail.image}`;
+        // With NVENC the pack encodes the step clip as video/mp4, which an
+        // <img> renders as a black box.
+        card.frameIsClip = (detail.mime || "").startsWith("video/");
+        return notify();
       }
       case "executed": {
         if (detail.prompt_id !== card.promptId) return;
@@ -357,8 +426,9 @@ function frame(card, blob) {
 }
 
 function release(card) {
-  if (card.frameUrl) URL.revokeObjectURL(card.frameUrl);
+  if (card.frameUrl?.startsWith("blob:")) URL.revokeObjectURL(card.frameUrl);
   card.frameUrl = null;
+  card.frameIsClip = false;
 }
 
 /**
@@ -413,6 +483,15 @@ class Room {
     // way an attachment does on any chat surface: shown in the composer, gone
     // from it on Enter, and in the transcript under the words they went with.
     this.pending = [];
+    this.firstRun = new FirstRun({
+      setup: () => state.setup,
+      rail, setRail,
+      said: (key, ask, answer) => this.setupSaid(ask, answer),
+      finish: () => this.finishSetup(),
+      repaint: () => this.paint(),
+      openEdge: (anchor, kind, onChange) => this.openEdge(anchor, kind, onChange),
+      familyLabel: (id) => FAMILIES.find((entry) => entry.id === id)?.label ?? id,
+    });
   }
 
   mount() {
@@ -536,6 +615,10 @@ class Room {
     primeSettings(() => {
       if (!this.overlay.isConnected) return;
       if (!state.railTouched) state.rail = null;
+      // A machine nobody has answered the three questions on gets them now,
+      // as the room's own first messages — unless a conversation is already
+      // under way, which a room reopened mid-page is.
+      if (!rail().setup && !state.setup && !state.messages.length) this.startSetup();
       this.paint();
     });
     listSkills().then((entries) => {
@@ -562,20 +645,31 @@ class Room {
     this.paintBar();
   }
 
-  /** The transcript, rebuilt from the conversation.
+  /** The transcript, drawn from the conversation.
    *
-   *  Rebuilt rather than appended to because a render card changes as it runs —
-   *  progress, a preview frame, a handle when it lands — and a card that is
-   *  patched in place while the list is also being appended to is two ways of
-   *  writing the same DOM. The list is short by construction and the scroll is
-   *  kept by `keepScroll`. */
+   *  The list is rebuilt — a render card changes as it runs, and a card patched
+   *  in place while the list is also being appended to is two ways of writing
+   *  the same DOM — but each message's rows are kept between paints unless
+   *  what they show has changed (`rowKey`). Rebuilding every row on every
+   *  step of a render meant every finished picture was a fresh <img> loading
+   *  from nothing once a second: the transcript shrank, the scroll clamped,
+   *  and the room jumped to the last render on each tick. The scroll is
+   *  otherwise kept by `keepScroll`, and pinned to the bottom only when it
+   *  was already there. */
   paintLog() {
     const bottom = this.log.scrollHeight - this.log.scrollTop - this.log.clientHeight < 60;
     const rows = [];
-    if (!state.messages.length) rows.push(this.emptyRoom());
+    if (!state.messages.length && !state.setup) rows.push(this.emptyRoom());
+    this.rows ??= new Map();
+    const seen = new Set();
     for (const message of state.messages) {
+      seen.add(message);
+      const key = this.rowKey(message);
+      const kept = this.rows.get(message);
+      if (kept && kept.key === key) { rows.push(...kept.nodes); continue; }
+      const nodes = [];
       if (message.role === "user") {
-        rows.push(el("div", { class: "mmc-ch-msg mmc-ch-user" }, [
+        nodes.push(el("div", { class: "mmc-ch-msg mmc-ch-user" }, [
           el("div", { class: "mmc-ch-turn" }, [
             message.attached?.length
               ? el("div", { class: "mmc-ch-thumbs" }, message.attached.map((entry) => this.thumb(entry)))
@@ -583,14 +677,18 @@ class Room {
             message.text ? el("div", { class: "mmc-ch-said", text: message.text }) : null,
           ].filter(Boolean)),
         ]));
-        continue;
+      } else {
+        if (message.say) {
+          nodes.push(el("div", { class: `mmc-ch-msg mmc-ch-bot${message.bad ? " mmc-ch-bad" : ""}` },
+                        [el("div", { class: "mmc-ch-said", text: message.say })]));
+        }
+        if (message.card) nodes.push(this.renderCard(message.card));
       }
-      if (message.say) {
-        rows.push(el("div", { class: `mmc-ch-msg mmc-ch-bot${message.bad ? " mmc-ch-bad" : ""}` },
-                     [el("div", { class: "mmc-ch-said", text: message.say })]));
-      }
-      if (message.card) rows.push(this.renderCard(message.card));
+      this.rows.set(message, { key, nodes });
+      rows.push(...nodes);
     }
+    for (const message of this.rows.keys()) if (!seen.has(message)) this.rows.delete(message);
+    if (state.setup) rows.push(this.firstRun.render());
     if (state.busy) {
       rows.push(el("div", { class: "mmc-ch-msg mmc-ch-bot" },
                    [el("div", { class: "mmc-ch-said mmc-ch-thinking" },
@@ -604,25 +702,89 @@ class Room {
     if (bottom) this.log.scrollTop = this.log.scrollHeight;
   }
 
+  /** Everything a message's rows show, as one string: equal means the rows
+   *  standing are still right. A user turn never changes; an assistant turn
+   *  changes with its line and with every step of its card. */
+  rowKey(message) {
+    if (message.role === "user") return "user";
+    const card = message.card;
+    return JSON.stringify([
+      message.say, message.bad, message.action?.kind,
+      card && [card.state, card.progress, card.frameUrl, card.frameIsClip, card.tokens?.value,
+               card.saved, card.refined, card.error, card.entry?.handle, card.isClip,
+               card.state === "queued" ? this.queue.remaining : 0, Boolean(this.openRender)],
+    ]);
+  }
+
   /** What an empty room says: a question, and three answers you can take as
    *  they are. Each is a first message on its own — a picture, a clip, a
    *  picture with a shape named — not steps of one conversation: a line like
    *  "now a clip of it" is nonsense as an opener. */
   emptyRoom() {
+    return el("div", { class: "mmc-ch-empty" }, [
+      el("h2", { text: t("What shall we make?") }),
+      el("p", { text: t("Ask for a picture or a shot. Then ask for changes.") }),
+      this.tries(),
+    ]);
+  }
+
+  /** The three first messages, as buttons. */
+  tries() {
     const tries = [
       t("a fox in a snowy wood at dusk"),
       t("a clip of rain on a café window at night, a tram passing behind"),
       t("a portrait of an old lighthouse keeper, film still, 4:3"),
     ];
-    return el("div", { class: "mmc-ch-empty" }, [
-      el("h2", { text: t("What shall we make?") }),
-      el("p", { text: t("Ask for a picture or a shot. Then ask for changes.") }),
-      el("div", { class: "mmc-ch-tries" }, tries.map((line) => el("button", {
-        class: "mmc-ch-try", text: line,
-        onclick: () => { this.box.value = line; this.box.focus(); this.grow(); },
-      }))),
-    ]);
+    return el("div", { class: "mmc-ch-tries" }, tries.map((line) => el("button", {
+      class: "mmc-ch-try", text: line,
+      onclick: () => { this.box.value = line; this.box.focus(); this.grow(); },
+    })));
   }
+
+  // ---- the first run -------------------------------------------------------------
+
+  /** Ask the three questions, from the top. `again` is the gear's "Set up
+   *  again": the same run over a room that was already set up, with a fresh
+   *  look at the disk. */
+  startSetup(again = false) {
+    if (again) setRail({ setup: false });
+    state.setup = freshSetup();
+    state.scan = null;
+    this.lookAtMachine();
+    this.paint();
+  }
+
+  /** The scan lands into whichever run is open when it arrives — the room
+   *  may have been closed and reopened while the folders were walked. */
+  async lookAtMachine() {
+    try {
+      state.scan = await scanMachine();
+      if (state.setup) state.setup.scan = state.scan;
+    } catch (error) {
+      if (state.setup) state.setup.scanError = String(error.message || error);
+    }
+    notify();
+  }
+
+  /** One question and its answer, as two bubbles of the room's own. */
+  setupSaid(ask, answer) {
+    state.messages.push({ role: "assistant", say: ask, local: true });
+    state.messages.push({ role: "user", text: answer, local: true });
+  }
+
+  /** The run is over: the rail says so, and the room opens as it always
+   *  does — the question, the three tries, the composer. The exchange is not
+   *  kept: it was the room's, not the conversation's, and what was decided is
+   *  on the pills and behind the gear, where it can be changed. "Set up again"
+   *  in the gear asks the three questions afresh. */
+  finishSetup() {
+    setRail({ setup: true });
+    state.setup = null;
+    state.messages = state.messages.filter((message) => !message.local);
+    this.paint();
+    this.box.focus();
+  }
+
 
   /** What the room is waiting for, said honestly. A local turn is a model on
    *  the same card the renders want, so "thinking" is a lie while it is third
@@ -640,16 +802,29 @@ class Room {
   /** One render, from the moment it is queued to the file it becomes. */
   renderCard(card) {
     const body = [];
+    // The box has the render's shape before there is a render: the picture
+    // arrives into the space it was always going to take, and a step frame of
+    // another shape does not push the conversation about.
+    const shape = { aspectRatio: aspectOf(card.action?.aspect ?? rail().aspect) };
     if (card.state === "done" && card.saved) {
       const url = outputUrl(card.saved);
       body.push(card.isClip
         ? el("video", { class: "mmc-ch-shot", src: url, controls: true,
                         loop: true, playsinline: true, preload: "metadata" })
         : el("img", { class: "mmc-ch-shot", src: url, alt: "", draggable: false }));
+    } else if (card.frameUrl && card.frameIsClip) {
+      const clip = el("video", { class: "mmc-ch-shot", src: card.frameUrl, autoplay: true,
+                                 loop: true, playsinline: true, preload: "metadata", style: shape });
+      clip.muted = true;
+      body.push(clip);
     } else if (card.frameUrl) {
-      body.push(el("img", { class: "mmc-ch-shot", src: card.frameUrl, alt: "", draggable: false }));
+      // One <img> for the life of the render, its src moved per step: a new
+      // element per frame is a box with nothing in it until the frame decodes.
+      card.frameEl ??= el("img", { class: "mmc-ch-shot", alt: "", draggable: false, style: shape });
+      if (card.frameEl.src !== card.frameUrl) card.frameEl.src = card.frameUrl;
+      body.push(card.frameEl);
     } else {
-      body.push(el("div", { class: "mmc-ch-shot mmc-ch-blank" }, [spinner()]));
+      body.push(el("div", { class: "mmc-ch-shot mmc-ch-blank", style: shape }, [spinner()]));
     }
 
     const note = card.state === "failed" ? card.error
@@ -726,14 +901,25 @@ class Room {
     ]);
   }
 
+
   /** The composer's changing parts: whether it can be used, what is waiting
    *  to go with the next message, and the three choices a message is made
    *  against. */
   paintComposer() {
-    this.box.disabled = state.busy;
-    this.sendButton.disabled = state.busy || (!this.box.value.trim() && !this.pending.length);
+    // Closed while the first run is being answered: a message sent before the
+    // room has a model to think with is a message answered with a refusal.
+    const asking = Boolean(state.setup);
+    this.box.disabled = state.busy || asking;
+    this.box.placeholder = asking ? t("Answer above first") : t("Ask for a picture or a shot…");
+    this.sendButton.disabled = state.busy || asking || (!this.box.value.trim() && !this.pending.length);
     this.chips.hidden = !this.pending.length;
     this.chips.replaceChildren(...this.pending.map((asset) => this.chip(asset)));
+    if (asking) {
+      const answered = Object.keys(state.setup.answers).length;
+      this.pills.replaceChildren(el("span", { class: "mmc-ch-setupnote",
+        text: t("Setting up · {n} of {all}", { n: answered, all: 3 }) }));
+      return;
+    }
     this.paintPills();
   }
 
@@ -900,24 +1086,46 @@ class Room {
   /**
    * The gear: what is set once per machine and then left alone.
    *
-   * The size of a picture and the size of a clip, each with its own slider
-   * because they are different canvases; the seed, as the simple view's own
-   * pill; turbo, the Refine switch and a skill to append. Redrawn in place on
+   * Two tabs. *Room*: the size of a picture and the size of a clip, each with
+   * its own slider because they are different canvases; the seed, as the
+   * simple view's own pill; each side's turbo switch, the Refine switch and a
+   * skill to append. *Models*: every file each family loads and what its
+   * turbo runs on — the whole answer to "what does this room render with",
+   * which used to be reachable only by setting up again. Redrawn in place on
    * every change: a popover that closed on each switch would be a popover
    * reopened six times to set six things.
    */
   openMore(anchor) {
     const pop = el("div", { class: "mmc-pop mmc-ch-more" });
+    let tab = state.gearTab ?? "room";
     const draw = () => {
       const bar = rail();
-      const change = (patch) => { setRail(patch); draw(); };
+      const change = (patch) => { if (Object.keys(patch).length) setRail(patch); draw(); };
+      const tabs = el("div", { class: "mmc-ch-tabs", role: "tablist" }, [["room", t("Room")], ["models", t("Models")]]
+        .map(([id, label]) => el("button", {
+          class: `mmc-ch-tab${tab === id ? " on" : ""}`, role: "tab", "aria-selected": tab === id, text: label,
+          onclick: () => { tab = id; state.gearTab = id; draw(); },
+        })));
+      if (tab === "models") {
+        // The same report the first run reads, asked for once per page and
+        // again when the tab opens without one.
+        if (!state.scan && !state.scanning) {
+          state.scanning = true;
+          scanMachine().then((scan) => { state.scan = scan; })
+            .catch(() => {})
+            .finally(() => { state.scanning = false; if (pop.isConnected) draw(); });
+        }
+        pop.replaceChildren(tabs, modelsPanel({ scan: state.scan, bar, change }));
+        return;
+      }
       const sizePill = (kind) => el("button", {
         class: "mmc-pill mmc-ch-value",
         onclick: (event) => this.openEdge(event.currentTarget, kind,
                                           (edge) => change({ [`${kind}_edge`]: edge })),
       }, [icon("res", 16), el("span", { text: `${bar[`${kind}_edge`]}p` })]);
+      const entryOf = (id) => state.scan?.families?.find((entry) => entry.id === id) ?? null;
       pop.replaceChildren(
-        el("div", { class: "mmc-pop-title", text: t("How this room renders") }),
+        tabs,
         this.row(t("Picture size"), sizePill("still"),
                  t("The short edge a picture is drawn at.")),
         this.row(t("Clip size"), sizePill("video"),
@@ -938,9 +1146,8 @@ class Room {
           },
         }))),
         el("div", { class: "mmc-ch-rule" }),
-        this.toggle(t("Turbo"), bar.turbo, (on) => change({ turbo: on }),
-                    t("Sample the still on the family's distilled checkpoint. It has to be "
-                      + "picked in the weights, and the room says so if it is not.")),
+        ...turboRows({ side: "still", familyId: bar.still_family, entry: entryOf(bar.still_family), bar, change }),
+        ...turboRows({ side: "video", familyId: bar.video_family, entry: entryOf(bar.video_family), bar, change }),
         this.toggle(t("Refine"), bar.refine, (on) => change({ refine: on }),
                     t("Put the model's prompt for a clip through the family's own prompting "
                       + "before queueing, as the Refine button does — a second model call "
@@ -958,12 +1165,29 @@ class Room {
         }), t("A file from the node's skills folder, added to this room's own "
               + "prompting. It is only ever added: the room's reply contract is "
               + "what turns an answer into a render.")),
+        el("div", { class: "mmc-ch-rule" }),
+        this.row(t("First run"), el("button", {
+          class: "mmc-pill mmc-ch-value", text: t("Set up again"),
+          disabled: state.setup ? true : null,
+          onclick: () => { pop.close(); this.startSetup(true); },
+        }), t("Ask the three questions the room opened with again, with a fresh "
+              + "look at what is on this disk.")),
       );
     };
     draw();
     document.body.appendChild(pop);
     placeNear(pop, anchor, { above: false });
-    dismissable(pop);
+    const close = dismissable(pop);
+    pop.close = close;
+    // The memory may have moved since this page primed it — a node's weights
+    // popover in another tab, the same room in another browser — and the
+    // Models tab draws off it. One small request, and the rows correct
+    // themselves under the pointer the way the settings page's do.
+    loadSettings().then((fresh) => {
+      noteSettings(fresh);
+      if (!state.railTouched) state.rail = null;
+      if (pop.isConnected) draw();
+    }).catch(() => {});
   }
 
   /** One line of the gear: what it is, and the control. */

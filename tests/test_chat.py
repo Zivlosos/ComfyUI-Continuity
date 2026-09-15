@@ -409,6 +409,74 @@ check("and telling the model to say so rather than try",
       "Say so instead of asking for a still" in bare, True)
 
 
+# ---- the first run ----------------------------------------------------------
+#
+# The room's three questions are asked against one report: what each family
+# would render with if nobody had picked anything, and what would still refuse
+# it. The guess is the frontend's own, said again server-side — unique match on
+# the manifest's hints, `avoid` ruling out the file that shares a stem.
+
+HINTED = {"families": [
+    {**KREA2, "weights": [
+        {**KREA2["weights"][0], "hints": ["krea2"], "avoid": ["turbo"]},
+        {**KREA2["weights"][1], "hints": ["turbo"]},
+        {**KREA2["weights"][2], "hints": ["qwen"]},
+        {**KREA2["weights"][3], "hints": ["krea2"]},
+    ]},
+    {**H3, "weights": [
+        {**H3["weights"][0], "hints": ["fl2va"]},
+        {**H3["weights"][1], "hints": ["ref2va"]},
+        {**H3["weights"][2], "hints": ["minimax"]},
+        {**H3["weights"][3], "hints": ["h3"], "avoid": ["audio"]},
+        {**H3["weights"][4], "hints": ["audio"]},
+        *H3["weights"][5:],
+    ]},
+]}
+KREA2_HINTED, H3_HINTED = HINTED["families"]
+
+check("a slot is guessed from the one file that answers to its hint",
+      chat.guess_weights(KREA2_HINTED, ON_DISK),
+      {"model": "krea2.safetensors", "clip": "qwen.safetensors",
+       "vae": "krea2_vae.safetensors"})
+check("avoid rules out the file that shares the stem",
+      chat.guess_weights(H3_HINTED, ON_DISK)["vae"], "h3_vae.safetensors")
+check("two candidates is a question, not a coin toss",
+      "model" in chat.guess_weights(
+          KREA2_HINTED, {"by_folder": {**ON_DISK["by_folder"],
+                                       "diffusion_models": ["krea2_a.safetensors",
+                                                            "krea2_b.safetensors"]}}),
+      False)
+check("a slot with no hints is never guessed",
+      chat.guess_weights(KREA2, ON_DISK), {})
+
+report = {entry["id"]: entry for entry in chat.setup_report(HINTED, ON_DISK, {})}
+check("the report covers every family", sorted(report), ["h3", "krea2"])
+check("a family the disk completes is ready", report["krea2"]["missing"], [])
+check("with the turbo checkpoint's absence reported apart",
+      report["krea2"]["turbo"], False)
+check("a family the disk completes on one routed checkpoint is ready too",
+      report["h3"]["missing"], [])
+check("a family missing a file says which, by the control's title",
+      chat.setup_report(HINTED, {"by_folder": {**ON_DISK["by_folder"], "vae": []}},
+                        {})[1]["missing"],
+      ["the video VAE", "the audio VAE"])
+check("a remembered pick wins over the guess",
+      chat.setup_report(HINTED, ON_DISK,
+                        {"krea2": {"clip": "minimax.safetensors"}})[0]["picks"]["clip"],
+      "minimax.safetensors")
+check("but a remembered blank does not blank the guess",
+      chat.setup_report(HINTED, ON_DISK, {"krea2": {"clip": ""}})[0]["picks"]["clip"],
+      "qwen.safetensors")
+slots = {slot["id"]: slot for slot in report["krea2"]["slots"]}
+check("each slot carries its folder listing for choosing by hand",
+      slots["vae"]["options"], ON_DISK["by_folder"]["vae"])
+check("and whether it is required with the switch off",
+      (slots["model"]["required"], slots["turbo_model"]["required"]), (True, False))
+check("a routed checkpoint counts as required",
+      {slot["id"] for slot in report["h3"]["slots"] if slot["required"]},
+      {"fl2va", "ref2va", "clip", "vae", "audio_vae"})
+
+
 # ---- the ledger -------------------------------------------------------------
 #
 # The whole of what the model knows about a render. Pixels never enter the text
@@ -522,7 +590,110 @@ check("the weights are left for the route, which is the half with a disk",
 # Per-arch, the way the pre-stage's own block is: a flat one would carry one
 # family's file onto another the moment the arch pill moved.
 check("the turbo pill is written under the architecture it belongs to",
-      still["turbo"], {"krea2": {"on": False}})
+      still["turbo"], {"krea2": {"on": False, "lora": None, "quality": None}})
+check("and with the switch off there is nothing in the stack", still["loras"], [])
+
+# ---- the turbo switch, per side ---------------------------------------------
+#
+# What the switch may be set to is the family's declaration: Krea takes the
+# checkpoint or a LoRA, Klein the checkpoint alone, Ideogram the LoRA alone,
+# H3 a LoRA in the stack or nothing (a merged checkpoint). And whatever it is
+# set to, the sampler row follows it — the fried lighthouse keeper was the
+# Turbo checkpoint sampled on RAW's forty steps.
+
+KREA_TURBO = {**KREA2, "capabilities": {"turbo": {
+    "steps": {"draft": 4, "medium": 6, "good": 8}, "default_quality": "good",
+    "row": {"cfg": 1.0, "sampler_name": "euler", "scheduler": "simple"},
+    "lora": True, "checkpoint": True, "default_strength": 1.0}}}
+KLEIN_TURBO = {"id": "flux2klein", "label": "Flux 2 Klein", "capabilities": {"turbo": {
+    "steps": {"draft": 2, "medium": 4, "good": 4}, "default_quality": "good",
+    "row": {"cfg": 1.0}, "lora": False, "checkpoint": True}}}
+IDEO_TURBO = {"id": "ideogram4", "label": "Ideogram 4", "capabilities": {"turbo": {
+    "steps": {"turbo": 12}, "default_quality": "turbo", "row": {},
+    "lora": True, "checkpoint": False}}}
+H3_TURBO = {"id": "h3", "label": "MiniMax H3", "capabilities": {"turbo": {
+    "steps": {"draft": 4, "medium": 6, "good": 8}, "default_quality": "medium",
+    "row": {"sampler_name": "euler", "scheduler": "beta"},
+    "reset": {"steps": 20, "sampler_name": "res_multistep", "scheduler": "simple",
+              "shift_video": 12, "shift_audio": 5},
+    "presets": [{"match": "lightx2v", "strength": 0.6, "shift_video": 6, "shift_audio": 3},
+                {"match": r"pdd|acc[-_]?8step", "strength": 1.0,
+                 "shift_video": 12, "shift_audio": 5,
+                 "row": {"sampler_name": "euler", "scheduler": "simple"},
+                 "steps": {"draft": 4, "medium": 8, "good": 8}}],
+    "default_strength": 1.0}}}
+
+check("an old rail's one flag is the still side's",
+      chat.turbo_of({"turbo": True}, "still"), {"on": True, "lora": "", "quality": ""})
+check("and says nothing about the clip side",
+      chat.turbo_of({"turbo": True}, "video")["on"], False)
+check("the split flags win over the old one",
+      chat.turbo_of({"turbo": True, "still_turbo": False}, "still")["on"], False)
+check("a side's file and stop travel with it",
+      chat.turbo_of({"video_turbo": True, "video_turbo_lora": "h3_turbo.safetensors",
+                     "video_turbo_quality": "good"}, "video"),
+      {"on": True, "lora": "h3_turbo.safetensors", "quality": "good"})
+
+check("the Turbo checkpoint is needed when the switch is on with no LoRA",
+      chat.turbo_wants_checkpoint(KREA_TURBO, {"on": True, "lora": ""}), True)
+check("and not when a LoRA is doing the distilling",
+      chat.turbo_wants_checkpoint(KREA_TURBO, {"on": True, "lora": "x.safetensors"}), False)
+
+check("off, nothing to refuse", chat.turbo_problem(KLEIN_TURBO, {"on": False, "lora": "x"}, []), None)
+check("a LoRA on a checkpoint-only family is refused",
+      "checkpoint, not a LoRA" in chat.turbo_problem(KLEIN_TURBO, {"on": True, "lora": "x"}, ["x"]), True)
+check("the checkpoint on a LoRA-only family is refused",
+      "LoRA, not a checkpoint" in chat.turbo_problem(IDEO_TURBO, {"on": True, "lora": ""}, []), True)
+check("a LoRA that left the folder is refused by name",
+      "gone.safetensors" in chat.turbo_problem(KREA_TURBO, {"on": True, "lora": "gone.safetensors"}, ["x"]), True)
+check("a family with no switch at all says so",
+      "no turbo mode" in chat.turbo_problem(KREA2, {"on": True, "lora": ""}, []), True)
+check("a LoRA the folder has, on a family that takes one, is fine",
+      chat.turbo_problem(H3_TURBO, {"on": True, "lora": "h3_turbo.safetensors"}, ["h3_turbo.safetensors"]), None)
+check("H3 with no file is the merged-checkpoint case, not a refusal",
+      chat.turbo_problem(H3_TURBO, {"on": True, "lora": ""}, []), None)
+
+check("off, the family's own row stands", chat.turbo_row(KREA_TURBO, {"on": False}), {})
+check("Krea's checkpoint samples on the distilled row at the picked stop",
+      chat.turbo_row(KREA_TURBO, {"on": True, "lora": "", "quality": "medium"}),
+      {"cfg": 1.0, "sampler_name": "euler", "scheduler": "simple", "steps": 6})
+check("an unknown stop falls back to the family's default",
+      chat.turbo_row(KREA_TURBO, {"on": True, "lora": "", "quality": "ultra"})["steps"], 8)
+check("H3's row carries the reset shifts when the file has no preset",
+      chat.turbo_row(H3_TURBO, {"on": True, "lora": "some_turbo.safetensors", "quality": ""}),
+      {"sampler_name": "euler", "scheduler": "beta", "steps": 6,
+       "shift_video": 12, "shift_audio": 5})
+check("and the file's own shifts when it has one",
+      chat.turbo_row(H3_TURBO, {"on": True, "lora": "h3_lightx2v_turbo.safetensors", "quality": "good"}),
+      {"sampler_name": "euler", "scheduler": "beta", "steps": 8,
+       "shift_video": 6, "shift_audio": 3})
+check("a preset that owns the row and the counts sets what the file needs",
+      chat.turbo_row(H3_TURBO, {"on": True, "lora": "pdd_acc.safetensors", "quality": "medium"}),
+      {"sampler_name": "euler", "scheduler": "simple", "steps": 8,
+       "shift_video": 12, "shift_audio": 5})
+check("the strength is the file's preset or the family's",
+      (chat.turbo_strength(H3_TURBO, {"lora": "h3_lightx2v.safetensors"}),
+       chat.turbo_strength(H3_TURBO, {"lora": "other.safetensors"})), (0.6, 1.0))
+
+fast = chat.still_piece(
+    chat.validate({"act": "render", "kind": "still", "prompt": "a fox"}, LEDGER), LEDGER,
+    {**RAIL, "still_turbo": True, "still_turbo_lora": "krea2_turbo_lora.safetensors",
+     "still_turbo_quality": "draft", "still_spec": KREA_TURBO})
+check("a still's turbo LoRA is an entry in the stack",
+      fast["loras"], [{"name": "krea2_turbo_lora.safetensors", "strength": 1.0, "enabled": True}])
+check("and the block under the arch names it",
+      fast["turbo"], {"krea2": {"on": True, "lora": "krea2_turbo_lora.safetensors", "quality": "draft"}})
+quick = chat.video_piece(
+    chat.validate({"act": "render", "kind": "video", "prompt": "the fox looks up"}, LEDGER), LEDGER,
+    {**RAIL, "video_turbo": True, "video_turbo_lora": "h3_lightx2v.safetensors", "video_spec": H3_TURBO})
+check("a clip's turbo is the piece's block, as turbo.js writes it",
+      quick["turbo"], {"on": True, "lora": "h3_lightx2v.safetensors"})
+check("with the file in the stack at its preset's strength",
+      quick["loras"], [{"name": "h3_lightx2v.safetensors", "strength": 0.6, "enabled": True}])
+plain = chat.video_piece(
+    chat.validate({"act": "render", "kind": "video", "prompt": "the fox looks up"}, LEDGER), LEDGER, RAIL)
+check("and off, the clip's stack is empty and the block says off",
+      (plain["loras"], plain["turbo"]), ([], {"on": False, "lora": ""}))
 
 # A family whose references arrive through an adapter cannot be given one here:
 # the adapter is an entry in the pre-stage's LoRA stack, and this room has no

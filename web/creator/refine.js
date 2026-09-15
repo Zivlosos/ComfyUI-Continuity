@@ -28,15 +28,22 @@ import { stepperPill } from "./pills.js";
 import { t } from "./i18n.js";
 import { DEFAULT_VIDEO_FAMILY, pieceFamily, templatesOf } from "./state.js";
 import { api } from "../../../scripts/api.js";
+import { uiSetting, patchSettings, primeSettings } from "./api.js";
 import { busy as queueBusy, run as runJob } from "./queue.js";
 
 // Machine-level, not workflow-level. Which text encoder is on this disk is a
 // fact about this computer; putting it in `creator_data` would ship it to
 // whoever opens the workflow next and would invalidate the node's cache every
 // time the temperature moved.
+//
+// And machine-level means the settings file, not localStorage: the browser's
+// own store is per profile, so the model the chat room was set up with in one
+// browser was no model at all in the next one, on the same machine, against
+// the same server. `settings.refiner` is where the choices live now; the two
+// keys below are what an install wrote before, read as a fallback while the
+// file holds nothing and never written again.
+const SETTING = "refiner";
 const STORE = "continuity.refiner";
-// The same settings under the pack's old name. Read as a fallback and never
-// written. Delete one release after the rename ships.
 const LEGACY_STORE = "minimax_creator.refiner";
 
 const DEFAULTS = {
@@ -104,14 +111,22 @@ export const LANGUAGES = [
   "Russian", "Japanese", "Korean", "Italian", "Arabic",
 ];
 
-export function settings() {
-  let stored;
+/** What the browser stored before the choices moved to the settings file. */
+function legacyStored() {
   try {
-    stored = JSON.parse(localStorage.getItem(STORE)
-                        || localStorage.getItem(LEGACY_STORE) || "{}");
+    return JSON.parse(localStorage.getItem(STORE)
+                      || localStorage.getItem(LEGACY_STORE) || "{}");
   } catch {
-    return { ...DEFAULTS };
+    return {};
   }
+}
+
+export function settings() {
+  // The file's block once it holds anything; the browser's until then. Read
+  // through the settings cache, which every node primes on mount — before it
+  // lands this answers the browser's copy or the defaults, and repaints after.
+  const filed = uiSetting(SETTING, null);
+  let stored = filed && Object.keys(filed).length ? filed : legacyStored();
   // Settings written while there were two backends hold two model names under
   // two keys. The text encoder is the one that still means something; the
   // Ollama tag under `model` names nothing that can be loaded.
@@ -137,29 +152,39 @@ export function settings() {
   return { ...DEFAULTS, ...stored };
 }
 
+/** Write a patch onto the file's block. The whole block goes, including what
+ *  the browser's copy held: the first save on an install that upgraded is the
+ *  moment its old choices become the machine's. Painted first and written
+ *  after, the deal every `patchSettings` caller has — the return is what the
+ *  next `settings()` reads. */
 export function saveSettings(patch) {
   const next = { ...settings(), ...patch };
-  try { localStorage.setItem(STORE, JSON.stringify(next)); } catch { /* private mode */ }
+  // The whole block is written, so it must be written over the file's copy
+  // and not over the browser's: a save that beat the settings fetch to the
+  // wire waits for it, then merges the patch onto what actually landed.
+  if (uiSetting(SETTING, null) !== null) patchSettings({ [SETTING]: next });
+  else primeSettings(() => patchSettings({ [SETTING]: { ...settings(), ...patch } }));
   return next;
 }
 
 /** Forget every refiner choice: the model, the temperature, the pinned
  *  templates, the skill and its mode. The endpoint and the key are not here —
  *  they live server-side and are cleared through `/continuity/refine/remote`,
- *  which is the only thing that has ever been able to touch them. */
+ *  which is the only thing that has ever been able to touch them. The
+ *  browser's old copy goes too, or it would come straight back as the fallback. */
 export function resetSettings() {
   for (const key of [STORE, LEGACY_STORE]) {
     try { localStorage.removeItem(key); } catch { /* nothing to remove */ }
   }
+  return patchSettings({ [SETTING]: {} });
 }
 
 /** Whether anything has been chosen here at all — what the danger zone asks
  *  before offering to forget it. */
 export function settingsStored() {
-  for (const key of [STORE, LEGACY_STORE]) {
-    try { if (localStorage.getItem(key)) return true; } catch { return false; }
-  }
-  return false;
+  const filed = uiSetting(SETTING, null);
+  if (filed && Object.keys(filed).length) return true;
+  return Object.keys(legacyStored()).length > 0;
 }
 
 /** The model the active backend would use. Empty means nothing is chosen.
@@ -191,6 +216,21 @@ export function saveTemplate(family, name) {
 }
 
 // ---- the server -------------------------------------------------------------
+
+// The providers people actually mean, each one click to its base URL —
+// nobody knows by heart that Anthropic's compatibility endpoint is
+// api.anthropic.com/v1. Names are brands and stay untranslated; the tooltip
+// is the URL itself, which is also what clicking writes. The two loopback
+// ones are what `refine_remote.LOCAL_SERVERS` knocks on for the chat room's
+// first run.
+export const PROVIDERS = [
+  ["LM Studio", "http://localhost:1234/v1"],
+  ["Ollama", "http://localhost:11434/v1"],
+  ["Anthropic", "https://api.anthropic.com/v1"],
+  ["OpenAI", "https://api.openai.com/v1"],
+  ["OpenRouter", "https://openrouter.ai/api/v1"],
+  ["Gemini", "https://generativelanguage.googleapis.com/v1beta/openai"],
+];
 
 let modelCache = { at: 0, names: [] };
 
@@ -505,19 +545,6 @@ export function openSettings(anchor, onChange, family = DEFAULT_VIDEO_FAMILY) {
     // Which templates are offered depends on the mode this just settled.
     drawTemplate();
   }
-
-  // The providers people actually mean, each one click to its base URL —
-  // nobody knows by heart that Anthropic's compatibility endpoint is
-  // api.anthropic.com/v1. Names are brands and stay untranslated; the
-  // tooltip is the URL itself, which is also what clicking writes.
-  const PROVIDERS = [
-    ["LM Studio", "http://localhost:1234/v1"],
-    ["Ollama", "http://localhost:11434/v1"],
-    ["Anthropic", "https://api.anthropic.com/v1"],
-    ["OpenAI", "https://api.openai.com/v1"],
-    ["OpenRouter", "https://openrouter.ai/api/v1"],
-    ["Gemini", "https://generativelanguage.googleapis.com/v1beta/openai"],
-  ];
 
   /** The server as one card with a state: provider presets, URL and Connect
    *  on a line, the write-only key box under it, and a status line whose dot

@@ -241,9 +241,107 @@ export const css = `
 }
 .mmc-ch-unchip svg { stroke: currentColor; fill: none; stroke-width: 2.4; }
 
+/* --- the first run ----------------------------------------------------------- */
+/* Three questions asked as the room's own messages. The chips are the
+   answers, set like the empty room's tries — a row of outlined pills under
+   the line — and a found answer wears the pack's dot in the accent, as the
+   refiner's status line does when its server answers. The long form opens under the same bubble
+   in a sheet like the composer's: the question and its detail stay one
+   thing, and nothing floats over the transcript. */
+.mmc-ch-setup { flex-direction: column; gap: 10px; }
+.mmc-ch-askbody { display: flex; flex-direction: column; gap: 10px; }
+.mmc-ch-asks, .mmc-ch-askrow { display: flex; flex-wrap: wrap; gap: 6px; }
+.mmc-ch-ask {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 13px; border-radius: 16px; cursor: pointer; font-family: inherit;
+  font-size: calc(13px * var(--mmc-type)); color: var(--mmc-text);
+  background: var(--mmc-float); border: 1px solid var(--mmc-line-3);
+}
+.mmc-ch-ask:hover:not(:disabled) { background: var(--mmc-surface); }
+.mmc-ch-ask.open, .mmc-ch-ask.on { border-color: var(--mmc-accent); color: var(--mmc-accent); }
+.mmc-ch-ask.primary { background: var(--mmc-strong); color: var(--mmc-ground); border-color: var(--mmc-strong); }
+.mmc-ch-ask.primary:hover:not(:disabled) { background: var(--mmc-strong); opacity: .9; }
+.mmc-ch-ask:disabled { opacity: .45; cursor: default; }
+.mmc-ch-ask:focus-visible, .mmc-ch-choice:focus-visible {
+  outline: 2px solid var(--mmc-accent); outline-offset: 2px;
+}
+.mmc-ch-found { width: 7px; height: 7px; border-radius: 50%; background: var(--mmc-accent); }
+.mmc-ch-inline {
+  width: 100%; max-width: 520px; padding: 8px 14px 12px;
+  border: 1px solid var(--mmc-line); border-radius: 16px; background: var(--mmc-surface);
+}
+.mmc-ch-wide { max-width: 100%; }
+.mmc-ch-askhead {
+  padding: 8px 0 6px; font-size: calc(12.5px * var(--mmc-type)); color: var(--mmc-dim);
+}
+.mmc-ch-askinput {
+  flex: 1; min-width: 0; max-width: 60%; height: 30px; padding: 0 10px; border-radius: 8px;
+  font-family: inherit; font-size: calc(12.5px * var(--mmc-type)); color: var(--mmc-text);
+  background: var(--mmc-float); border: 1px solid var(--mmc-line-2);
+}
+.mmc-ch-askinput:focus { outline: 2px solid var(--mmc-accent); outline-offset: 1px; }
+.mmc-ch-askfoot { display: flex; align-items: center; gap: 10px; padding-top: 10px; }
+.mmc-ch-askerror { font-size: calc(12px * var(--mmc-type)); color: var(--mmc-bad); }
+.mmc-ch-setup .mmc-ch-note { padding: 0; }
+
+/* One family per row: its name, how much of it is on this disk, and its
+   slots folded under it. The chosen one wears the accent as an inset ring —
+   the same mark the aspect tiles use for the one that is picked. */
+.mmc-ch-choices { display: flex; flex-direction: column; gap: 6px; }
+.mmc-ch-choice {
+  display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; align-items: start;
+  padding: 10px 12px; border-radius: 12px; cursor: pointer;
+  background: var(--mmc-float); border: 1px solid var(--mmc-line-2);
+}
+.mmc-ch-choice:hover { border-color: var(--mmc-line-3); }
+.mmc-ch-choice[aria-checked="true"] { border-color: var(--mmc-accent); box-shadow: inset 0 0 0 1px var(--mmc-accent); }
+.mmc-ch-choicename { font-weight: 500; }
+.mmc-ch-state { font-size: calc(12px * var(--mmc-type)); white-space: nowrap; }
+.mmc-ch-state::before {
+  content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  margin-right: 6px; vertical-align: 1px; background: currentColor;
+}
+.mmc-ch-state.found { color: var(--mmc-accent); }
+.mmc-ch-state.missing { color: var(--mmc-warn); }
+.mmc-ch-slots { grid-column: 1 / -1; margin-top: 4px; }
+.mmc-ch-slots > summary {
+  cursor: pointer; list-style: none; display: inline-block;
+  font-size: calc(12.5px * var(--mmc-type)); color: var(--mmc-dim);
+}
+.mmc-ch-slots > summary::-webkit-details-marker { display: none; }
+.mmc-ch-slots > summary::before { content: "▸ "; }
+.mmc-ch-slots[open] > summary::before { content: "▾ "; }
+.mmc-ch-slotlist {
+  display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 12px; align-items: center;
+  margin-top: 8px; font-size: calc(12.5px * var(--mmc-type));
+}
+.mmc-ch-slotname { color: var(--mmc-dim); }
+.mmc-ch-slotlist .mmc-ch-value { max-width: 100%; justify-self: start; }
+.mmc-ch-empty-pick { border-color: var(--mmc-warn); color: var(--mmc-warn); }
+
+/* The key line: the box and Connect beside it, since the list of models is
+   what the connection answers with. And the note in the composer's foot
+   while the questions are open. */
+.mmc-ch-keyrow { flex: 1; min-width: 0; flex-wrap: nowrap; justify-content: flex-end; }
+.mmc-ch-keyrow .mmc-ch-askinput { max-width: none; }
+.mmc-ch-setupnote { padding: 0 8px; font-size: calc(12.5px * var(--mmc-type)); color: var(--mmc-faint); }
+
 /* --- the gear's popover -------------------------------------------------------- */
-.mmc-ch-more { width: 320px; max-width: calc(100vw - 24px); padding: 10px 12px 12px; }
+.mmc-ch-more { width: 340px; max-width: calc(100vw - 24px); max-height: calc(100vh - 80px); overflow-y: auto; padding: 10px 12px 12px; }
 .mmc-ch-more .mmc-pop-title { padding: 2px 0 10px; }
+/* Its two tabs. The Room tab is the rows the gear always had; Models is
+   every file each family loads and its turbo, the first run's own form. */
+.mmc-ch-tabs { display: flex; gap: 2px; margin: 0 0 8px; border-bottom: 1px solid var(--mmc-line); }
+.mmc-ch-tab {
+  padding: 4px 10px 7px; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px;
+  background: none; color: var(--mmc-dim); font: inherit; font-size: calc(12.5px * var(--mmc-type)); cursor: pointer;
+}
+.mmc-ch-tab:hover { color: var(--mmc-text); }
+.mmc-ch-tab.on { color: var(--mmc-text); border-bottom-color: var(--mmc-accent); }
+.mmc-ch-models .mmc-ch-askhead { padding-top: 4px; }
+.mmc-ch-models .mmc-ch-slotlist { margin: 0 0 8px; }
+.mmc-ch-models .mmc-ch-note { padding: 0 0 8px; }
+.mmc-ch-dim { color: var(--mmc-dim); font-size: calc(12.5px * var(--mmc-type)); }
 .mmc-ch-row { display: flex; align-items: center; gap: 8px; min-height: var(--mmc-pill-h); padding: 2px 0; }
 .mmc-ch-label { flex: 1; min-width: 0; font-size: calc(12.5px * var(--mmc-type)); }
 .mmc-ch-value { max-width: 62%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

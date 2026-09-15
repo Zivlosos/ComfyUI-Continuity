@@ -44,8 +44,9 @@ import { blobIO, samplingBar, seedPill } from "./sampling.js";
 import { clearButton } from "./clear.js";
 import { loadLoraNames, loraNames } from "./turbo.js";
 import { Stage, stageSource } from "./stage.js";
-import { loadCatalog, refreshCatalog, catalogByFolder } from "./models.js";
-import { viewUrl } from "./api.js";
+import { loadCatalog, refreshCatalog, catalogByFolder, rememberedWeights,
+         rememberStillWeights } from "./models.js";
+import { viewUrl, primeSettings } from "./api.js";
 import { editPicture, asPick, applyPick, cropLabel } from "./picture.js";
 import { t } from "./i18n.js";
 import * as S from "./state.js";
@@ -191,6 +192,7 @@ export class PreStageEditor {
     this.prompt.claim(this.panel);
 
     loadCatalog(() => this.adoptWeights());
+    primeSettings(() => this.adoptWeights());
     this.prompt.setValue(this.state.prompt ?? "");
     this.render();
     this.probeInit();
@@ -200,8 +202,13 @@ export class PreStageEditor {
     // The stage is the body's — see the constructor.
   }
 
+  /** Fill empty weight rows: what this machine last picked for the family
+   *  first, then an unambiguous filename match. Both only ever fill an empty
+   *  row — see `models.adoptWeights`, which is the same two steps for a piece. */
   adoptWeights() {
-    if (S.guessPreStageModels(this.state.models, catalogByFolder())) this.commit();
+    const remembered = S.adoptRememberedPreStage(this.state.models, rememberedWeights());
+    const guessed = S.guessPreStageModels(this.state.models, catalogByFolder());
+    if (remembered || guessed) this.commit();
     else this.render();
   }
 
@@ -1341,6 +1348,9 @@ export class PreStageEditor {
             value: side[field] || NONE,
             onPick: (picked) => {
               side[field] = picked === NONE ? "" : picked;
+              // This machine's answer about the family as much as this
+              // piece's — the next pre-stage, and the chat room, start from it.
+              rememberStillWeights(S.preStageFamilyId(state.arch), side);
               this.commit();
               render();
             },

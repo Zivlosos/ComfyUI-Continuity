@@ -274,7 +274,7 @@ export function familyPill({ piece, onChange }) {
  * written straight through rather than by a settings page nobody would think to
  * open for this.
  */
-const rememberedWeights = () => uiSetting("weights", {}) ?? {};
+export const rememberedWeights = () => uiSetting("weights", {}) ?? {};
 
 /**
  * Fill a piece's empty weight rows from what is already known. -> changed.
@@ -296,10 +296,21 @@ export function adoptWeights(piece) {
 
 /** Record this family's block as the machine's, after a pick. Fire and forget:
  *  the piece already has the answer, and a memory that failed to write is next
- *  time's problem rather than this click's. */
+ *  time's problem rather than this click's. Only this family goes: the server
+ *  merges the map per family (`settings.save`), and sending the whole cached
+ *  map put a stale copy over whatever the chat room or another tab had
+ *  written for the others. */
 function rememberWeights(family, models) {
   const block = S.serializedModels(models, family);
-  patchSettings({ weights: { ...rememberedWeights(), [family]: block } });
+  patchSettings({ weights: { [family]: block } });
+}
+
+/** The same memory for an image family, whose block is its slots and nothing
+ *  else — no route, no devices, no dtype — so it is written as the picks
+ *  alone. `side` is the pre-stage's `models[arch]`. */
+export function rememberStillWeights(family, side) {
+  const block = Object.fromEntries(Object.entries(side).filter(([, name]) => name));
+  patchSettings({ weights: { [family]: block } });
 }
 
 /**

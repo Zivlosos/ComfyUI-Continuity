@@ -45,8 +45,8 @@ from aiohttp import web
 
 from server import PromptServer
 
-from .. import chat, jobs, media, models as core_models, refine_routes, refine_skill
-from .. import server_routes, settings
+from .. import chat, jobs, media, models as core_models, refine_local, refine_remote
+from .. import refine_routes, refine_skill, server_routes, settings
 from ..families import manifest, refine, registry
 
 
@@ -141,19 +141,26 @@ def _rail(raw):
 # ---- the weights ------------------------------------------------------------
 
 
-def _picked(family, stored):
-    """This machine's remembered picks for `family`, as `{slot: filename}`.
+def _picked(family, stored, available=None):
+    """The files `family` renders with, as `{slot: filename}`.
 
-    Filtered to the slots the family actually declares. `settings.clean_weights`
-    stores a block as written — a slot id it has never heard of is kept, because
-    what a slot *means* is the family's — so a block left behind by another
-    family, or by a version of this one with a slot since renamed, would
-    otherwise ride into the blob and read as nothing to every reader downstream.
+    This machine's remembered picks over the folder listing's own guess — the
+    same join `chat.setup_report` shows the room, so a family the room says is
+    ready is a family this route renders: a machine that was never asked to
+    pick (the family pill moved without a first run, a fresh install with one
+    file per slot) still renders on the files it has. Filtered to the slots the
+    family actually declares. `settings.clean_weights` stores a block as
+    written — a slot id it has never heard of is kept, because what a slot
+    *means* is the family's — so a block left behind by another family, or by
+    a version of this one with a slot since renamed, would otherwise ride into
+    the blob and read as nothing to every reader downstream.
     """
     block = (stored or {}).get(family["id"]) or {}
     ids = {slot["id"] for slot in family.get("weights") or []}
-    return {name: value for name, value in block.items()
-            if name in ids and isinstance(value, str) and value.strip()}
+    remembered = {name: value for name, value in block.items()
+                  if name in ids and isinstance(value, str) and value.strip()}
+    guessed = chat.guess_weights(family, available) if available is not None else {}
+    return {**guessed, **remembered}
 
 
 def _not_ready(family, picked, available, turbo=False):
@@ -233,14 +240,24 @@ def _build(action, ledger, rail, stored):
     """
     still = action["kind"] == chat.KIND_STILL
     family = manifest.describe(rail["still_family"] if still else rail["video_family"])
-    picked = _picked(family, stored)
+    available = core_models.available()
+    picked = _picked(family, stored, available)
 
-    # The turbo switch is wired to the still side alone — `chat.video_piece`
-    # says why — so it only ever moves which checkpoint a *still* needs.
-    turbo = bool(rail.get("turbo")) and still
-    problem = _not_ready(family, picked, core_models.available(), turbo=turbo)
+    # The side's turbo switch: what it is set to decides whether the Turbo
+    # checkpoint is a file this render needs, and whether the LoRA it names is
+    # one the family takes and the folder still has.
+    turbo = chat.turbo_of(rail, "still" if still else "video")
+    problem = _not_ready(family, picked, available,
+                         turbo=chat.turbo_wants_checkpoint(family, turbo))
     if problem:
         return {"problem": problem}
+    problem = chat.turbo_problem(family, turbo,
+                                 server_routes._lora_names() if turbo["lora"] else None)
+    if problem:
+        return {"problem": problem}
+    # The pure half builds the switch's stack entry off the family's own
+    # declaration, which is the catalog's and so the route's to hand over.
+    rail = {**rail, ("still_spec" if still else "video_spec"): family}
 
     # What the pure half has to know about this family's pictures, which is the
     # catalog's answer and so the route's to look up. Only for a still: on a
@@ -274,6 +291,11 @@ def _build(action, ledger, rail, stored):
 
     node = _nodes()[node_id]
     widgets = _node_widgets(node, family, chat.render_seed(rail))
+    # The switch's row over the family's: the step count and sampler the
+    # distillation was tuned against. Only the widgets the node declares —
+    # the pre-stage has no flow shifts to set.
+    widgets.update({key: value for key, value in chat.turbo_row(family, turbo).items()
+                    if key in widgets})
     # The blob last: the schema's own default for that widget is in `widgets`
     # too — every input is, which is the point — and it is the one the render is
     # replacing.
@@ -567,7 +589,8 @@ def _run(body):
 
     card = machine_card(rail["still_family"], rail["video_family"],
                         settings.load().get("weights") or {},
-                        turbo=rail.get("turbo"))
+                        turbo=chat.turbo_wants_checkpoint(
+                            None, chat.turbo_of(rail, "still")))
     system = chat.system_prompt(_skill(block))
     message = chat.context(messages, ledger, card)
     asked = _last_user(messages)
@@ -649,3 +672,69 @@ async def chat_turn(request):
     except jobs.JobError as problem:
         return web.json_response({"error": str(problem)}, status=500)
     return web.json_response({"prompt_id": prompt_id})
+
+
+# ---- the first run ----------------------------------------------------------
+
+
+def _local_refiner(names):
+    """The text encoder the room would think with, out of the folder listing.
+
+    The two ComfyUI loads with a language head are named in
+    `refine_local.SUPPORTED`; a file whose name says one of them is the answer,
+    smallest first, because the room's turn is a queue slot on the card the
+    render wants. Nothing recognised means the person is offered the list.
+    """
+    for wanted in refine_local.SUPPORTED:
+        needle = wanted.replace("_", "")
+        for name in names:
+            if needle in name.lower().replace("_", "").replace("-", ""):
+                return name
+    return ""
+
+
+def _setup():
+    """Everything the room's first three questions are asked against.
+
+    One walk of the model folders and one knock on each loopback port, joined
+    with what this machine has already picked — the same three payloads the
+    machine card is a join of, read once and handed to the browser whole so
+    the questions can be answered without a request per chip.
+    """
+    available = core_models.available()
+    local = refine_local.list_models()
+    stored = refine_remote.status()
+    servers = refine_remote.probe_local()
+    # The server somebody already set up, listed by the same shape as the
+    # loopback ones so the room can offer it as a chip — but only when it
+    # answers, and never a second time when it *is* one of the loopback ones.
+    if stored.get("url") and stored["url"] not in {entry["url"] for entry in servers}:
+        try:
+            servers.append({"name": "", "url": stored["url"],
+                            "models": refine_remote.list_models(
+                                timeout=refine_remote.PROBE_TIMEOUT)})
+        except refine.RefineError:
+            pass
+    return {
+        "refiner": {
+            "local": {"models": local, "model": _local_refiner(local)},
+            "servers": servers,
+            "stored": stored,
+        },
+        "families": chat.setup_report(manifest.catalog(), available,
+                                      settings.load().get("weights") or {}),
+    }
+
+
+@PromptServer.instance.routes.get("/continuity/chat/setup")
+async def chat_setup(request):
+    """What the room's first run has to go on. See `_setup`.
+
+    Off the event loop: it walks the model directories and knocks on two ports.
+    """
+    loop = asyncio.get_running_loop()
+    try:
+        return web.json_response(await loop.run_in_executor(None, _setup))
+    except Exception as problem:  # noqa: BLE001
+        return web.json_response({"error": f"{type(problem).__name__}: {problem}"},
+                                 status=500)

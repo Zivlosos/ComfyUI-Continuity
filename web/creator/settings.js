@@ -318,10 +318,11 @@ const STORED = [
   },
   {
     id: "refiner",
-    group: "This browser",
+    group: "This machine",
     name: "Refiner choices",
-    note: "Which model rewrites a prompt, at what temperature, and any template "
-        + "or skill pinned to a family.",
+    note: "Which model rewrites a prompt and answers the chat room, at what "
+        + "temperature, and any template or skill pinned to a family. The "
+        + "server's address and key are their own row.",
     held: (kept) => (kept.refiner ? "set" : 0),
     remove: async () => resetRefiner(),
   },
