@@ -152,6 +152,8 @@ export const ICONS = {
   // picture rather than to a line of writing.
   close: `<path d="M6 6l12 12M18 6L6 18"/>`,
   plus: `<path d="M12 5v14M5 12h14"/>`,
+  panel: `<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9.5 4v16"/>`,
+  trash: `<path d="M4 7h16"/><path d="M9.5 7V4.5h5V7"/><path d="M6 7l.9 12.2A1.5 1.5 0 0 0 8.4 20.5h7.2a1.5 1.5 0 0 0 1.5-1.3L18 7"/><path d="M10 11v6M14 11v6"/>`,
   // Send. An arrow up rather than a paper plane or a play triangle: the message
   // goes up into the transcript, and the two chat surfaces everybody already
   // uses draw exactly this.

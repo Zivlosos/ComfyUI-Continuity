@@ -277,7 +277,11 @@ starts fresh. The renders stay, in the output folder.
 1. Vision captions of each render for spatial edits ("make the dog bigger").
 2. Streaming for the remote backend — the pack's first SSE path.
 3. `continue` on a clip in `from`, and the edit scopes.
-4. Saved conversations, server-side under the user directory.
+4. Saved conversations, server-side under the user directory. — *Done
+   2026-09-16:* through ComfyUI's userdata API rather than a route of the
+   pack's own (`web/creator/chatstore.js`), an index plus one file per chat,
+   with the sidebar in the room. Titles come from the first message rather
+   than the model, since a title is not worth a queue slot on a local GPU.
 5. The cast in chat; then the timeline.
 
 ## 7. Sequencing

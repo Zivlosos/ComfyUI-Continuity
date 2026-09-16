@@ -6,6 +6,24 @@ exactly as it was written, wall of text and all.
 
 ## Unreleased
 
+**Chats are kept, and the room has a list of them.** A conversation used to
+last as long as the page; now every chat is written to ComfyUI's per-user
+data as it goes — one index, one file per chat, a localStorage mirror where
+the userdata API is unavailable — and a panel beside the transcript lists
+them under the day they were last touched, each row wearing the chat's last
+render as a thumbnail. Reopening one restores the transcript, the ledger and
+the render cards with their handles; a card that was mid-render when the
+chat was left is settled from the queue's history, and a render that lands
+after you have switched chats files into the chat that asked for it. Chats
+are named after their first message, renamed in place from the row or the
+bar, and deleted with an inline confirmation; the renders stay.
+
+**The refiner accepts Qwen3.5 text encoders.** The whitelist named the two
+Qwen3-VL sizes, the only encoders ComfyUI loaded with a language head when
+it was written; core now loads the Qwen3.5 family (0.8B to 27B) the same way
+and speaks the same chat format. Verified on the lab: a 27B W4A8 runs the
+chat surface end to end.
+
 **A trained latent upscaler for H3's two passes, and the refine's own step
 count (#85).** The second pass used to draw the first pass up by bicubic
 interpolation and re-run the whole step count over the lower half of the

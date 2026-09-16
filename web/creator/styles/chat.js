@@ -23,7 +23,8 @@
 
 export const css = `
 /* --- the column ------------------------------------------------------------ */
-.mmc-ch-room { flex-direction: column; }
+/* The shelf beside the column; the column itself stacks its two parts. */
+.mmc-ch-room { flex-direction: row; }
 .mmc-ch-talk {
   flex: 1; min-width: 0; min-height: 0;
   display: flex; flex-direction: column;
@@ -350,6 +351,114 @@ export const css = `
    away everywhere the full seed group is a line below; nothing is below this. */
 .mmc-ch-seed { display: flex; gap: 6px; }
 .mmc-ch-seed .mmc-seed-pill { display: flex; padding: 0; }
+
+/* --- the shelf --------------------------------------------------------------
+   Every conversation, beside the column. Type on the ground, no cards: a row
+   is a title and, at its right edge, the last thing that chat made — the
+   list reads as a contact sheet of what you have asked for, which is what
+   you are looking for when you come back. The row's two verbs appear under
+   the pointer and take the cover's place, so the row never grows. */
+.mmc-ch-room { position: relative; }
+.mmc-ch-side {
+  flex: none; width: 264px; min-width: 0; display: none;
+  flex-direction: column; border-right: 1px solid var(--mmc-line);
+  background: var(--mmc-float);
+}
+.mmc-ch-sideopen .mmc-ch-side { display: flex; }
+.mmc-ch-sidehead { padding: 14px 12px 6px; }
+.mmc-ch-new {
+  display: flex; align-items: center; gap: 9px; width: 100%; height: 34px; padding: 0 10px;
+  border: 0; border-radius: 9px; background: none; cursor: pointer; font: inherit;
+  font-size: calc(13px * var(--mmc-type)); color: var(--mmc-text); text-align: left;
+}
+.mmc-ch-new:hover { background: var(--mmc-surface); }
+.mmc-ch-new svg { stroke: currentColor; fill: none; stroke-width: 1.8; flex: none; }
+.mmc-ch-sidelist { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 4px 8px 16px; }
+.mmc-ch-sidenote { margin: 10px 8px; font-size: calc(12.5px * var(--mmc-type)); line-height: 1.5; color: var(--mmc-faint); }
+.mmc-ch-day {
+  padding: 14px 10px 5px; font-size: calc(11.5px * var(--mmc-type)); color: var(--mmc-faint);
+}
+.mmc-ch-siderow {
+  position: relative; display: flex; align-items: center; height: 40px; border-radius: 9px;
+}
+.mmc-ch-siderow:hover, .mmc-ch-siderow.on { background: var(--mmc-surface); }
+.mmc-ch-siderow.on { color: var(--mmc-strong); }
+.mmc-ch-sideopenbtn {
+  flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; gap: 10px;
+  padding: 0 6px 0 10px; border: 0; background: none; cursor: pointer; font: inherit;
+  color: inherit; text-align: left;
+}
+.mmc-ch-sideopenbtn:disabled { cursor: default; opacity: .55; }
+.mmc-ch-sidetitle {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: calc(13px * var(--mmc-type)); line-height: 1.3;
+}
+.mmc-ch-cover {
+  position: relative; flex: none; width: 36px; height: 24px; border-radius: 5px; overflow: hidden;
+  background: var(--mmc-media-bg); line-height: 0;
+}
+.mmc-ch-nocover { background: var(--mmc-line); }
+.mmc-ch-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mmc-ch-coverclip {
+  position: absolute; right: 2px; bottom: 2px; width: 12px; height: 12px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; background: var(--mmc-scrim-2);
+}
+.mmc-ch-coverclip svg { stroke: #fff; fill: #fff; stroke-width: 1; }
+.mmc-ch-sideacts {
+  position: absolute; right: 6px; top: 0; bottom: 0; display: none; align-items: center; gap: 2px;
+  padding-left: 18px;
+  background: linear-gradient(90deg, transparent, var(--mmc-surface) 18px);
+}
+.mmc-ch-siderow:hover .mmc-ch-sideacts, .mmc-ch-siderow:focus-within .mmc-ch-sideacts,
+.mmc-ch-sideacts.on { display: flex; }
+.mmc-ch-sideact {
+  display: inline-flex; align-items: center; justify-content: center; height: 26px; min-width: 26px;
+  padding: 0 6px; border: 0; border-radius: 6px; background: none; cursor: pointer; font: inherit;
+  font-size: calc(12px * var(--mmc-type)); color: var(--mmc-dim);
+}
+.mmc-ch-sideact:hover { background: var(--mmc-surface-2); color: var(--mmc-text); }
+.mmc-ch-sideact svg { stroke: currentColor; fill: none; stroke-width: 1.7; }
+.mmc-ch-sidedel { color: var(--mmc-bad); }
+.mmc-ch-sidekeep { color: var(--mmc-text); }
+.mmc-ch-renaming { padding: 0 4px; background: var(--mmc-surface); }
+.mmc-ch-sidebox {
+  width: 100%; height: 30px; padding: 0 8px; border-radius: 6px;
+  border: 1px solid var(--mmc-accent); background: var(--mmc-ground);
+  color: var(--mmc-strong); font: inherit; font-size: calc(13px * var(--mmc-type)); outline: none;
+}
+.mmc-ch-confirming { padding-left: 10px; background: var(--mmc-surface); }
+.mmc-ch-confirming .mmc-ch-sidetitle { color: var(--mmc-dim); font-size: calc(12.5px * var(--mmc-type)); }
+.mmc-ch-confirming .mmc-ch-sideacts { position: static; padding-left: 6px; background: none; }
+.mmc-ch-scrim { display: none; }
+
+/* The bar: the toggle beside the crumb, and the chat's own name after it. */
+.mmc-ch-sidetoggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; margin-left: 4px; border-radius: 7px; cursor: pointer;
+  background: none; border: 0; color: var(--mmc-dim);
+}
+.mmc-ch-sidetoggle:hover, .mmc-ch-sidetoggle[aria-pressed="true"] { color: var(--mmc-text); }
+.mmc-ch-sidetoggle:hover { background: var(--mmc-surface); }
+.mmc-ch-sidetoggle svg { stroke: currentColor; fill: none; stroke-width: 1.7; }
+.mmc-ch-title { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.mmc-ch-titlebtn {
+  max-width: 28vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding: 3px 7px; border: 0; border-radius: 6px; background: none; cursor: text;
+  font: inherit; font-size: calc(13px * var(--mmc-type)); color: var(--mmc-text);
+}
+.mmc-ch-titlebtn:hover { background: var(--mmc-surface); }
+
+/* Narrow: the shelf is a drawer over the transcript, not beside it. */
+@media (max-width: 960px) {
+  .mmc-ch-sideopen .mmc-ch-side {
+    position: absolute; left: 0; top: 0; bottom: 0; z-index: 3;
+    box-shadow: 8px 0 24px var(--mmc-scrim-2);
+  }
+  .mmc-ch-sideopen .mmc-ch-scrim {
+    display: block; position: absolute; inset: 0; z-index: 2; background: var(--mmc-scrim);
+  }
+  .mmc-ch-title { display: none; }
+}
 
 /* --- narrow --------------------------------------------------------------- */
 @media (max-width: 720px) {

@@ -16,12 +16,15 @@
 // has no opinion about families, weights or durations, and it must not grow
 // one — everything it knows about a family it reads off the served catalog.
 //
-// **The state is the page's, not the room's.** Leaving the room keeps the
-// conversation; reloading starts fresh (§5.6). So it lives in `state` below
-// rather than on the class, and a render in flight is watched by a module-level
-// listener that outlives the overlay — a shot queued behind somebody else's
-// render must still land in the ledger if you stepped out to the editor while
-// it sampled.
+// **The state is the page's, not the room's — and the conversation is a
+// file.** Leaving the room keeps the conversation; so does reloading, since
+// every change is written to the shelf (`chatstore.js`) and the sidebar is
+// the way back to it and to every one before it. The live state lives in
+// `state` below rather than on the class, and a render in flight is watched
+// by a module-level listener that outlives the overlay — a shot queued behind
+// somebody else's render must still land in the ledger if you stepped out to
+// the editor while it sampled, and in the *right* ledger if you opened another
+// chat meanwhile: a card remembers the conversation it was queued from.
 //
 // **The turn and the render are two different waits.** A turn is one of this
 // pack's own jobs and goes through `queue.run`, which resolves with the object
@@ -44,6 +47,8 @@ import { FAMILIES, VIDEO_FAMILIES, DEFAULT_VIDEO_FAMILY, STILL_ARCHES,
          DEFAULT_STILL_ARCH, family as familyOf } from "./manifest.js";
 import { run, watch as watchQueue } from "./queue.js";
 import { FirstRun, freshSetup, scanMachine, turboRows, modelsPanel } from "./chatsetup.js";
+import { listChats, loadChat, saveChat, renameChat, deleteChat, newId, pack, groupByDay,
+         coverOf } from "./chatstore.js";
 import { t } from "./i18n.js";
 import { api } from "../../../scripts/api.js";
 
@@ -79,6 +84,16 @@ const CARD_EVENTS = ["progress_state", "b_preview_with_metadata", "b_preview",
  *  so a preview from inside its expansion names `1.<something>`. */
 const CHAT_NODE = "1";
 
+/** Whether the sidebar is open, per browser. A choice about the window
+ *  rather than the machine, so it is not in the settings file. */
+const SIDE_KEY = "continuity-chat-side";
+
+/** How long after the last change the conversation is written. The queue
+ *  repaints on every step of a render; the file only changes when the
+ *  transcript does, and `pack` drops the steps, so a save that compares
+ *  before writing costs a `stringify` per tick and a write per turn. */
+const SAVE_AFTER = 600;
+
 /**
  * The conversation, for the life of the page.
  *
@@ -111,7 +126,45 @@ const state = {
   scanning: false,
   // Which of the gear's two tabs was open last, for the page.
   gearTab: "room",
+  // The conversation on the shelf this one is: `{id, title, created}`, or null
+  // until the first message gives it a reason to exist. The title is the
+  // index's; the room shows it in the bar and the sidebar edits it.
+  chat: null,
+  // Every saved conversation, as the index lists them, newest first — and
+  // whether that list has been read yet, so an empty sidebar can say "nothing
+  // saved" rather than "loading" forever.
+  index: [],
+  indexRead: false,
+  side: null,
+  // Which row is being renamed or asked about deleting, if any.
+  editing: null,
+  confirming: null,
 };
+
+/** The conversation as one object — what a card in flight keeps hold of, so
+ *  a render that lands after you opened another chat is filed under the chat
+ *  that asked for it. The arrays are the live ones, not copies: `newChat` and
+ *  `openSaved` replace them on `state` rather than emptying them, so a home
+ *  taken here stays whole. */
+const home = () => ({ messages: state.messages, ledger: state.ledger,
+                      counts: state.counts, chat: state.chat });
+
+/** Whether the sidebar starts open: what was chosen last, else the width. */
+function sideOpen() {
+  if (state.side !== null) return state.side;
+  try {
+    const stored = localStorage.getItem(SIDE_KEY);
+    if (stored !== null) return (state.side = stored === "1");
+  } catch { /* denied */ }
+  return (state.side = window.innerWidth >= 1100);
+}
+
+function setSide(on) {
+  state.side = Boolean(on);
+  try { localStorage.setItem(SIDE_KEY, on ? "1" : "0"); } catch { /* denied */ }
+  open?.paintSide();
+  open?.sheet.classList.toggle("mmc-ch-sideopen", state.side);
+}
 
 /** The room, or null. One at a time: it is the room. */
 let open = null;
@@ -125,7 +178,159 @@ let open = null;
  * in the editor has to be there when you come back, and its ledger entry has to
  * be in the ledger — and a turn asked for in one room can land in the next.
  */
-const notify = () => open?.paint();
+const notify = () => { open?.paint(); scheduleSave(); };
+
+// ---- the shelf --------------------------------------------------------------
+
+let saveTimer = null;
+let lastWritten = "";
+
+/** Write the conversation soon, if it changed. See `SAVE_AFTER`. */
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => { saveNow().catch(report); }, SAVE_AFTER);
+}
+
+/** The conversation onto the shelf, now. A chat with nothing said in it is
+ *  not a chat and writes nothing; the first message makes it one. */
+async function saveNow(where = home()) {
+  const said = where.messages.some((message) => !message.local && message.role === "user");
+  if (!said) return;
+  const current = where.messages === state.messages;
+  const body = JSON.stringify(pack(where));
+  if (current && body === lastWritten) return;
+  if (!where.chat) {
+    where.chat = { id: newId(), title: "", created: Date.now() };
+    if (where.messages === state.messages) state.chat = where.chat;
+  }
+  const line = await saveChat(where.chat, where);
+  where.chat.title = line.title;
+  if (current) lastWritten = body;
+  state.index = [line, ...state.index.filter((entry) => entry.id !== line.id)];
+  open?.paintSide();
+  open?.paintBar();
+}
+
+function report(error) {
+  state.error = String(error?.message || error);
+  open?.paint();
+}
+
+/** The index, read once per page and again after anything that changes it. */
+async function readIndex() {
+  try {
+    state.index = await listChats();
+  } catch (error) {
+    report(error);
+  }
+  state.indexRead = true;
+  open?.paintSide();
+}
+
+/** Start over: the current conversation is on the shelf already (or was
+ *  nothing), and the room opens on the question. */
+function newChat() {
+  if (state.busy) return;
+  clearTimeout(saveTimer);
+  saveNow().catch(report);
+  reset();
+  open?.paint();
+  open?.box.focus();
+}
+
+/** The room on the question again, writing nothing. */
+function reset() {
+  clearTimeout(saveTimer);
+  state.messages = [];
+  state.ledger = [];
+  state.counts = { img: 0, vid: 0, aud: 0 };
+  state.turn = 0;
+  state.chat = null;
+  state.error = null;
+  state.editing = null;
+  state.confirming = null;
+  lastWritten = "";
+}
+
+/**
+ * Open a conversation from the shelf.
+ *
+ * The one now open is written first, so nothing said in it is lost to the
+ * switch. A card that was mid-render when the chat was last left is settled
+ * against the queue's history: finished, it lands as it would have; still
+ * running, it is watched again; gone, it says so.
+ */
+async function openSaved(id) {
+  if (state.busy || state.chat?.id === id) return;
+  clearTimeout(saveTimer);
+  await saveNow().catch(report);
+  let body;
+  try {
+    body = await loadChat(id);
+  } catch (error) {
+    return report(error);
+  }
+  const line = state.index.find((entry) => entry.id === id);
+  if (!body) {
+    state.error = t("That chat is no longer on the shelf.");
+    state.index = state.index.filter((entry) => entry.id !== id);
+    return open?.paint();
+  }
+  state.messages = body.messages;
+  state.ledger = body.ledger;
+  state.counts = body.counts;
+  state.turn = body.turn;
+  state.chat = { id, title: line?.title ?? "", created: line?.created ?? Date.now() };
+  state.error = null;
+  state.editing = null;
+  state.confirming = null;
+  lastWritten = JSON.stringify(pack(home()));
+  for (const message of state.messages) {
+    if (message.card?.state === "left") settle(message.card, home());
+  }
+  if (open) {
+    open.paint();
+    open.log.scrollTop = open.log.scrollHeight;
+    open.box.focus();
+  }
+}
+
+/** A card that was left mid-render, against what the queue remembers. */
+async function settle(card, where) {
+  card.home = where;
+  card.state = "queued";
+  card.progress = 0;
+  if (!card.promptId) return fail(card, t("The render was lost when the room was closed."));
+  let record = null;
+  try {
+    const response = await api.fetchApi(`/history/${card.promptId}`);
+    record = response.ok ? (await response.json())?.[card.promptId] ?? null : null;
+  } catch { record = null; }
+  if (!record) {
+    // Not in the history: still on the queue, or a server that has been
+    // restarted since. The queue says which — if it is there it will report,
+    // and if nothing ever arrives the card stays queued, which is honest.
+    return watchRender(card);
+  }
+  const status = record.status?.status_str;
+  const output = Object.values(record.outputs ?? {}).find((node) => node.mmc_video || node.mmc_image);
+  if (output) {
+    card.isClip = Boolean(output.mmc_video);
+    card.saved = (output.mmc_video ?? output.mmc_image)[0];
+    card.state = "done";
+    card.progress = 1;
+    if (!card.entry) land(card);
+    return notify();
+  }
+  const why = record.status?.messages?.find((m) => m[0] === "execution_error")?.[1]?.exception_message;
+  return fail(card, status === "error" ? (why || t("the render failed")) : t("cancelled"));
+}
+
+function fail(card, message) {
+  card.state = "failed";
+  card.error = message;
+  notify();
+}
 
 // ---- the rail ---------------------------------------------------------------
 
@@ -221,10 +426,10 @@ function setRail(patch) {
  *  are `chat._media_kind`'s and the server reads them back the same way. */
 const PREFIX = { image: "img", video: "vid", audio: "aud" };
 
-function nextHandle(media) {
+function nextHandle(media, where = home()) {
   const prefix = PREFIX[media] ?? PREFIX.image;
-  state.counts[prefix] = (state.counts[prefix] ?? 0) + 1;
-  return `${prefix}-${state.counts[prefix]}`;
+  where.counts[prefix] = (where.counts[prefix] ?? 0) + 1;
+  return `${prefix}-${where.counts[prefix]}`;
 }
 
 /**
@@ -235,10 +440,10 @@ function nextHandle(media) {
  * describe it. Nothing else travels — pixels never enter the model's context,
  * which is what makes the handle the load-bearing part.
  */
-function remember({ media, kind, aspect, filename, text }) {
-  const entry = { handle: nextHandle(media), kind, aspect: aspect || "",
-                  turn: state.turn, filename, text: text || "" };
-  state.ledger.push(entry);
+function remember({ media, kind, aspect, filename, text, turn = state.turn }, where = home()) {
+  const entry = { handle: nextHandle(media, where), kind, aspect: aspect || "",
+                  turn, filename, text: text || "" };
+  where.ledger.push(entry);
   return entry;
 }
 
@@ -441,13 +646,20 @@ function release(card) {
 function land(card) {
   const saved = card.saved;
   const path = saved.subfolder ? `${saved.subfolder}/${saved.filename}` : saved.filename;
+  // Into the conversation that asked for it, which is not always the one
+  // open: see `home`. The turn is the card's own, kept on it when it was
+  // queued, so a chat reopened later still numbers the render on the turn
+  // that made it.
+  const where = card.home ?? home();
   card.entry = remember({
     media: card.isClip ? "video" : "image",
     kind: card.isClip ? "clip" : "still",
     aspect: card.action.aspect || rail().aspect,
     filename: `${path} [${saved.type ?? "output"}]`,
     text: card.action.prompt,
-  });
+    turn: card.turn ?? state.turn,
+  }, where);
+  if (where.messages !== state.messages) saveNow(where).catch(report);
   notify();
 }
 
@@ -534,8 +746,24 @@ class Room {
       el("div", { class: "mmc-ch-dock" }, [this.composer]),
     ]);
     this.modelHost = el("span", { class: "mmc-ch-model" });
+    this.titleHost = el("span", { class: "mmc-ch-title" });
+    // The shelf: every conversation, and the way to a new one. Painted on its
+    // own — the list changes when a chat is saved, renamed or deleted, not on
+    // every step of a render.
+    this.sideList = keepScroll(el("div", { class: "mmc-ch-sidelist" }));
+    this.side = el("aside", { class: "mmc-ch-side" }, [
+      el("div", { class: "mmc-ch-sidehead" }, [
+        el("button", {
+          class: "mmc-ch-new", title: t("Start a new chat"),
+          onclick: () => { newChat(); if (this.narrow()) setSide(false); },
+        }, [icon("plus", 16), el("span", { text: t("New chat") })]),
+      ]),
+      this.sideList,
+    ]);
+    // Under the drawer on a narrow window, so a press outside it closes it.
+    this.scrim = el("div", { class: "mmc-ch-scrim", onclick: () => setSide(false) });
 
-    this.sheet = el("div", { class: "mmc-bn" }, [
+    this.sheet = el("div", { class: `mmc-bn${sideOpen() ? " mmc-ch-sideopen" : ""}` }, [
       el("div", { class: "mmc-bn-bar" }, [
         // The wordmark is the door, exactly as it is on every bench: the same
         // mark in the same corner, and somewhere that reads as the way out has
@@ -555,6 +783,15 @@ class Room {
             ]),
         el("span", { class: "mmc-bn-slash", text: "/" }),
         el("span", { class: "mmc-bn-here", text: t("Chat") }),
+        this.titleHost,
+        el("button", {
+          class: "mmc-ch-sidetoggle", title: t("Your chats"),
+          "aria-pressed": sideOpen(),
+          onclick: (event) => {
+            setSide(!state.side);
+            event.currentTarget.setAttribute("aria-pressed", state.side);
+          },
+        }, [icon("panel", 17)]),
         el("span", { class: "mmc-bn-gap" }),
         // Which model is talking, where ChatGPT puts it: in the bar, one quiet
         // name. Everything that is set once per machine and then left alone is
@@ -570,7 +807,7 @@ class Room {
           onclick: () => this.close(),
         }),
       ]),
-      el("div", { class: "mmc-bn-room mmc-ch-room" }, [this.talk]),
+      el("div", { class: "mmc-bn-room mmc-ch-room" }, [this.side, this.scrim, this.talk]),
     ]);
 
     this.overlay = el("div", {
@@ -625,9 +862,16 @@ class Room {
       this.skills = entries;
       if (this.overlay.isConnected) this.paint();
     });
+    if (!state.indexRead) readIndex();
 
     this.paint();
     this.box.focus();
+  }
+
+  /** Whether the sidebar is a drawer over the transcript rather than beside
+   *  it — the stylesheet's own breakpoint, read back. */
+  narrow() {
+    return window.innerWidth < 960;
   }
 
   close() {
@@ -643,6 +887,130 @@ class Room {
     this.paintLog();
     this.paintComposer();
     this.paintBar();
+    this.paintSide();
+  }
+
+  // ---- the shelf ---------------------------------------------------------------
+
+  /** The sidebar: a new chat, then every saved one under its day. */
+  paintSide() {
+    const rows = [];
+    if (!state.index.length) {
+      rows.push(el("p", { class: "mmc-ch-sidenote",
+        text: state.indexRead ? t("Nothing saved yet. Your first message starts a chat.") : "" }));
+    }
+    for (const [heading, entries] of groupByDay(state.index)) {
+      rows.push(el("div", { class: "mmc-ch-day", text: t(heading) }));
+      for (const entry of entries) rows.push(this.sideRow(entry));
+    }
+    this.sideList.replaceChildren(...rows);
+  }
+
+  /** One conversation: its title, and the last thing it made. Hovering shows
+   *  the two things you can do to it; the row itself opens it. */
+  sideRow(entry) {
+    const current = state.chat?.id === entry.id;
+    if (state.editing === entry.id) return this.renameRow(entry);
+    if (state.confirming === entry.id) return this.confirmRow(entry);
+    const cover = entry.cover
+      ? el("span", { class: "mmc-ch-cover" }, [
+          el("img", { src: viewUrl(entry.cover, { preview: true }), alt: "",
+                      loading: "lazy", draggable: false }),
+          entry.coverKind === "clip" ? el("span", { class: "mmc-ch-coverclip" }, [icon("play", 10)]) : null,
+        ].filter(Boolean))
+      : el("span", { class: "mmc-ch-cover mmc-ch-nocover" });
+    const busy = state.busy && !current;
+    return el("div", { class: `mmc-ch-siderow${current ? " on" : ""}`, "data-id": entry.id }, [
+      el("button", {
+        class: "mmc-ch-sideopenbtn", disabled: busy || undefined,
+        title: busy ? t("Wait for the reply before switching chats.")
+             : entry.renders ? t("{count} renders", { count: entry.renders }) : entry.title,
+        onclick: () => { openSaved(entry.id); if (this.narrow()) setSide(false); },
+      }, [
+        el("span", { class: "mmc-ch-sidetitle", text: entry.title || t("New chat") }),
+        cover,
+      ]),
+      el("span", { class: "mmc-ch-sideacts" }, [
+        el("button", {
+          class: "mmc-ch-sideact", title: t("Rename"),
+          onclick: (event) => { event.stopPropagation(); state.confirming = null;
+                                state.editing = entry.id; this.paintSide(); },
+        }, [icon("pen", 14)]),
+        el("button", {
+          class: "mmc-ch-sideact", title: t("Delete"),
+          onclick: (event) => { event.stopPropagation(); state.editing = null;
+                                state.confirming = entry.id; this.paintSide(); },
+        }, [icon("trash", 14)]),
+      ]),
+    ]);
+  }
+
+  /** The title as a box. Enter keeps it, Escape does not, leaving does. */
+  renameRow(entry) {
+    const box = el("input", {
+      class: "mmc-ch-sidebox", type: "text", value: entry.title, spellcheck: "false",
+      onkeydown: (event) => {
+        if (event.key === "Enter") { event.preventDefault(); commit(); }
+        if (event.key === "Escape") { event.preventDefault(); cancel(); }
+      },
+      onblur: () => commit(),
+    });
+    let done = false;
+    const cancel = () => { if (done) return; done = true; state.editing = null; this.paintSide(); };
+    const commit = async () => {
+      if (done) return;
+      done = true;
+      state.editing = null;
+      const title = box.value.replace(/\s+/g, " ").trim();
+      if (!title || title === entry.title) return this.paintSide();
+      try {
+        const line = await renameChat(entry.id, title);
+        if (line) {
+          entry.title = line.title;
+          if (state.chat?.id === entry.id) state.chat.title = line.title;
+        }
+      } catch (error) {
+        report(error);
+      }
+      this.paintSide();
+      this.paintBar();
+    };
+    const row = el("div", { class: "mmc-ch-siderow mmc-ch-renaming" }, [box]);
+    queueMicrotask(() => { box.focus(); box.select(); });
+    return row;
+  }
+
+  /** The question in the row's own place, with the two answers. The renders
+   *  are not touched: they are files in the output folder and this is a
+   *  conversation about them. */
+  confirmRow(entry) {
+    const back = () => { state.confirming = null; this.paintSide(); };
+    return el("div", { class: "mmc-ch-siderow mmc-ch-confirming" }, [
+      el("span", { class: "mmc-ch-sidetitle", text: t("Delete this chat?"),
+                   title: t("Its renders stay in the output folder.") }),
+      el("span", { class: "mmc-ch-sideacts on" }, [
+        el("button", {
+          class: "mmc-ch-sideact mmc-ch-sidedel", text: t("Delete"),
+          onclick: async () => {
+            state.confirming = null;
+            try {
+              await deleteChat(entry.id);
+            } catch (error) {
+              return report(error);
+            }
+            state.index = state.index.filter((other) => other.id !== entry.id);
+            if (state.chat?.id === entry.id) {
+              // The one open: the room starts over without writing, or the
+              // next autosave would put the line straight back.
+              reset();
+              return this.paint();
+            }
+            this.paintSide();
+          },
+        }),
+        el("button", { class: "mmc-ch-sideact mmc-ch-sidekeep", text: t("Keep"), onclick: back }),
+      ]),
+    ]);
   }
 
   /** The transcript, drawn from the conversation.
@@ -951,8 +1319,17 @@ class Room {
 
   // ---- the choices ------------------------------------------------------------
 
-  /** The bar's one changing thing: the model's name. */
+  /** The bar's two changing things: which chat this is, and the model's name. */
   paintBar() {
+    const title = state.chat?.title || "";
+    this.titleHost.replaceChildren(...(title ? [
+      el("span", { class: "mmc-bn-slash", text: "/" }),
+      el("button", {
+        class: "mmc-ch-titlebtn", text: title, title: t("Rename this chat"),
+        onclick: () => { state.confirming = null; state.editing = state.chat.id;
+                         if (!state.side) setSide(true); this.paintSide(); },
+      }),
+    ] : []));
     const current = refinerSettings();
     const local = current.backend !== "remote";
     const name = chosenModel(current) || t("Choose a model");
@@ -1303,7 +1680,8 @@ class Room {
     // "Refining…" for a rewrite that is not going to happen.
     const refining = Boolean(bar.refine) && action.kind === "video";
     message.action = action;
-    const card = { action, state: refining ? "refining" : "starting", progress: 0, tokens: null };
+    const card = { action, state: refining ? "refining" : "starting", progress: 0, tokens: null,
+                   home: home(), turn: state.turn };
     message.card = card;
     notify();
 

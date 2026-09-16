@@ -272,6 +272,19 @@ to the same refiner settings the Refine button reads — so a node dropped on
 the canvas afterwards opens set up, and a file picked on a node is what the
 room renders with next.
 
+**Conversations are kept.** Every chat is saved as you go, and the panel on
+the left lists them under the day they were last touched, each row carrying
+the last thing it made as a small picture. Press one to reopen it — the
+transcript, its stills and clips and their handles come back as they were, and
+a render that was still sampling when you left is picked up where the queue
+got to. *New chat* starts another; the pencil on a row renames it (the name
+is the first message until you change it, and the name in the bar is the same
+door); the bin deletes it after one confirmation in the row. Deleting a chat
+does not delete its renders — they are files in your output folder. The
+panel folds away behind the icon beside the crumb, and on a narrow window it
+opens over the transcript instead of beside it. Chats live in ComfyUI's
+per-user data, so they follow the user across browsers.
+
 The rail on the right holds the standing choices a turn is made against:
 
 - **The model.** The same picker the Refine button uses — this ComfyUI, or a
