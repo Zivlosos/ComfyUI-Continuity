@@ -362,6 +362,16 @@ const STORED = [
 // the word on the button, and the note the row shows while that answer is the
 // one in force. The notes are the long form — a segment button carries a word,
 // and the word alone ("Kept") never said what it was keeping or why.
+// How many steps the refine pass runs at the target canvas.
+const REFINE_STEPS = [
+  { value: 0, label: "Sampler's",
+    note: "The whole step count again, over the lower part of the schedule. "
+        + "The road every two-pass render took." },
+  { value: 3, label: "3", note: "The split-schedule recipe's tail: most of the work at the first-pass edge." },
+  { value: 4, label: "4", note: "One more than the recipe. Its author found three often falls short." },
+  { value: 6, label: "6", note: "Between the recipe and the sampler's count." },
+];
+
 const LORA_LOADERS = [
   { value: "vendored", label: "This pack",
     note: "Keeps the quantized checkpoint exactly as baked and runs each file as an "
@@ -798,6 +808,19 @@ class SettingsPage {
               + "writes what it saw into the render history, so a card whose fix did "
               + "nothing says why.",
           apply: (value) => this.set({ motion_fix_abstain: value }),
+        }),
+      }),
+      this.row({
+        key: "refine_steps",
+        name: "Refine steps",
+        hint: "Steps the second pass of a two-pass render runs at the target.",
+        ...this.segment({
+          options: REFINE_STEPS,
+          value: Number(this.settings.refine_steps ?? 0),
+          shown: (value) => value ? t("{n} steps", { n: value }) : t("sampler's"),
+          also: "Read when a render is queued. Pairs with the resolution pill's refine "
+              + "denoise, and with a trained latent upscaler picked under weights.",
+          apply: (value) => this.set({ refine_steps: value }),
         }),
       }),
       this.row({

@@ -50,6 +50,13 @@ SLOTS = {
     # render never asks for it — the picker does, and it says so there.
     "cutout": core.Slot(
         "background_removal", "the background-removal model", optional=True),
+    # A trained latent upscaler for the refine pass, which draws the first
+    # pass's picture up with it instead of bicubic when one is picked
+    # (`hires.upscale_video_latent`, `latentup`). No loader here: the refine
+    # node loads it itself, when it runs. Optional with no `missing` sentence,
+    # because a render never asks for it — an empty slot is the bicubic road
+    # every two-pass render took before this existed.
+    "upscaler": core.Slot("latent_upscale_models", "the latent upscaler", optional=True),
     # The Fun ControlNet-Union branch: `control_proj_in` plus five control
     # blocks, loaded on top of whichever checkpoint this generation routes to
     # and injected into it every tenth layer. Core's own `ControlNetLoader`

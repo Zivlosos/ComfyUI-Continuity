@@ -120,6 +120,15 @@ _UI = {
                 "the face. Loaded when you press them, not when you render.",
         "hints": ["birefnet"],
     },
+    "upscaler": {
+        "title": "Latent upscaler",
+        "help": "Optional. A trained H3 latent upscaler, from models/latent_upscale_models "
+                "(LBH-123-AI's minimax_h3_latent_upscaler_3d). With one picked, a two-pass "
+                "render draws the first pass up with it before the refine instead of "
+                "bicubic. Empty is bicubic.",
+        "hints": ["minimax_h3_latent_upscaler", "h3"],
+        "avoid": ["ltx", "hunyuan"],
+    },
     "control": {
         "title": "ControlNet branch",
         "help": "Optional. MiniMax-H3-Fun-Controlnet-Union, from models/controlnet — "

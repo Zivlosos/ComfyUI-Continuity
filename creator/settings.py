@@ -153,6 +153,14 @@ DEFAULTS = {
     # handoff; it reaches the graph as a segment input, so a change re-runs
     # the pass. The guide LoRA pass always uses core's, its files' own.
     "lora_loader": "vendored",
+    # How many steps the refine pass runs at the target canvas. 0 is the
+    # sampler's own count, which with `denoise` under 1 means the whole count
+    # again over the lower part of the schedule — the road every two-pass
+    # render took. A small number is the split-schedule recipe from discussion
+    # #85: a short tail at the target, most of the work at the first-pass
+    # edge. Per machine while it is being measured; it reaches the graph as a
+    # node input, so a change re-runs the pass.
+    "refine_steps": 0,
     # The motion fix's gate: a pass whose peak frame-to-frame change, at
     # thumbnail scale on 0-255, is under this is left alone
     # (`families/h3/derope.GATE`, and why it is the frames and not the
@@ -474,6 +482,13 @@ def clean(raw):
         if raw["seam_handoff"] not in SEAM_HANDOFFS:
             raise ValueError(f"seam_handoff must be one of {', '.join(SEAM_HANDOFFS)}")
         clean_settings["seam_handoff"] = raw["seam_handoff"]
+    if "refine_steps" in raw and raw["refine_steps"] is not None:
+        steps = raw["refine_steps"]
+        if isinstance(steps, bool) or not isinstance(steps, (int, float)) or steps != int(steps):
+            raise ValueError("refine_steps must be a whole number")
+        if not 0 <= steps <= 200:
+            raise ValueError("refine_steps must be between 0 and 200")
+        clean_settings["refine_steps"] = int(steps)
     if "lora_loader" in raw and raw["lora_loader"] is not None:
         if raw["lora_loader"] not in LORA_LOADERS:
             raise ValueError(f"lora_loader must be one of {', '.join(LORA_LOADERS)}")
@@ -894,6 +909,11 @@ def seam_handoff():
 def lora_loader():
     """Which loader puts an H3 piece's LoRAs on: one of `LORA_LOADERS`."""
     return load()["lora_loader"]
+
+
+def refine_steps():
+    """Steps the refine pass runs at the target; 0 is the sampler's own count."""
+    return int(load()["refine_steps"])
 
 
 def motion_fix_abstain():

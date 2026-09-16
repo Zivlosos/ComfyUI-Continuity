@@ -737,14 +737,21 @@ class H3(base.Family):
         refine_against = graph.node(
             "ConditioningZeroOut", conditioning=second.out(1)).out(0)
         refine_model = patched(graph, second.out(0), sampling, acceleration, weights)
+        # The trained upscaler rides as an input only when one is picked, so a
+        # piece without one keeps the cache key it had. The step count is the
+        # sampler's unless the machine says otherwise: `refine_steps` is the
+        # dial for the split-schedule recipe (discussion #85), a short tail
+        # at the target instead of the whole step count run again there.
+        upscaler = weights.get("upscaler") or ""
         return graph.node(
             REFINE_NODE,
             model=refine_model, positive=second.out(1), negative=refine_against,
             latent=latent,
             width=compiled.refine.width, height=compiled.refine.height,
-            seed=seed, steps=sampling.steps, cfg=sampling.cfg,
+            seed=seed, steps=settings.refine_steps() or sampling.steps, cfg=sampling.cfg,
             sampler_name=sampling.sampler_name, scheduler=sampling.scheduler,
             denoise=compiled.refine.denoise,
+            **({"upscaler": upscaler} if upscaler else {}),
         ).out(0)
 
     def face_payload(self, payload, face):

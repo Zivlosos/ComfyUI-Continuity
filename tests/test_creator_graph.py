@@ -849,6 +849,25 @@ check("the reel decodes the refined latent, not the first pass's",
       hires_graph[hires_kinds["MiniMaxH3Reel"][0][1]["samples"][0]]["class_type"],
       "MiniMaxH3RefinePass")
 
+# The trained upscaler and the refine's own step count (discussion #85). The
+# file rides as an input only when picked, and the steps are the sampler's
+# unless the machine setting says otherwise — both so a piece without either
+# keeps the cache key it had.
+check("no upscaler input when none is picked", "upscaler" in refine_inputs, False)
+was_refine_steps = settings_mod.refine_steps
+settings_mod.refine_steps = lambda: 4
+try:
+    net_kinds = by_class(build(data=json.dumps(
+        {**json.loads(DATA), "short_edge": 1152,
+         "models": {**MODELS, "upscaler": "h3_up.safetensors"}})).expand)
+finally:
+    settings_mod.refine_steps = was_refine_steps
+net_inputs = net_kinds["MiniMaxH3RefinePass"][0][1]
+check("a picked upscaler reaches the refine pass, with the machine's step count",
+      (net_inputs["upscaler"], net_inputs["steps"]), ("h3_up.safetensors", 4))
+check("...and nothing else in the graph loads it",
+      [c for c in net_kinds if "Upscale" in c], [])
+
 direct_kinds = by_class(build(data=json.dumps(
     {**json.loads(DATA), "short_edge": 1152, "upscale": "direct"})).expand)
 check("direct past native is the old one-pass graph",

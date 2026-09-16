@@ -211,12 +211,14 @@ for entry in h3["weights"]:
            slot.routed, slot.audio, not slot.optional))
 
 # The files an H3 render never asks for by itself: the background remover the
-# picker's scissors run, and the ControlNet branch a guide loads. Both were
-# served without the flag, so everything reading the catalog demanded them of
-# every render — `models.check` never did, which is how the two disagreed.
+# picker's scissors run, the ControlNet branch a guide loads, and the trained
+# latent upscaler the refine pass draws with when one is picked. The first two
+# were served without the flag, so everything reading the catalog demanded
+# them of every render — `models.check` never did, which is how the two
+# disagreed.
 check("the opt-in H3 slots say they are opt-in",
       sorted(w["id"] for w in h3["weights"] if not w["required"]),
-      ["control", "cutout"])
+      ["control", "cutout", "upscaler"])
 
 check("h3 routes are the family's own ROUTES",
       (h3["routes"]["options"], h3["routes"]["default"]),
