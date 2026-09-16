@@ -6,6 +6,55 @@ exactly as it was written, wall of text and all.
 
 ## Unreleased
 
+**The reference row and the compiler agree about what a shot sends (#91,
+#92).** Which files a shot carries was being worked out in three places that
+had drifted apart, and the reports were the gaps between them. The compiler
+cut every picture of a member the shot did not name, without asking whether
+the shot named the *file*: `@ref-1` in a shot that never wrote `@vera` was
+injected by one step and cut by the next, then refused as "no such asset is
+attached" for a picture that was on the shelf the whole time. The shelf's
+readout had the same blind spot and said *in shots 1, 2* about a file shot 3
+cited outright. The row's mute-on-delete never asked either: `@anna and
+@img-1` with the `@img-1` chip deleted is still `@anna`, and compile still
+sends the picture through her name, but the row muted it — and underneath,
+the check for "is this name still written" only understood `img-1`-shaped
+handles, so every member counted as gone the moment any chip of theirs was.
+The row also lit somebody cast and never yet written, and reported the card
+as Ref2VA for a render that was going to send nothing; and a word that woke a
+plate showed only after the card was closed and opened again, because the row
+was drawn on render and never on a keystroke. One reading now, mirrored to
+the compiler's own line: everybody's files, minus what a cited member wakes,
+minus what the sentence writes by handle — and the row is redrawn under the
+caret. Two more found on the way: the trigger words on a file were the one
+per-handle key the strip's growing and shrinking did not carry across, so a
+clip meant to wait for *running* rode into every shot the moment a second
+card existed; and the refiner's first template pin on any install painted off
+the old answer, because the save waited for a settings block that a fresh
+file does not hold yet.
+
+**A shot says what it is made of again, and a member's action stops going
+missing (#91).** Two faults wore one face, and both needed a strip of more than
+one card to show up. A piece of one shot keeps the cast's pictures on that
+shot; growing a second card moves them onto the piece, because card 2 cannot
+see card 1's row. The reference row read the card's own files and nothing else,
+so from that moment it had nothing left to draw — casting somebody emptied the
+one place that answers "what is this shot made of", on every card at once, with
+no error anywhere near it. The row now draws the piece's references too,
+alongside the card's own, on every card that cites them: whose picture it is,
+what was set on it, and a dashed edge with *on the piece* beside it, because
+the ✕ and the mute are missing on purpose — both would reach every other card,
+and a shared reference is changed on the Timeline's own shelf where it answers
+for all of them at once. Underneath it, the second fault was not cosmetic. A
+member's action became a *list* of clips, and the two places that rename their
+handles as the files move carried on reading it as one handle: the clip went
+onto the piece under its new name while the member went on naming the old one,
+so their action rode into no shot at all — a reference genuinely lost, not
+merely undrawn — and it stranded the file on the piece afterwards, which left
+the node folded into the strip summary for good. Take inheritance read the same
+slot the same way and had quietly stopped narrowing an action clip to *motion*.
+All three read the slot properly now, and an older piece is repaired on the way
+in, the way every load repairs one.
+
 **A LoRA can be pinned to a family.** The clay-render style went on every
 Krea still by hand: after a trip to Flux the stack was Flux's, and coming back
 meant finding the file and dialling the same 0.8 in again. Every chip now

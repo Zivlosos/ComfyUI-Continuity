@@ -294,6 +294,11 @@ export function uiSetting(key, fallback) {
   return uiSettings && key in uiSettings ? uiSettings[key] : fallback;
 }
 
+/** Whether the file's settings have landed at all — as distinct from a key
+ *  they do not hold. A caller that writes a whole block has to wait for the
+ *  first and must not wait for the second: see `refine.saveSettings`. */
+export const settingsPrimed = () => uiSettings !== null;
+
 /** The settings page's replies come through here, so the cache is never older
  *  than the last thing the page showed.
  *

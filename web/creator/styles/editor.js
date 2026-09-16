@@ -262,6 +262,19 @@ button.mmc-asset-owner:hover, button.mmc-asset-owner:focus-visible {
 .mmc-asset.asleep .mmc-asset-handle { color: var(--mmc-dim); }
 .mmc-asset.asleep .mmc-asset-thumb { filter: grayscale(1); }
 
+/* A reference the piece holds, drawn on a card that cites it (see
+   renderAssets in editor.js). Every other chip in this row can be muted and removed from
+   here; this one cannot, because both would reach every other card. The dashed
+   edge is the whole tell — a chip you can read but not press — and the footnote
+   beside it says where it *can* be pressed. Dashed rather than dimmed: the
+   file is in this render at full strength, and dimming is already spent on
+   muted, passed-over and asleep, which are the three ways it might not be. */
+.mmc-asset-pooled-chip { border-style: dashed; }
+.mmc-asset-pooled {
+  color: var(--mmc-dim); font-size: calc(11px * var(--mmc-type)); white-space: nowrap;
+  padding-left: 7px; border-left: 1px solid var(--mmc-line);
+}
+
 /* The owner's words on the file — "the red hat" — as a footnote in the said
    style. Ellipsed, because a sentence on a chip is a chip nobody can scan. */
 .mmc-asset-note {

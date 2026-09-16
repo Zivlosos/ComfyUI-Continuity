@@ -772,21 +772,19 @@ class Timeline {
     // whether to cite the piece copy or drop it. See `S.poolDoubles`.
     const doubles = owners.length || everywhere || cited.length
       ? [] : S.poolDoubles(this.timeline, asset);
-    // A cast file is in the shots that name its owner, which is the shelf's own
-    // question and is asked in the shelf's own words.
-    const ownerShots = owners.map((subject) => {
-      if (S.subjectCitedGlobally(this.timeline, subject)) {
-        return { cited: true, text: t("in every shot") };
-      }
-      const shots = S.subjectCitations(this.timeline, subject);
-      return {
-        cited: shots.length > 0,
-        text: shots.length
-          ? t(shots.length === 1 ? "in shot {list}" : "in shots {list}",
-              { list: shots.join(", ") })
-          : t("in no shot yet"),
-      };
-    });
+    // A cast file is in the shots that name its owner — or the file itself:
+    // `@ref-1` written into a shot that never says `@vera` still carries it,
+    // and `cited` already counts both routes. Read in the shelf's own words,
+    // since that is the shelf's own question (#91).
+    const ownerShots = owners.length
+      ? (everywhere || owners.some((subject) => S.subjectCitedGlobally(this.timeline, subject)))
+        ? [{ cited: true, text: t("in every shot") }]
+        : [{ cited: cited.length > 0,
+             text: cited.length
+               ? t(cited.length === 1 ? "in shot {list}" : "in shots {list}",
+                   { list: cited.join(", ") })
+               : t("in no shot yet") }]
+      : [];
     const where = owners.length
       ? ownerShots.map((shot) => shot.text).join(" · ")
       : everywhere
