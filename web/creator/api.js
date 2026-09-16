@@ -1050,8 +1050,8 @@ export async function cutPanel(body) {
  * `remember`ed under the shelf plates live on, which is what makes a plate you
  * built an hour ago findable in the grid like any other picture.
  */
-export async function buildPlate(body) {
-  const answer = await runJob("/continuity/plate", body);
+export async function buildPlate(body, options) {
+  const answer = await runJob("/continuity/plate", body, options);
   const name = answer.path.split("/").pop();
   remember("input", {
     path: answer.path,

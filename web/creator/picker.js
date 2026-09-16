@@ -11,6 +11,7 @@ import { openPicture, cropLabel } from "./picture.js";
 import { greyField } from "./subject.js";
 import { t } from "./i18n.js";
 import { memberFromMod } from "./presets.js";
+import { queueState, watch as watchQueue, dropQueued } from "./queue.js";
 
 // "renders" is a tab, not a kind: it browses the output folder instead of a
 // slice of the input one, and the files under it keep their own kinds — a
@@ -161,6 +162,7 @@ export class Picker {
     // Connect built, and it holds until the sheet is taken off the piece.
     this.sheet = this.plate?.sheet ? [] : (this.plate?.panels ?? []).map((p) => p.path);
     this.committing = false;   // a commit that has to build the sheet first, in flight
+    this.queuedPlate = null;   // the prompt id of a cut sheet waiting its turn
     // path -> {key, url, pending}: the grid's own cut previews, from the same
     // in-memory route the sheet stage reads. A cell whose scissors are on shows
     // the cutout itself — the chip's promise is the picture, not a state.
@@ -1843,7 +1845,8 @@ export class Picker {
 
       renderTools();
       strip.replaceChildren(...order.map(cell));
-      okButton.textContent = saving ? t("Laying it out…")
+      okButton.textContent = saving
+        ? (this.queuedPlate && queueState().remaining > 1 ? t("Waiting for the render…") : t("Laying it out…"))
         : this.sheetFamily()
           ? (order.length > 1 ? t("Add sheet") : t("Add"))
           : t("Use this sheet");
@@ -1889,7 +1892,7 @@ export class Picker {
         buildError = "";
         render();
         try {
-          const built = await buildPlate({ ...this.plate,
+          const built = await this.buildPlate({ ...this.plate,
             panels: order.map((asset) => this.panelPayload(asset)) });
           shut();
           this.close([this.sheetAnswer(built, order)]);
@@ -1929,7 +1932,9 @@ export class Picker {
       ondrop: (event) => { event.preventDefault(); event.stopPropagation(); },
     }, [sheetEl]);
     const remove = mountOverlay(overlay, () => shut());
+    this.repaintSheet = render;
     const shut = () => {
+      this.repaintSheet = null;
       clearTimeout(fetchTimer);
       for (const held of urls.values()) {
         if (held.url) URL.revokeObjectURL(held.url);
@@ -2065,7 +2070,34 @@ export class Picker {
     if (panels.length > 1) {
       this.slots.textContent += t(" · sheet of {count}", { count: panels.length });
     }
+    // A cut sheet is a matte per panel and takes its turn on the queue; while
+    // that turn is somebody's render, the greyed Add says what it is waiting
+    // on rather than just being grey (#89). Cancel still works, and it takes
+    // the waiting job off the queue with it.
+    if (this.committing && this.queuedPlate && queueState().remaining > 1) {
+      this.slots.textContent = t("Waiting for the render…");
+    }
     this.addButton.disabled = this.selected.length === 0 || this.committing;
+  }
+
+  /** `api.buildPlate`, remembering the queue entry while there is one, so a
+   *  picker closed mid-wait can drop it. An uncut sheet never queues — the
+   *  route answers it inside the request — and never lands here. */
+  async buildPlate(body) {
+    let unwatch = null;
+    try {
+      return await buildPlate(body, {
+        onQueued: (promptId) => {
+          this.queuedPlate = promptId;
+          // The label follows the queue: "waiting" while a render is ahead,
+          // "laying it out" once the sheet's own turn comes.
+          unwatch = watchQueue(() => { this.renderFoot(); this.repaintSheet?.(); });
+        },
+      });
+    } finally {
+      unwatch?.();
+      this.queuedPlate = null;
+    }
   }
 
   pickFile() {
@@ -2153,12 +2185,12 @@ export class Picker {
     try {
       const answers = [];
       if (panels.length && this.sheetNeeded(panels)) {
-        const built = await buildPlate({ ...this.plate,
+        const built = await this.buildPlate({ ...this.plate,
           panels: panels.map((asset) => this.panelPayload(asset)) });
         answers.push(this.sheetAnswer(built, panels));
       }
       for (const asset of cut) {
-        const built = await buildPlate({ ...this.plate,
+        const built = await this.buildPlate({ ...this.plate,
           panels: [this.panelPayload(asset)] });
         answers.push(this.sheetAnswer(built, [asset]));
       }
@@ -2173,6 +2205,9 @@ export class Picker {
   close(result) {
     clearTimeout(this.warnTimer);
     clearTimeout(this.armTimer);
+    // Cancel while a cut sheet waits behind a render: the job would otherwise
+    // run for nobody and write a plate nothing attaches.
+    if (this.queuedPlate !== null) dropQueued(this.queuedPlate);
     for (const held of this.cutUrls.values()) {
       if (held.url) URL.revokeObjectURL(held.url);
     }

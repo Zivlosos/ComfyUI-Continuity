@@ -6,6 +6,19 @@ exactly as it was written, wall of text and all.
 
 ## Unreleased
 
+**Adding a sheet during a render no longer sits on a grey button (#89).**
+Every sheet the picker built went through ComfyUI's queue, so a sheet
+combined while a render was running waited behind it — the picker's Add grey
+for the length of the render, nothing on screen saying why, and Cancel the
+only button that still answered, throwing away the pictures picked in order.
+A sheet with nothing cut out is a resize and a paste, no weights involved, and
+`/continuity/plate` now answers one inside the request: combining three
+pictures and pressing Add lands at once, render or no render. A sheet with a
+cut panel is still a matte per panel and still takes its turn, but the picker
+and the sheet editor say *Waiting for the render…* while somebody is ahead,
+and Cancel takes the waiting job off the queue rather than leaving it to run
+for nobody.
+
 **Re-inserting a reference name restores its file, and muted cast files look
 muted (#88).** Deleting the last mention could mute a reference, but putting
 it back through the prompt menu or the cast shelf's citation button did not
