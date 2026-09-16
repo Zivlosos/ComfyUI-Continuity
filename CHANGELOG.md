@@ -6,6 +6,32 @@ exactly as it was written, wall of text and all.
 
 ## Unreleased
 
+**The reference row and the compiler agree about what a shot sends (#91,
+#92).** Which files a shot carries was being worked out in three places that
+had drifted apart, and the reports were the gaps between them. The compiler
+cut every picture of a member the shot did not name, without asking whether
+the shot named the *file*: `@ref-1` in a shot that never wrote `@vera` was
+injected by one step and cut by the next, then refused as "no such asset is
+attached" for a picture that was on the shelf the whole time. The shelf's
+readout had the same blind spot and said *in shots 1, 2* about a file shot 3
+cited outright. The row's mute-on-delete never asked either: `@anna and
+@img-1` with the `@img-1` chip deleted is still `@anna`, and compile still
+sends the picture through her name, but the row muted it — and underneath,
+the check for "is this name still written" only understood `img-1`-shaped
+handles, so every member counted as gone the moment any chip of theirs was.
+The row also lit somebody cast and never yet written, and reported the card
+as Ref2VA for a render that was going to send nothing; and a word that woke a
+plate showed only after the card was closed and opened again, because the row
+was drawn on render and never on a keystroke. One reading now, mirrored to
+the compiler's own line: everybody's files, minus what a cited member wakes,
+minus what the sentence writes by handle — and the row is redrawn under the
+caret. Two more found on the way: the trigger words on a file were the one
+per-handle key the strip's growing and shrinking did not carry across, so a
+clip meant to wait for *running* rode into every shot the moment a second
+card existed; and the refiner's first template pin on any install painted off
+the old answer, because the save waited for a settings block that a fresh
+file does not hold yet.
+
 **A shot says what it is made of again, and a member's action stops going
 missing (#91).** Two faults wore one face, and both needed a strip of more than
 one card to show up. A piece of one shot keeps the cast's pictures on that
