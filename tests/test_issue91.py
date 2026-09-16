@@ -145,7 +145,7 @@ out.both = row(both, 1);
 const withMotion = () => {
   const p = piece([card1([{ handle: "vid-1", kind: "video", role: "reference",
                             filename: "walk.mp4", ref_size: "max", track: "picture" }])],
-                  { motion: ["vid-1"] });
+                  { motion: ["vid-1"], triggers: { "vid-1": "walk" } });
   p.segments.push(S.continuingSegment(p));
   p.segments[1].prompt = "@anna sits down";
   S.syncTimeline(p);
@@ -159,6 +159,9 @@ out.motion = {
   // ...and she followed it, which is the whole of the second bug.
   says: S.motionOf(moved.subjects[0]),
   files: S.subjectFiles(moved.subjects[0]),
+  // ...and so does the word that wakes it. Triggers are keyed by handle like
+  // notes, and were the one key the rename walked past (#92).
+  triggers: S.subjectTriggers(moved.subjects[0]),
   // So it rides into the shots that name her, on both cards.
   cited1: S.citedPool(moved.segments[0]).map((a) => a.filename),
   cited2: S.citedPool(moved.segments[1]).map((a) => a.filename),
@@ -171,6 +174,7 @@ S.syncTimeline(home);
 out.collapsed = {
   row: home.segments[0].assets.map((a) => `${a.handle}:${a.filename}`),
   says: S.motionOf(home.subjects[0]),
+  triggers: S.subjectTriggers(home.subjects[0]),
   pool: home.assets.map((a) => a.handle),
 };
 
@@ -231,13 +235,16 @@ check("her action clip moves into the pool with the rest of her files",
       motion["pool"], ["ref-1:anna.png", "ref-2:walk.mp4"])
 check("and she follows it to its new handle", motion["says"], ["ref-2"])
 check("so nothing of hers dangles", motion["files"], ["ref-1", "ref-2"])
-check("it rides into card 1", motion["cited1"], ["anna.png", "walk.mp4"])
-check("...and card 2", motion["cited2"], ["anna.png", "walk.mp4"])
+check("and the word that wakes the clip follows it too (#92)",
+      motion["triggers"], {"ref-2": "walk"})
+check("it rides into card 1, which says its word", motion["cited1"], ["anna.png", "walk.mp4"])
+check("...and holds back from card 2, which does not", motion["cited2"], ["anna.png"])
 
 collapsed = got["collapsed"]
 check("back at one card the files come home, under a card's own scheme",
       collapsed["row"], ["img-1:anna.png", "vid-1:walk.mp4"])
 check("...and she follows them home too", collapsed["says"], ["vid-1"])
+check("...with the word still on the clip", collapsed["triggers"], {"vid-1": "walk"})
 check("leaving no pool behind", collapsed["pool"], [])
 
 check("running the sync twice changes nothing",
