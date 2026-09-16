@@ -4460,8 +4460,11 @@ export function adoptRememberedPreStage(models, remembered) {
   return changed;
 }
 
-/** The family an image arch's picks are remembered under. */
-export const preStageFamilyId = (arch) => IMAGE_FAMILY[arch].id;
+/** The family an arch's picks are remembered under. Every arch, not only the
+ *  image ones: the video family's own still is filed under that family, which
+ *  `IMAGE_FAMILY` leaves out by construction — reading it there threw on
+ *  every H3 still and took the whole extension down with it. */
+export const preStageFamilyId = (arch) => stillFamily(arch).id;
 
 export function guessPreStageModels(models, byFolder) {
   const lists = {
