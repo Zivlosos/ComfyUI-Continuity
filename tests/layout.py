@@ -253,16 +253,25 @@ STUBS = {
 import { readFileSync } from "node:fs";
 const store = new Map();
 globalThis.__userdata = store;
+// The settings file, as one object: a POST merges its patch in and answers
+// with the whole, which is what `api.saveSettings` reads back and what the
+// refiner's choices are written through since they left localStorage.
+const settings = {};
+globalThis.__settings = settings;
 export const api = {
   apiURL: (u) => u,
   addEventListener() {}, removeEventListener() {},
-  async fetchApi(url) {
+  async fetchApi(url, options = {}) {
     // The one route with a real body: the family catalog, written beside this
     // stub by layout.pack() — so the packed suites take the same load path the
     // browser does instead of leaning on the __MMC_FAMILIES injection.
     if (String(url).startsWith("/continuity/families")) {
       const body = readFileSync(new URL("./families.json", import.meta.url), "utf8");
       return { ok: true, status: 200, json: async () => JSON.parse(body) };
+    }
+    if (String(url) === "/continuity/settings") {
+      if (options.method === "POST") Object.assign(settings, JSON.parse(options.body || "{}"));
+      return { ok: true, status: 200, json: async () => ({ settings: { ...settings } }) };
     }
     return { ok: true, status: 200, json: async () => ({}) };
   },

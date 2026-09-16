@@ -28,7 +28,7 @@ import { stepperPill } from "./pills.js";
 import { t } from "./i18n.js";
 import { DEFAULT_VIDEO_FAMILY, pieceFamily, templatesOf } from "./state.js";
 import { api } from "../../../scripts/api.js";
-import { uiSetting, patchSettings, primeSettings } from "./api.js";
+import { uiSetting, patchSettings, primeSettings, settingsPrimed } from "./api.js";
 import { busy as queueBusy, run as runJob } from "./queue.js";
 
 // Machine-level, not workflow-level. Which text encoder is on this disk is a
@@ -162,7 +162,12 @@ export function saveSettings(patch) {
   // The whole block is written, so it must be written over the file's copy
   // and not over the browser's: a save that beat the settings fetch to the
   // wire waits for it, then merges the patch onto what actually landed.
-  if (uiSetting(SETTING, null) !== null) patchSettings({ [SETTING]: next });
+  //
+  // Waits for the fetch, not for the block: a file that has landed and holds
+  // no refiner block yet is the first save on any install, and this used to
+  // defer that one too — so the chip repainted off the old answer and the
+  // first pin looked as if it had not taken.
+  if (settingsPrimed()) patchSettings({ [SETTING]: next });
   else primeSettings(() => patchSettings({ [SETTING]: { ...settings(), ...patch } }));
   return next;
 }
