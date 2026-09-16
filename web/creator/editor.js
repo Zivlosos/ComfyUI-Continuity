@@ -319,6 +319,7 @@ export class CreatorEditor {
         this.state.prompt = text;
         this.onCommit?.();
         this.renderNotices();   // dangling-handle warning, without disturbing the caret
+        this.renderAssetsRow(); // which chips are lit is a fact about the sentence
         // Citing a pool reference is what attaches it, so the finished prompt
         // moves on keystrokes that never touch the sentence's own words.
         this.prompt.refreshCompiled();
@@ -1584,8 +1585,7 @@ export class CreatorEditor {
     // The piece's cited references are rows of this one now — see
     // `renderAssets` — so it is built whenever either list has something in it.
     // Reading only `assets` is what emptied the row on every card of a strip.
-    this.assetsHost.replaceChildren(
-      ...(state.assets.length || S.citedPool(state).length ? [this.renderAssets()] : []));
+    this.renderAssetsRow();
     this.renderCastShelf();
     // The family's pins go on before the row is read: a stack that does not
     // hold them yet takes them here, and is written out with them.
@@ -2247,6 +2247,16 @@ export class CreatorEditor {
     return out;
   }
 
+  /** The row, rebuilt. Its own method because the sentence is what decides
+   *  which chips are lit — a name written wakes a member's pictures, a word
+   *  written wakes a plate — so it is redrawn on every keystroke as well as on
+   *  every render, without the caret ever leaving the box (#92). */
+  renderAssetsRow() {
+    const state = this.state;
+    this.assetsHost.replaceChildren(
+      ...(state.assets.length || S.citedPool(state).length ? [this.renderAssets()] : []));
+  }
+
   renderAssets() {
     // Whose files these are. Casting somebody attaches their pictures — the
     // roster does it, `presets.addSubjectToPiece` does it — so some of this row
@@ -2269,6 +2279,9 @@ export class CreatorEditor {
     // `compile_request`'s cut and `state.asleepHere`. The un-chosen words are
     // read for the counters; the chosen ones here, since the box lights those.
     const asleep = S.asleepHere(this.state, this.varies?.() ?? null);
+    // Which members the sentence writes, for the two reasons a file can be
+    // out: their owner is not in the shot at all, or is and left it behind.
+    const named = new Set(S.citedCast(this.state).map((subject) => subject.handle));
     const chip = (asset) => {
       // A guide shows its own frame, where every other clip shows a glyph. That
       // is not a flourish: the only question anybody has about a guide is
@@ -2444,8 +2457,11 @@ export class CreatorEditor {
         title: passed.has(asset.handle)
           ? t("Not in this take: the sentence names it only in an alternative this seed passes over.")
           : asleep.has(asset.handle)
-            ? t("Not in this shot: it wakes on {words}, and the sentence says none of them.",
-                { words: wake })
+            ? owner && !named.has(owner.handle)
+              ? t("Not in this shot: @{who} is built out of it, and the sentence does not "
+                + "write their name.", { who: owner.handle })
+              : t("Not in this shot: it wakes on {words}, and the sentence says none of them.",
+                  { words: wake })
             : asset.filename,
       }, parts);
     };

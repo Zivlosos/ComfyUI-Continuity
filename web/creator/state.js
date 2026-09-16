@@ -5595,24 +5595,29 @@ export function passedOver(state, pick) {
 }
 
 /**
- * The files on this card's row that a cast member holds back from this shot:
- * claimed by somebody the prose cites, and waiting for a word it does not say.
- * What `compile_request` cuts beside the uncited members' files, read off the
- * same prose — chosen under `pick` where it holds a `{a|b}`, so a plate named
- * only in the alternative the seed takes wakes and the other stays asleep.
- * Without a `pick` the text is read as typed, both alternatives at once, which
- * is the superset: what the slot counters want, since a plate that *may* wake
- * has to fit.
+ * The files on this card's row that the cast holds back from this shot: what
+ * `compile_request` cuts, read off the same prose. A member nobody names
+ * takes every picture they alone are built out of with them, and a member who
+ * is named leaves behind the plates waiting for a word the sentence does not
+ * say — unless the sentence writes the file's own handle, which is the
+ * plainest way of asking for it, whoever it belongs to.
+ *
+ * Chosen under `pick` where the prose holds a `{a|b}`, so a plate named only
+ * in the alternative the seed takes wakes and the other stays asleep. Without
+ * a `pick` the text is read as typed, both alternatives at once, which is the
+ * superset: what the slot counters want, since a plate that *may* wake has to
+ * fit.
  *
  * The cast is the piece's — `state.cast` on a segment, `state.subjects` on a
- * lone node — and an uncited member's files are not here at all: those are
- * muted on the row already (`dropCited`), and a member nobody names has no
- * word to say.
+ * lone node. The uncited members' files used to be left out on the grounds
+ * that `dropCited` mutes them, but that only ever ran on a mention being
+ * deleted: somebody cast and never yet written sat on the row lit, and the
+ * card read as Ref2VA, for a render that was going to send nothing (#92).
  */
 export function asleepHere(state, pick = null) {
   const cast = state.cast ?? state.subjects ?? [];
   const found = new Set();
-  if (!cast.some((subject) => Object.keys(subjectTriggers(subject)).length)) return found;
+  if (!cast.length) return found;
   let texts = poolTexts(state);
   if (pick) {
     const own = (text) => resolveVariations(text ?? "", pick.seed, pick.card);
@@ -5628,13 +5633,15 @@ export function asleepHere(state, pick = null) {
   }
   const named = citedSubjects(texts, cast);
   // Sole claims only, as the compiler cuts: a file awake on one member who is
-  // cited stays for both.
-  const awake = new Set();
+  // cited stays for both — and a file the prose writes by handle stays for
+  // everyone.
+  const awake = citedHandles(texts);
   for (const subject of cast) {
+    for (const handle of subjectFiles(subject)) found.add(handle);
     if (!named.has(subject.handle)) continue;
     const sleeping = subjectAsleep(subject, texts);
     for (const handle of subjectFiles(subject)) {
-      if (sleeping.has(handle)) found.add(handle); else awake.add(handle);
+      if (!sleeping.has(handle)) awake.add(handle);
     }
   }
   for (const handle of awake) found.delete(handle);
@@ -5656,7 +5663,9 @@ export function citedSubjects(texts, cast) {
 
 /** The subjects a segment's text casts into it, in cast order. */
 export function citedCast(state) {
-  const cast = state.cast ?? [];
+  // The piece's cast on a segment, the node's own on a lone shot — the same
+  // pair `asleepHere` reads, so the two cannot disagree about who is here.
+  const cast = state.cast ?? state.subjects ?? [];
   if (!cast.length) return [];
   const found = citedSubjects(poolTexts(state), cast);
   return cast.filter((subject) => found.has(subject.handle));

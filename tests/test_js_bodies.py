@@ -569,6 +569,43 @@ try {
   out.errors.push(`reap: ${error.stack}`);
 }
 
+// ---- the row says what this sentence sends ----------------------------------
+//
+// Somebody cast and never yet written sat on the row lit, and a plate whose word
+// the sentence said stayed dark until the card was closed and opened again: the
+// row was drawn on render and never on a keystroke, and it never asked whether a
+// member's owner was in the shot at all (#92, items 2 and 3).
+try {
+  const node = fakeNode("MiniMaxH3Creator", "creator_data", ONE_SHOT);
+  await ext.nodeCreated(node);
+  const editor = node.mmcBody.faceBody();
+  const box = editor.prompt;
+  const shot = node.mmcBody.timeline.segments[0];
+  const piece = node.mmcBody.timeline;
+  await box.hooks.castFromLibrary({
+    handle: "anna", takes: "person",
+    files: [{ slot: "from", filename: "anna/face.png", kind: "image" },
+            { slot: "from", filename: "anna/hat.png", kind: "image" }],
+  });
+  const anna = piece.subjects.find((s) => s.handle === "anna");
+  anna.triggers = { "img-2": "hat" };
+  editor.render();
+  const dark = () => [...editor.assetsHost.querySelectorAll(".mmc-asset")]
+    .map((chip) => `${chip.querySelector(".mmc-asset-handle")?.text}${
+      String(chip.className).split(" ").includes("asleep") ? "!" : ""}`).join(",");
+  out.lit = { untouched: dark(), mode: S.mode(shot, piece) };
+  // Typed, not rendered: the row has to move under the caret.
+  box.setValue("@anna waits");
+  box.onEdit();
+  out.lit.named = dark();
+  box.setValue("@anna waits in her hat");
+  box.onEdit();
+  out.lit.worded = dark();
+  out.lit.modeWorded = S.mode(shot, piece);
+} catch (error) {
+  out.errors.push(`lit: ${error.stack}`);
+}
+
 // ---- and the switch that does it by hand ------------------------------------
 //
 // The same mute a LoRA carries, on a reference: out of the run, kept exactly as
@@ -3343,6 +3380,16 @@ check("...and the picture casting her attached goes quiet with her", reap.get("a
 check("...and all of it is written through to the blob that queues",
       reap.get("blob"), "img-1!,img-2!,img-3")
 check("writing her name back wakes her picture", reap.get("writtenBack"), "img-1,img-2!,img-3")
+
+# The row is drawn off the sentence, and moves with it.
+lit = report.get("lit", {})
+check("a member nobody has written yet is dark on the row", lit.get("untouched"), "@img-1!,@img-2!")
+check("...and the card reads as text-only, which is what compile sends", lit.get("mode"), "T2VA")
+check("writing her name lights her picture and leaves the plate waiting for its word",
+      lit.get("named"), "@img-1,@img-2!")
+check("...and saying the word lights the plate, without closing the card",
+      lit.get("worded"), "@img-1,@img-2")
+check("...and the card is a reference generation now", lit.get("modeWorded"), "REF2VA")
 
 # The same switch by hand: the glyph beside the ✕, which is where the other
 # thing you can do to a whole file already lives.
