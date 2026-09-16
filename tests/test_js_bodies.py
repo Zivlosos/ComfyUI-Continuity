@@ -537,6 +537,13 @@ try {
   editor.state.soundscape = `a hum off @${lamp}`;
   out.reap = { chips: box.chipped.size, refs: refs(), cast: cast(), owners };
 
+  // Her picture written beside her, then the picture's own chip cut: she is
+  // still in the sentence and compile still sends the file through her name,
+  // so it is not muted for having lost its second mention (#92).
+  box.setValue(`@${anna} and @img-1 at @${door}, lit by @${lamp}`);
+  box.onEdit();
+  cut("img-1");
+  out.reap.herFileUnnamed = refs();
   cut(lamp);
   out.reap.citedElsewhere = refs();
   cut(door);
@@ -3319,6 +3326,8 @@ check("a cast file's chip says whose it is, and a picked one says nothing",
       reap.get("owners"), ["anna's", "", ""])
 # One occurrence deleted is not the reference deleted: the soundscape still
 # writes the lamp, so the lamp stays.
+check("a member's file loses its own mention and stays live, since she is still written",
+      reap.get("herFileUnnamed"), "img-1,img-2,img-3")
 check("a handle still written elsewhere survives losing its chip",
       reap.get("citedElsewhere"), "img-1,img-2,img-3")
 check("a reference whose last mention goes is muted, not detached",

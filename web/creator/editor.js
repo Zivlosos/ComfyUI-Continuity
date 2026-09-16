@@ -1095,6 +1095,12 @@ export class CreatorEditor {
     const texts = [...this.citingTexts(),
                    ...(this.castPiece === this.state ? [] : S.allTexts(this.castPiece))];
     const gone = (handle) => !S.handleWritten(texts, handle);
+    // A member is a name, not a handle: `handleWritten` reads the `img-1`
+    // shape and never matched `@anna` at all, so every member counted as gone
+    // the moment their chip was — a name still in the soundscape notwithstanding.
+    const cast = this.castPiece.subjects ?? [];
+    const written = S.citedSubjects(texts, cast);
+    const left = (subject) => !written.has(subject.handle);
 
     // But their pictures go quiet with them. Casting somebody attached those,
     // and `compile_request` cuts an uncited member's sole claims at queue time
@@ -1103,10 +1109,9 @@ export class CreatorEditor {
     // member is one written-back name from whole again (`liveCited`). Sole
     // claims only, and only files no text writes by handle: a file the user
     // cites in its own right is theirs, not the departed member's.
-    const cast = this.castPiece.subjects ?? [];
     const quiet = new Set();
     for (const subject of cast) {
-      if (!handles.includes(subject.handle) || !gone(subject.handle)) continue;
+      if (!handles.includes(subject.handle) || !left(subject)) continue;
       for (const handle of S.soleClaims(subject, cast)) {
         if (gone(handle)) quiet.add(handle);
       }
@@ -1127,10 +1132,26 @@ export class CreatorEditor {
     // closes rather than something the prompt reaches for, and keeps its handle
     // whether or not the text ever writes it; the pool is the piece's, and one
     // card is not the place a file is taken off every other card.
+    //
+    // And not a file a member still written here is built out of. `@anna
+    // @img-1` with the `@img-1` deleted is still `@anna`, and she still brings
+    // her picture: compile sends it through her name, so muting it here would
+    // turn "I named it twice, now once" into a picture the render never sees
+    // (#92). Minus her plates asleep for want of their word, which `citedPool`
+    // and compile both hold back.
+    const carried = new Set();
+    for (const subject of cast) {
+      if (left(subject)) continue;
+      const sleeping = S.subjectAsleep(subject, texts);
+      for (const handle of S.subjectFiles(subject)) {
+        if (!sleeping.has(handle)) carried.add(handle);
+      }
+    }
     for (const asset of this.state.assets) {
       if (asset.role !== "reference" || S.muted(asset)) continue;
       const named = handles.includes(asset.handle) && gone(asset.handle);
       if (!named && !quiet.has(asset.handle)) continue;
+      if (carried.has(asset.handle)) continue;
       asset.enabled = false;
       dropped = true;
     }
