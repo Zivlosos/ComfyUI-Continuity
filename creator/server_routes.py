@@ -975,12 +975,27 @@ async def build_plate(request):
     where the picture would have been.
     """
     body = await request.json()
-    if not _plate_panels(body):
+    panels = _plate_panels(body)
+    if not panels:
         return web.json_response({"error": "a plate needs at least one picture"},
                                  status=400)
 
-    # Queued rather than run on a thread beside the prompt queue: a matte is a
-    # forward pass through BiRefNet, and a sheet is one per panel. See
+    # A sheet with nothing cut out is a resize and a paste: no weights, no GPU.
+    # It is answered inside the request, because a plain sheet queued behind a
+    # render greyed the picker's Add for the length of the render with nothing
+    # on screen saying why (#89) — and the six pictures picked in order were
+    # lost to the only button that still worked, Cancel.
+    if not any(panel.get("cut") for panel in panels):
+        try:
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(None, lambda: _plate_job(body))
+        except Exception as exc:                   # noqa: BLE001 — reported, not swallowed
+            logging.exception("[MiniMax] laying out a plate failed")
+            return web.json_response({"error": str(exc)}, status=400)
+        return web.json_response({"result": result})
+
+    # A cut panel is a forward pass through BiRefNet, and a sheet is one per
+    # panel — queued rather than run on a thread beside the prompt queue. See
     # `creator/jobs.py`.
     try:
         prompt_id = await jobs.submit("plate", body, body.get("client_id"))

@@ -127,6 +127,17 @@ if (typeof api.queuePrompt === "function") {
   };
 }
 
+/** Take a job that has not started off the queue. A running one is left to
+ *  finish — interrupting is the Cancel button's, and it would hit whatever is
+ *  on the sampler, which may be somebody's render. */
+export function dropQueued(promptId) {
+  return api.fetchApi("/queue", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ delete: [String(promptId)] }),
+  }).catch(() => {});
+}
+
 export function watchSubmittedPrompts(capture, accepted) {
   const listener = { capture, accepted };
   submissions.add(listener);
@@ -226,8 +237,13 @@ export function watch(listener) {
  *
  * A refine on the remote backend answers with `{result}` in the reply itself —
  * no GPU here, nothing to queue behind — and this hands that straight back.
+ * So does a plate with nothing cut out.
+ *
+ * `onQueued(promptId)` fires once the reply names the queue entry, for a
+ * caller that may want to take it off the queue again — a picker closed while
+ * its sheet was still waiting behind a render.
  */
-export async function run(route, body, { onProgress } = {}) {
+export async function run(route, body, { onProgress, onQueued } = {}) {
   // Listening before asking. The server puts the job on the queue before it
   // answers, so a job short enough to finish inside the round trip had said
   // `executed` to a listener that did not exist yet, and the promise never
@@ -248,6 +264,7 @@ export async function run(route, body, { onProgress } = {}) {
     if (answer.result !== undefined) { pending.abandon(); return answer.result; }
     if (!answer.prompt_id) throw new Error(t("the server queued nothing"));
     pending.expect(answer.prompt_id);
+    onQueued?.(answer.prompt_id);
   } catch (error) {
     pending.abandon();
     throw error;
