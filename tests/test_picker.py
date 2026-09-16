@@ -27,7 +27,7 @@ from harness import check, passed
 layout.skip_without_node()
 
 SCRIPT = domshim.DOM + """
-import { openPicker } from "./web/creator/picker.js";
+import { openPicker, Picker } from "./web/creator/picker.js";
 
 const find = (cls, node = document.body) => {
   if (node.className && String(node.className).split(" ").includes(cls)) return node;
@@ -102,6 +102,32 @@ out.full = await laid([
   { path: "a.wav", whole: 30 },
   { path: "b.wav", whole: 30 },
 ], 5);
+
+// Organize mode: a shift-click marks the run from the last cell clicked to
+// this one, and never unmarks anything.
+{
+  document.body.children.length = 0;
+  const picker = new Picker({ kinds: ["image"], kind: "image" }, () => {});
+  picker.mount();
+  picker.assets = ["a", "b", "c", "d", "e", "f"].map((n) => (
+    { path: `${n}.png`, name: `${n}.png`, kind: "image", subfolder: "", mtime: 1 }));
+  picker.setOrganize(true);
+  const runs = {};
+  const at = (i) => picker.assets[i];
+  picker.markRun(at(3));                 // no anchor yet: a plain mark
+  runs.noAnchor = [...picker.marked];
+  picker.setOrganize(false); picker.setOrganize(true);
+  picker.mark(at(1)); picker.markRun(at(4));
+  runs.run = [...picker.marked];
+  picker.markRun(at(0));                 // chained from the new anchor, additive
+  runs.chained = [...picker.marked];
+  picker.mark(at(2));                    // a plain click still unmarks one
+  runs.unmarkedOne = [...picker.marked];
+  picker.markRun(at(5));                 // runs never unmark
+  runs.additive = [...picker.marked].sort();
+  runs.foot = find("mmc-slots")?.textContent ?? null;
+  out.runs = runs;
+}
 console.log(JSON.stringify(out));
 """
 
@@ -120,6 +146,20 @@ check("...and still prices its picks", got["bucketed"]["slots"], "2 / 9 slots fi
 
 check("the single-pick caller still mounts", got["single"]["ok"], True)
 check("...and still asks for one", got["single"]["slots"], "Pick one")
+
+# ---- organize mode: runs ----------------------------------------------------
+
+runs = got["runs"]
+check("a shift-click with nothing clicked before is a plain mark", runs["noAnchor"], ["d.png"])
+check("a shift-click marks the run from the last click to this one",
+      sorted(runs["run"]), ["b.png", "c.png", "d.png", "e.png"])
+check("...and the next shift-click runs from where the last one ended",
+      sorted(runs["chained"]), ["a.png", "b.png", "c.png", "d.png", "e.png"])
+check("a plain click inside a run unmarks that one file",
+      sorted(runs["unmarkedOne"]), ["a.png", "b.png", "d.png", "e.png"])
+check("a run never unmarks — it fills the gap and reaches the end",
+      runs["additive"], ["a.png", "b.png", "c.png", "d.png", "e.png", "f.png"])
+check("the foot counts", runs["foot"], "6 marked")
 
 # ---- and what the lane does with the picks -----------------------------------
 

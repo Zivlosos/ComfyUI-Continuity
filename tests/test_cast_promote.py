@@ -168,9 +168,14 @@ check("her looks and her movement are the piece's now",
 check("...and only they are: a wall she walks past is card 1's, and a start "
       "frame is a moment of card 1's video",
       after["row"], ["img-10:wall.png", "img-2:opening.png"])
+# An action is a list of clips. This case hands the sync a subject in the older
+# shape — one bare handle, which is what a piece saved before that change still
+# holds — so what it pins is both halves at once: the handle follows its file,
+# and the slot comes back in the shape `parseTimeline` and the serializer agree
+# on. Reading it as a scalar is what let the rename miss it entirely (#91).
 check("she is built out of what she is built out of",
       after["subject"], {"handle": "anna", "takes": "person",
-                         "from": ["ref-1"], "motion": "ref-2"})
+                         "from": ["ref-1"], "motion": ["ref-2"]})
 check("the prose that named them names them still — and leaves @img-10 alone",
       after["prompt"],
       "@anna walks past @img-10, and @ref-1 is where her face comes from")

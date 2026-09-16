@@ -426,8 +426,14 @@ export const css = `
   display: flex; align-items: center; gap: 10px;
   padding: 10px 18px; border-top: 1px solid var(--mmc-line);
   overflow-x: auto; overflow-y: hidden;
-  scrollbar-width: thin;
 }
+/* The exception to base.js's no-scrollbar rule: off the end of this strip
+   there is more, nothing else says so, and the hairline is the one thing a
+   mouse-wheel user can drag. The pseudo-element has to be turned back on
+   before it can be sized. */
+.mmc-fs-strip { scrollbar-width: thin; scrollbar-color: var(--mmc-line) transparent; }
+.mmc-fs-strip::-webkit-scrollbar { display: block; height: 6px; }
+.mmc-fs-strip::-webkit-scrollbar-thumb { background: var(--mmc-line); border-radius: 3px; }
 /* The takes are the lip's own children for layout — a wrapper between them and
    the row would have to re-declare the whole of it. */
 .mmc-fs-strip-run { display: contents; }
@@ -1040,6 +1046,20 @@ export const css = `
 /* Folded away until the press. Nothing about the render changes with it — the
    row is drawing widget values that are set whether or not it is on screen. */
 .mmc-fs.simple:not(.advanced) .mmc-sampling-host { display: none; }
+/* And the seed comes up onto the shot row in its place — a die and the seed's
+   mark, with the last render's seed as a ghost beside it (styles/timeline.js).
+   Only while the row is folded: opened, the row has the full seed group and
+   the pill would be the same control twice. */
+.mmc-fs.simple:not(.advanced) .mmc-seed-pill { display: flex; padding: 0; }
+/* The ghost keeps its dashed outline and no fill under the chip rule above —
+   it is an offer, not a setting. */
+.mmc-fs.simple:not(.advanced) .mmc-seed-ghost {
+  display: flex; padding: 0; background: none; border: 1px dashed var(--mmc-line-2);
+}
+.mmc-fs.simple:not(.advanced) .mmc-seed-ghost:hover { border-style: solid; }
+/* Both halves' hairlines on this surface, where a border is otherwise flattened
+   to transparent — the pill's divider in the chip's own line, the ghost's dashed. */
+.mmc-fs.simple .mmc-seed-pill .mmc-seed-cell + .mmc-seed-cell { border-left-color: var(--mmc-line); }
 /* Render is the one action on the card, not the width of it. Stretched to the
    column it was the largest object in the room — louder than the picture it
    makes, and wide enough that the words sat alone in the middle of a bar — and
@@ -1066,13 +1086,22 @@ export const css = `
 .mmc-fs.simple { --mmc-fs-measure: min(820px, calc(100vw - 48px)); }
 .mmc-fs.simple .mmc-fs-col {
   display: grid; grid-template-columns: minmax(0, 1fr); row-gap: 0;
-  height: auto; overflow: visible; box-shadow: none;
+  height: auto; box-shadow: none;
   border-radius: 24px; padding: 18px 20px;
   background: var(--mmc-surface); border: 1px solid var(--mmc-line);
   transform-origin: 50% 50%;
   /* A shade above true centre, where a single object on a field wants to sit. */
   margin-bottom: 6vh;
+  /* As tall as what is on it, until the window is shorter than that — then the
+     card is the thing that scrolls. It used to keep the 100% cap from the rule
+     above while showing its overflow: the card's surface stopped at the window
+     and the cast, the pills and Render hung out under it, with the body's
+     overflow:hidden cutting them off and no scrollbar anywhere. The cap counts
+     the margin: a 100% card plus 6vh of margin is centred by overflowing the
+     top, which put the tabs under the title bar. */
+  max-height: calc(100% - 6vh); min-height: 0; overflow-y: auto;
 }
+
 .mmc-fs.simple .mmc-fs-face,
 .mmc-fs.simple .mmc-fs-col .mmc-root,
 .mmc-fs.simple .mmc-root > div:has(> .mmc-rail) { display: contents; }
@@ -1089,7 +1118,10 @@ export const css = `
    nine pictures was a second sentence above the one you came to write. The
    machine's three are ruled off from the shot's, because they are a different
    kind of thing and the row used to say nothing about it. */
-.mmc-fs.simple { --mmc-tool-tile: 36px; }
+/* Scaled with the text: here the glyph is the label — the word under it is
+   hidden — so a text size that left the glyphs alone left the row unreadable
+   to the person who had just asked for bigger. */
+.mmc-fs.simple { --mmc-tool-tile: calc(36px * var(--mmc-type)); }
 .mmc-fs.simple .mmc-rail { display: flex; justify-content: space-between; gap: 0; padding: 0; margin: 0 -8px; }
 .mmc-fs.simple .mmc-rail-group { gap: 2px; }
 .mmc-fs.simple .mmc-tool { width: auto; gap: 0; color: var(--mmc-dim); }
@@ -1097,7 +1129,7 @@ export const css = `
 .mmc-fs.simple .mmc-tool-icon { border-radius: 50%; background: none; border-color: transparent; }
 .mmc-fs.simple .mmc-tool:hover:not(:disabled) .mmc-tool-icon { background: var(--mmc-surface-3); }
 .mmc-fs.simple .mmc-tool:hover:not(:disabled) { color: var(--mmc-strong); }
-.mmc-fs.simple .mmc-tool svg { width: 20px; height: 20px; }
+.mmc-fs.simple .mmc-tool svg { width: calc(20px * var(--mmc-type)); height: calc(20px * var(--mmc-type)); }
 .mmc-fs.simple .mmc-tool:disabled { opacity: .4; }
 .mmc-fs.simple .mmc-tool:disabled .mmc-tool-icon { opacity: 1; }
 
@@ -1585,6 +1617,44 @@ export const css = `
 .mmc-dash-card:hover .mmc-dash-deck-3 { transform: scale(.8) rotate(-15deg) translate(-22%, -8%); opacity: .5; }
 .mmc-dash-card:hover .mmc-dash-deck-2 { transform: scale(.8) rotate(-7.5deg) translate(-11%, -4%); opacity: .76; }
 .mmc-dash-card:hover .mmc-dash-deck-1 { transform: scale(.8) rotate(3.5deg) translate(6%, 2%); }
+
+/* The chat card, drawn rather than photographed — see DRAWN in navigate.js. Two
+   said lines and the frame that came of them, on the same lit ground the deck
+   stands on. Everything is a bar or a box: at two hundred and thirty pixels
+   wide nothing smaller than that reads, and letters least of all. The frame
+   arrives under the pointer, which is what the room does. */
+.mmc-dash-chat {
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(120% 95% at 50% 38%,
+                    color-mix(in srgb, var(--mmc-ink) 13%, transparent), transparent 74%),
+    var(--mmc-surface-3);
+}
+.mmc-dash-ask, .mmc-dash-back, .mmc-dash-made { position: absolute; display: block; }
+/* The asking line: short, to the right, in the ink the user's own bubble wears. */
+.mmc-dash-ask {
+  right: 13%; top: 15%; width: 40%; height: 11%;
+  border-radius: 999px; background: color-mix(in srgb, var(--mmc-ink) 42%, transparent);
+}
+/* And the answer: shorter, flush left, quieter — the room's own asymmetry. */
+.mmc-dash-back {
+  left: 13%; top: 33%; width: 28%; height: 9%;
+  border-radius: 999px; background: color-mix(in srgb, var(--mmc-ink) 22%, transparent);
+}
+/* What it made. Landed a little low and lifting into place on hover, which is
+   the one motion on this card and the one thing the tool actually does. */
+.mmc-dash-made {
+  left: 13%; right: 13%; top: 52%; height: 34%;
+  border-radius: 7px; background: var(--mmc-media-bg);
+  border: 1px solid color-mix(in srgb, var(--mmc-ink) 30%, transparent);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, .55);
+  transform: translateY(8%); opacity: .72;
+  transition: transform 320ms cubic-bezier(.2, .7, .3, 1), opacity 220ms ease;
+}
+.mmc-dash-card:hover .mmc-dash-made { transform: translateY(0); opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .mmc-dash-made { transition: none; }
+}
 
 /* The first day, and the fallback everywhere else: no picture on the piece, so
  * the card wears its own glyph at poster size, anchored to the plate's lower

@@ -17,6 +17,7 @@ import os
 import stat
 import sys
 import tempfile
+import urllib.parse
 
 import layout
 
@@ -185,7 +186,7 @@ real_request = remote._request
 
 def _fake(answers):
     """Record every call and answer from `answers`, keyed by the whole URL."""
-    def request(url, key, payload=None):
+    def request(url, key, payload=None, timeout=None):
         calls.append((url, payload))
         answer = answers.get(url)
         if isinstance(answer, Exception):
@@ -230,6 +231,32 @@ calls.clear()
 remote._request = _fake({})
 check("a hosted API is never asked to unload anything", remote.unload("gpt-4o"), "")
 check("…and nothing went out to it", calls, [])
+remote._request = real_request
+remote.configure("http://localhost:1234/v1", "")
+
+# ---- the first run's knock -------------------------------------------------------
+#
+# The room's first question offers "Ollama, which is running" before anybody
+# has typed an address. The knock is on a fixed loopback list, with no key: a
+# probe that took a URL from a request would be the relay the module refuses,
+# and one that carried the stored key would hand it to whatever answered.
+
+remote.configure("https://api.openai.com/v1", "sk-hosted")
+calls.clear()
+remote._request = _fake({
+    "http://localhost:11434/v1/models": {"data": [{"id": "qwen3-vl:4b"}, {"id": "gemma3"}]},
+    "http://localhost:1234/v1/models": refine.RefineError("could not reach"),
+})
+found = remote.probe_local()
+check("the servers that answered are listed with their models",
+      found, [{"name": "Ollama", "url": "http://localhost:11434/v1",
+               "models": ["gemma3", "qwen3-vl:4b"]}])
+check("both loopback ports were knocked on and nothing else",
+      sorted(url for url, _ in calls),
+      ["http://localhost:11434/v1/models", "http://localhost:1234/v1/models"])
+check("every probed address is loopback",
+      all(remote._loopback(urllib.parse.urlparse(url).hostname)
+          for _, url in remote.LOCAL_SERVERS), True)
 remote._request = real_request
 remote.configure("http://localhost:1234/v1", "")
 

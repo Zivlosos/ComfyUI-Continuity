@@ -8,6 +8,85 @@ Ollama, or a hosted API with your key.
 
 ![A shot sampling, with the render beside it](docs/img/hero.png)
 
+## What it does
+
+### One node, one prompt
+
+Drop the node, type, press Render. Files you attach get an `@` name and you
+cite them in the sentence, so the prompt says which picture is the person and
+which is the room. The pills under the box are the whole setup: duration,
+aspect, resolution, the model, and a sampler row for when you want it.
+[The node](docs/the-node.md) walks every control.
+
+![The node in the simple view](docs/img/simple.png)
+
+### References and the cast
+
+A reference contributes what you say it contributes - the person, the place,
+the look - and the same face can be saved once and brought back into any
+piece by name. Two references cited in one prompt:
+
+![Two references cited in a prompt](docs/img/mentions.png)
+
+### The pre-stage
+
+Video models eat stills: start frames, end frames, references. The pre-stage
+is a second card on the same canvas that makes them, with any of the stills
+families or H3 itself, and hands the result straight into the shot. One Queue
+runs both; an untouched pre-stage doesn't re-render.
+
+![The simple view on the pre-stage step](docs/img/simple-prestage.png)
+
+### Timelines
+
+Under the prompt: *Write the next shot*. Every shot on the strip is a whole
+generation with its own prompt, references, LoRAs and even its own family - a
+pre-stage on Krea 2 feeding start frames into shots on LTX 2.5 is one strip.
+Seams carry picture and sound across the cut, or don't, independently.
+[Timelines](docs/timeline.md).
+
+### Chat
+
+The other way in. A room where you say what you want - *a fox in a snowy wood
+at dusk*, then *now a clip of it, she looks up*, then *bluer* - and the
+refiner model writes the prompt and renders. Every picture and clip gets a
+handle you can cite in the next line, so a still becomes a shot's first frame
+by naming it. It is the same node underneath, on the same queue, and
+everything lands in the same output folder. [Chat](docs/tools.md#chat).
+
+![The chat room, before the first line](docs/img/chat.png)
+
+### Tools
+
+The wordmark opens a dashboard of tools that work over the piece: presets, a
+ControlNet bench, a blockout bench for staging a scene out of boxes and
+walking a camera through it, and an upscale bench. [Tools](docs/tools.md).
+
+![The tool dashboard](docs/img/dashboard.png)
+
+![The blockout bench](docs/img/blockout.png)
+
+The style atlas is 941 looks captioned from real clips, applied as a prefix
+to the prompt:
+
+![The style atlas](docs/img/style-atlas.png)
+
+## Where it is headed
+
+The name is the goal. A single shot from an open video model is a solved
+problem; a piece made of many shots that still looks like one piece is not.
+Every continued shot comes out a little brighter and a little harder than the
+one it continues, and after a handful of seams the strip has drifted somewhere
+you never asked for. Most of the work now goes there: measuring the drift on
+real strips rather than guessing, and pushing the number of shots a piece can
+hold before it shows.
+
+The other direction is getting the graph out of the way. The chat room and the
+blockout bench are both ways of saying what you want without touching a pill,
+and the pre-stage plus the timeline are what let one prompt become a scene.
+There is no cloud in any of that, and there won't be: everything renders on
+your hardware from weights you downloaded.
+
 ## Install
 
 ```
@@ -45,17 +124,9 @@ directory, not in the pack folder.
 - [The node](docs/the-node.md) - prompting, references, the cast, Refine
 - [Timelines](docs/timeline.md) - pieces with more than one shot
 - [Model families](docs/families.md) - what each model can do
-- [Tools](docs/tools.md) - ControlNet, upscaling, presets, LoRAs
+- [Tools](docs/tools.md) - chat, ControlNet, upscaling, presets, LoRAs
 - [FAQ and troubleshooting](docs/faq.md)
 - [Changelog](CHANGELOG.md) - what changed, release by release
-
-![The node in the simple view](docs/img/simple.png)
-
-![The full view](docs/img/full.png)
-
-![Two references cited in a prompt](docs/img/mentions.png)
-
-![The style atlas](docs/img/style-atlas.png)
 
 ## Models
 

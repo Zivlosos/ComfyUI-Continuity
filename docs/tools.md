@@ -232,6 +232,103 @@ figures — within 0.005 of the driver on game renders — are its own, not this
 pack's. Optical flow for the clip history uses OpenCV where a ComfyUI already
 has it and falls back to zero motion where it does not; the log says which.
 
+## Chat
+
+A room where you talk to the refiner model and it makes the pictures and the
+clips: *"a fox in a snowy wood at dusk"* gets you a still, *"now a clip of it,
+she looks up"* gets you a shot built on that still, *"bluer"* gets you another
+still. The model writes what you would have typed into the prompt box, and that
+text goes to the compiler as typed — there is no second rewrite in between.
+
+What it makes is an ordinary render. It goes on the same queue, Cancel reaches
+it, the progress bar under the card is the real one, and the finished file
+lands in your output folder beside everything else, with the blob that made it
+in its metadata.
+
+Each render gets a handle — `img-1`, `vid-2` — and the handles are how you ask
+for a change: cite one and the model builds the next request on it. A still
+cited on a clip is that clip's first frame. Press a tile in the rail to drop
+its handle into the box. The paperclip, a paste and a dropped file all upload
+into `input/continuity/chat/` and get a handle of their own.
+
+**The first time, the room asks three questions** before anything else: who
+does the thinking, what does the drawing, and what shape things come out in.
+It looks at the machine first — the text encoders on disk, whether LM Studio
+or Ollama is running, which families have every file they need in the model
+folders — so each question opens with the answer already found, and the
+found answer is one press. Every place the model can run is a chip that
+opens the same form with that place's list in it: *Inside ComfyUI* lists the
+text encoders, a running server lists what it has loaded, *A hosted API…*
+takes a provider and a key and lists what the key can reach — nothing is
+typed that can be picked. The families question offers the two the disk is
+complete for; *Let me choose…* shows every family with how many of its files
+are here and a row per file to change. When the three are answered the room
+opens as usual. What was decided is on the pills and behind the gear, where it
+can be changed, and *Set up again* behind the gear asks the three afresh.
+
+The answers are the machine's, not the room's: the files picked per family go
+to the same memory a node fills its empty weight rows from, and the model goes
+to the same refiner settings the Refine button reads — so a node dropped on
+the canvas afterwards opens set up, and a file picked on a node is what the
+room renders with next.
+
+The rail on the right holds the standing choices a turn is made against:
+
+- **The model.** The same picker the Refine button uses — this ComfyUI, or a
+  server you already run. A skill file from the node's skills folder can be
+  appended to the room's own prompting; it is only ever appended, because the
+  room's reply contract is what turns an answer into a render.
+- **What it makes.** Which family draws the pictures and which renders the
+  clips, the shape and the two short edges. A family that reads attached
+  pictures only through a LoRA adapter says so under its pill — it can still
+  draw from words, it just cannot be handed a picture to change.
+- **Turbo, one switch per side.** *Picture turbo* and *Clip turbo* each pick
+  what the fast run is: the family's distilled checkpoint, a distillation LoRA
+  over the ordinary one, or — on the clip side — no file at all, for a
+  checkpoint that ships with the distillation merged in. Each family offers
+  only what it has (Krea 2 both, Flux 2 Klein the checkpoint alone, Ideogram 4
+  the LoRA alone, H3 a LoRA), and *Turbo steps* is the family's own table of
+  stops. Whatever is picked, the sampler row follows it — the step count, the
+  sampler and, on a clip, the flow shifts the file was distilled against — the
+  same row the pre-stage's and the timeline's own switches set. A distilled
+  checkpoint sampled on the ordinary forty steps is a fried picture, and the
+  room made exactly that before the row followed the switch.
+- **Models**, the gear's second tab: every file each family loads, with a row
+  per slot off the folder listing, and the turbo switch under it. What the
+  first run's *Let me choose…* offers, reachable without setting up again; a
+  pick here is the machine's, the same memory a node fills its empty rows
+  from.
+- **How it renders.** The seed, kept or rolled each time, and the **Refine**
+  switch. Off, the model's prompt goes to the compiler as written. On, a clip's
+  prompt goes through the family's own prompting first — the Refine button's
+  call, on the Refine button's settings, so the same skill and the same
+  server — and the card says *Refining…* with the token count while it does,
+  then *Refined by* the model once it is done, with the rewrite under the
+  hover. A second model call per render, which is what it costs. A still is
+  never refined: the families that draw one have no prompt refiner, and the
+  pre-stage has no Refine button for the same reason.
+- **What has been made**, as tiles.
+
+Everything on the rail is remembered per machine — it is a statement about this
+install rather than about any piece — so the room opens where you left it. The
+conversation is not: that is kept for the life of the page and a reload starts a
+fresh one.
+
+Two doors on a finished card. **Open in the editor** takes that render's own
+setup out of the file it was saved into and puts it on the piece — the
+pre-stage for a picture, the shot for a clip — then goes there, so you can
+carry on in the editor with everything the conversation set up. **Retake** runs
+the same request again on a new seed.
+
+**On one GPU.** A model running inside this ComfyUI shares the card with your
+renders, so a reply waits behind whatever is sampling and the room says so
+rather than spinning. A server — LM Studio, Ollama, anything
+OpenAI-compatible — is the better setting on a single card, and the rail says
+that too.
+
+Not in it yet: no timeline (a second shot is a new one-shot piece), no cast, no
+`@name`, no streaming, and no saved conversations. The renders stay.
+
 ## Contact sheet
 
 On the pre-stage's rail. Lays nine frames of a clip out as one gutterless

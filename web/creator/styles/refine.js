@@ -43,12 +43,18 @@ export const css = `
 .mmc-tl-unrefine:hover { color: var(--mmc-text); }
 .mmc-refine-split.pill { align-items: stretch; }
 .mmc-refine-split.pill .mmc-refine-more {
-  position: static; width: 24px; height: 38px; border-radius: 0 19px 19px 0;
-  margin-left: -10px; background: var(--mmc-surface-2);
+  /* The pill's own height, not a number: the pill is --mmc-pill-h, which the
+     text size scales, and a chevron fixed at 38 sat short inside a 43px pill
+     with its corner showing. */
+  position: static; width: 24px; height: var(--mmc-pill-h); border-radius: 0 19px 19px 0;
+  margin-left: 0; background: var(--mmc-surface-2);
   border: 1px solid var(--mmc-line); border-left: 0; color: var(--mmc-dim);
 }
 .mmc-refine-split.pill .mmc-refine-more:hover { background: var(--mmc-surface-3); }
-.mmc-refine-split.pill .mmc-pill { padding-right: 16px; }
+/* Two halves of one pill: the label's end is squared where the chevron joins
+   it. It used to keep its round end and slide 10px under the chevron, and the
+   curve showed through as a notch in the outline. */
+.mmc-refine-split.pill .mmc-pill { padding-right: 12px; border-radius: 19px 0 0 19px; border-right: 0; }
 
 /* A card, not a strip: 264px stacked every section into a scroll of wrapped
    chips and paragraphs. At 420 the chips sit in rows, the dials share a line,

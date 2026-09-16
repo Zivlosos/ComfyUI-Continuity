@@ -22,6 +22,7 @@ import layout
 
 layout.skip_without_node()
 
+from domshim import DOM
 from harness import FAILURES, check, passed
 
 _pkg = layout.load("registry", "manifest")
@@ -30,6 +31,7 @@ registry, catalog = _pkg.registry, _pkg.manifest.catalog()
 VIDEO = list(registry.video_families())
 
 SCRIPT = """
+await import("./dom.mjs");
 const store = new Map();
 globalThis.localStorage = {
   getItem: (k) => store.get(k) ?? null,
@@ -38,6 +40,11 @@ globalThis.localStorage = {
 const [, pinned] = process.argv;
 const r = await import('./web/creator/refine.js');
 const S = await import('./web/creator/state.js');
+const A = await import('./web/creator/api.js');
+// The choices are the settings file's now, read through the cache every node
+// primes on mount. Primed here the same way, so a pin is filed and read back
+// from the same place — the browser's copy below is only the legacy fallback.
+await new Promise((ready) => A.primeSettings(ready));
 
 const families = %s;
 const offered = Object.fromEntries(
@@ -45,21 +52,30 @@ const offered = Object.fromEntries(
 const helped = families.every((id) =>
   S.templatesOf(id).every((entry) => entry.help && entry.help.length > 10));
 
-// A pin made on one family, read back on every one of them.
+// A pin made on one family, read back on every one of them. Painted first
+// and written after: the read is right on the spot, and the file agrees once
+// the write lands.
 r.saveTemplate(families[0], pinned);
 const after = Object.fromEntries(families.map((id) => [id, r.chosenTemplate(id)]));
+await new Promise((tick) => setTimeout(tick, 0));
+const filed = globalThis.__settings.refiner?.templates ?? null;
 
 // A name no family declares — the entry a rename leaves behind.
 r.saveTemplate(families[0], 'NO-SUCH-TEMPLATE');
 const stale = r.chosenTemplate(families[0]);
 
-// The pre-family setting: one template, written flat. It was pinned against
-// the only family there was, so that is the one it survives on.
+// The pre-family setting: one template, written flat, in the browser's old
+// store. It was pinned against the only family there was, so that is the one
+// it survives on — read once the file holds nothing, which is the upgraded
+// install's first look.
+await new Promise((tick) => setTimeout(tick, 0));
+delete globalThis.__settings.refiner;
+A.noteSettings({});
 store.clear();
 store.set('continuity.refiner', JSON.stringify({ template: pinned }));
 const lifted = Object.fromEntries(families.map((id) => [id, r.chosenTemplate(id)]));
 
-console.log(JSON.stringify({ offered, helped, after, stale, lifted }));
+console.log(JSON.stringify({ offered, helped, after, filed, stale, lifted }));
 """ % layout.json.dumps(VIDEO)
 
 # The pin used throughout: the last template the first family declares, which
@@ -68,7 +84,7 @@ console.log(JSON.stringify({ offered, helped, after, stale, lifted }));
 PIN = catalog["families"][0]["prompt"]["templates"][-1]["name"]
 
 with layout.pack(skip=("atlas",)) as target:
-    got = layout.in_pack(SCRIPT, target, PIN)
+    got = layout.in_pack(SCRIPT.replace('await import("./dom.mjs");', DOM), target, PIN)
 
 for family in VIDEO:
     declared = [entry["name"] for entry in
@@ -81,6 +97,8 @@ check("every chip says what it is for", got["helped"], True)
 check("a pin holds on the family it was made for", got["after"][VIDEO[0]], PIN)
 for family in VIDEO[1:]:
     check(f"...and {family} is untouched by it", got["after"][family], "auto")
+check("...and is written to the settings file, not the browser",
+      got["filed"], {VIDEO[0]: PIN})
 check("a pin no family declares reads as auto", got["stale"], "auto")
 
 check("a pre-family pin is kept for the family it was made against",

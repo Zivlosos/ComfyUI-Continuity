@@ -16,7 +16,7 @@ import { CastShelf } from "./cast.js";
 import { keepAsMod } from "./refmod.js";
 import { t } from "./i18n.js";
 import { openPicker } from "./picker.js";
-import { openLoras, loraBlock } from "./loras.js";
+import { openLoras, loraBlock, settlePins } from "./loras.js";
 import { openSettings } from "./settings.js";
 import { openPresetLibrary, styleCastMember } from "./presetlib.js";
 import { castIntoPiece, keepSubject } from "./presets.js";
@@ -27,7 +27,7 @@ import { RefinePanel, refineButton, refine } from "./refine.js";
 import { openAspectPopover, openResolutionPopover, openChoicePopover, facesPill, motionPill, neuralPill, guideLoraPill, aspectGlyph,
          resolutionPillText,
          PILL_GLYPH, pillSet, pillClass } from "./pills.js";
-import { blobIO, samplingBar, segmentSeedPill } from "./sampling.js";
+import { blobIO, samplingBar, segmentSeedPill, seedPill } from "./sampling.js";
 import { Stage, stageSource } from "./stage.js";
 import { openRestyle } from "./restyle.js";
 import { familyPill, weightsPill, loadCatalog, adoptWeights } from "./models.js";
@@ -219,7 +219,7 @@ export class CreatorEditor {
                 durationPill = true, extraPills = null, modelPill = null, extraTools = null,
                 settingsTool = true, stage = null, editorTitle = null,
                 piece = null, castPiece = null, growShot = null, presetTarget = null,
-                samplingStore = null,
+                samplingStore = null, pinFamily = null,
                 clearTool = null, seedTarget = null, compiledPrompt = null,
                 castFromLibrary = null, fullscreen = null, varies = null,
                 openCast = null }) {
@@ -231,6 +231,9 @@ export class CreatorEditor {
     // `segmentSeedPill`. Null on a node body, which owns the whole row.
     this.seedTarget = seedTarget;
     this.presetTarget = presetTarget;
+    // Which family this rail's LoRA pins are filed under, or null where the
+    // rail is not a family's stack — a card in a strip. See loras.js's pins.
+    this.pinFamilyOf = pinFamily;
     // Who to hand a kept cast member to. Not derivable here: this body is a
     // node face on one host and one card of a strip on another, and only the
     // second one is a shot whose cast is owned a level up. See the `@` menu's
@@ -316,6 +319,7 @@ export class CreatorEditor {
         this.state.prompt = text;
         this.onCommit?.();
         this.renderNotices();   // dangling-handle warning, without disturbing the caret
+        this.renderAssetsRow(); // which chips are lit is a fact about the sentence
         // Citing a pool reference is what attaches it, so the finished prompt
         // moves on keystrokes that never touch the sentence's own words.
         this.prompt.refreshCompiled();
@@ -1092,6 +1096,12 @@ export class CreatorEditor {
     const texts = [...this.citingTexts(),
                    ...(this.castPiece === this.state ? [] : S.allTexts(this.castPiece))];
     const gone = (handle) => !S.handleWritten(texts, handle);
+    // A member is a name, not a handle: `handleWritten` reads the `img-1`
+    // shape and never matched `@anna` at all, so every member counted as gone
+    // the moment their chip was — a name still in the soundscape notwithstanding.
+    const cast = this.castPiece.subjects ?? [];
+    const written = S.citedSubjects(texts, cast);
+    const left = (subject) => !written.has(subject.handle);
 
     // But their pictures go quiet with them. Casting somebody attached those,
     // and `compile_request` cuts an uncited member's sole claims at queue time
@@ -1100,10 +1110,9 @@ export class CreatorEditor {
     // member is one written-back name from whole again (`liveCited`). Sole
     // claims only, and only files no text writes by handle: a file the user
     // cites in its own right is theirs, not the departed member's.
-    const cast = this.castPiece.subjects ?? [];
     const quiet = new Set();
     for (const subject of cast) {
-      if (!handles.includes(subject.handle) || !gone(subject.handle)) continue;
+      if (!handles.includes(subject.handle) || !left(subject)) continue;
       for (const handle of S.soleClaims(subject, cast)) {
         if (gone(handle)) quiet.add(handle);
       }
@@ -1124,10 +1133,26 @@ export class CreatorEditor {
     // closes rather than something the prompt reaches for, and keeps its handle
     // whether or not the text ever writes it; the pool is the piece's, and one
     // card is not the place a file is taken off every other card.
+    //
+    // And not a file a member still written here is built out of. `@anna
+    // @img-1` with the `@img-1` deleted is still `@anna`, and she still brings
+    // her picture: compile sends it through her name, so muting it here would
+    // turn "I named it twice, now once" into a picture the render never sees
+    // (#92). Minus her plates asleep for want of their word, which `citedPool`
+    // and compile both hold back.
+    const carried = new Set();
+    for (const subject of cast) {
+      if (left(subject)) continue;
+      const sleeping = S.subjectAsleep(subject, texts);
+      for (const handle of S.subjectFiles(subject)) {
+        if (!sleeping.has(handle)) carried.add(handle);
+      }
+    }
     for (const asset of this.state.assets) {
       if (asset.role !== "reference" || S.muted(asset)) continue;
       const named = handles.includes(asset.handle) && gone(asset.handle);
       if (!named && !quiet.has(asset.handle)) continue;
+      if (carried.has(asset.handle)) continue;
       asset.enabled = false;
       dropped = true;
     }
@@ -1557,9 +1582,14 @@ export class CreatorEditor {
     const geometry = S.resolved(state, source ? this.sizeOf(source) : null, this.piece);
 
     this.railHost.replaceChildren(this.renderRail());
-    this.assetsHost.replaceChildren(
-      ...(state.assets.length ? [this.renderAssets()] : []));
+    // The piece's cited references are rows of this one now — see
+    // `renderAssets` — so it is built whenever either list has something in it.
+    // Reading only `assets` is what emptied the row on every card of a strip.
+    this.renderAssetsRow();
     this.renderCastShelf();
+    // The family's pins go on before the row is read: a stack that does not
+    // hold them yet takes them here, and is written out with them.
+    if (settlePins(state, this.pinFamily(), () => this.commit())) this.onCommit?.();
     this.loraHost.replaceChildren(...(state.loras.length ? [this.renderLoras()] : []));
     this.pillsHost.replaceChildren(
       this.renderPills(geometry, S.mode(state, this.piece)));
@@ -1761,6 +1791,7 @@ export class CreatorEditor {
       onCommit: () => { this.onCommit?.(); this.render(); },
       canvasPills: this.canvasPills,
       piece: this.piece,
+      pinFamily: this.pinFamilyOf,
       castPiece: this.castPiece,
       durationPill: this.durationPill,
       extraPills: this.extraPills,
@@ -2172,9 +2203,18 @@ export class CreatorEditor {
     this.commit();
   }
 
+  /** Where this stack's pins are filed. The host says: the one shot's face
+   *  and the pre-stage's still are a family's stack; a card in a strip is not,
+   *  and a pin there would put the file on every card of the family. */
+  pinFamily() {
+    return this.pinFamilyOf?.() ?? null;
+  }
+
   renderLoras() {
     return loraBlock(this.state, {
       family: S.pieceFamily(this.piece),
+      pinTo: this.pinFamily(),
+      onPinChange: () => this.commit(),
       targets: S.checkpointsFor(this.state, S.pieceFamily(this.piece)),
       // Only where this rail *is* the piece's — a node body's own stack. A
       // strip's card draws the segment's, and the switch's LoRA is never in it.
@@ -2208,6 +2248,16 @@ export class CreatorEditor {
     return out;
   }
 
+  /** The row, rebuilt. Its own method because the sentence is what decides
+   *  which chips are lit — a name written wakes a member's pictures, a word
+   *  written wakes a plate — so it is redrawn on every keystroke as well as on
+   *  every render, without the caret ever leaving the box (#92). */
+  renderAssetsRow() {
+    const state = this.state;
+    this.assetsHost.replaceChildren(
+      ...(state.assets.length || S.citedPool(state).length ? [this.renderAssets()] : []));
+  }
+
   renderAssets() {
     // Whose files these are. Casting somebody attaches their pictures — the
     // roster does it, `presets.addSubjectToPiece` does it — so some of this row
@@ -2230,6 +2280,9 @@ export class CreatorEditor {
     // `compile_request`'s cut and `state.asleepHere`. The un-chosen words are
     // read for the counters; the chosen ones here, since the box lights those.
     const asleep = S.asleepHere(this.state, this.varies?.() ?? null);
+    // Which members the sentence writes, for the two reasons a file can be
+    // out: their owner is not in the shot at all, or is and left it behind.
+    const named = new Set(S.citedCast(this.state).map((subject) => subject.handle));
     const chip = (asset) => {
       // A guide shows its own frame, where every other clip shows a glyph. That
       // is not a flourish: the only question anybody has about a guide is
@@ -2405,15 +2458,113 @@ export class CreatorEditor {
         title: passed.has(asset.handle)
           ? t("Not in this take: the sentence names it only in an alternative this seed passes over.")
           : asleep.has(asset.handle)
-            ? t("Not in this shot: it wakes on {words}, and the sentence says none of them.",
-                { words: wake })
+            ? owner && !named.has(owner.handle)
+              ? t("Not in this shot: @{who} is built out of it, and the sentence does not "
+                + "write their name.", { who: owner.handle })
+              : t("Not in this shot: it wakes on {words}, and the sentence says none of them.",
+                  { words: wake })
             : asset.filename,
+      }, parts);
+    };
+
+    /**
+     * A reference the *piece* carries, drawn on a card it rides into.
+     *
+     * A strip of more than one card keeps the cast's pictures in the pool —
+     * `state.promoteCastFiles` moves them there the moment a second card
+     * exists, because card 2 cannot see card 1's row, and
+     * `presets.addSubjectToPiece` puts them there outright once it is a strip.
+     * Anything attached from the Timeline's own bar lives there by definition.
+     *
+     * This row read `state.assets` and nothing else, so from that moment it had
+     * nothing left to draw: casting somebody emptied the one place that answers
+     * "what is this shot made of", on every card at once, and the host was left
+     * an empty div with no error anywhere near it (#91). The reference itself
+     * was never lost — `citedPool` is exactly what compile injects, and the
+     * mode, the checkpoint and the counters all read through it — so the
+     * renders were right and only the row was lying about them.
+     *
+     * Drawn, not owned. Every button a card's own chip carries would be a
+     * piece-wide act on this one: the ✕ would take it off every other card, the
+     * mute and the sheet would change what all of them send. So it carries
+     * none of them — "a citation of it in a segment has nothing to open", which
+     * is the rule the Timeline's own pool chip is written to — and says where
+     * it is set instead. What it does keep is whose it is, because that is the
+     * fact the row exists to show and the door onto them is the cast's, not
+     * this file's.
+     *
+     * Only the cited entries. An uncited one rides into nothing, and this row
+     * is about this shot; the piece's shelf is where the rest are reported,
+     * and it already says "cited nowhere yet" about them.
+     */
+    const pooledChip = (asset) => {
+      const thumb = asset.kind === "image"
+        ? el("img", { class: "mmc-asset-thumb", alt: asset.filename,
+                      src: viewUrl(asset.filename, { preview: true, crop: S.thumbCrop(asset) }) })
+        : el("span", { class: "mmc-asset-thumb" }, [svg(ICONS[asset.kind], 15)]);
+      // A span, where the card's own chip has a door: the sheet behind that
+      // door sets `ref_size`, the narrowing and the trim, and all three belong
+      // to the piece. Opening it here would offer a card-shaped edit to
+      // something every other card is reading.
+      const parts = [thumb, el("span", { class: "mmc-asset-handle", text: `@${asset.handle}` })];
+      const owner = (this.castPiece.subjects ?? []).find(
+        (subject) => S.subjectFiles(subject).includes(asset.handle)
+                     || S.replacesOf(subject).includes(asset.handle));
+      const mod = S.isRefMod(asset);
+      const note = owner ? S.subjectNotes(owner)[asset.handle] ?? "" : "";
+      const wake = owner ? S.subjectTriggers(owner)[asset.handle] ?? "" : "";
+      if (owner) {
+        parts.push(el("button", {
+          class: `mmc-asset-owner mmc-tag-${S.tagIndex(owner.handle)}`,
+          text: mod ? t("{who}'s RefMod", { who: owner.handle }) : t("{who}'s", { who: owner.handle }),
+          title: (note ? `${note}\n` : "")
+            + t("@{who} is built out of this, and this shot writes their name. "
+              + "Click to open them.", { who: owner.handle }),
+          onclick: () => this.openCastMember(owner.handle),
+        }));
+        if (note) parts.push(el("span", { class: "mmc-asset-note", text: note }));
+        // Lit, always: `citedPool` drops a plate whose word the sentence does
+        // not say, so one that reached this row is one that woke.
+        if (wake) parts.push(el("span", {
+          class: "mmc-asset-wake on",
+          text: t("wakes on {words}", { words: wake }),
+          title: t("In this shot: the sentence says one of these words."),
+        }));
+      } else if (mod) {
+        parts.push(el("span", { class: "mmc-asset-owner", text: t("RefMod") }));
+      }
+      const said = referenceSummary(asset);
+      if (said) parts.push(el("span", { class: "mmc-asset-said", text: said }));
+      // Why this chip has neither of the two buttons every other chip has. A
+      // row where some entries can be removed and some cannot, with nothing
+      // saying which is which, is a row that reads as half broken.
+      parts.push(el("span", {
+        class: "mmc-asset-pooled",
+        text: t("on the piece"),
+        title: t("Attached to the whole piece, and carried into this shot by the name in "
+               + "its prompt. Change it or take it off in the Timeline's own reference "
+               + "shelf, where it answers for every shot at once."),
+      }));
+      return el("div", {
+        class: `mmc-asset mmc-asset-pooled-chip mmc-tag-${S.tagIndex(asset.handle)}${
+          owner ? " mmc-asset-cast" : ""}${S.muted(asset) ? " off" : ""}${
+          passed.has(asset.handle) ? " passed" : ""}`,
+        ...(owner ? { style: { "--owner": `var(--mmc-tag-${S.tagIndex(owner.handle)})` } } : {}),
+        title: passed.has(asset.handle)
+          ? t("Not in this take: the sentence names it only in an alternative this seed passes over.")
+          : asset.filename,
       }, parts);
     };
 
     // Bounded on the face (see the stylesheet), so it needs the wheel the way
     // the prompt box does — otherwise the row that scrolls zooms the canvas.
-    return keepScroll(el("div", { class: "mmc-assets" }, this.state.assets.map(chip)));
+    // The card's own files lead: they are the ones this shot can act on, and a
+    // row that opened with three chips nothing here can change would read as a
+    // row of dead controls.
+    return keepScroll(el("div", { class: "mmc-assets" }, [
+      ...this.state.assets.map(chip),
+      ...S.citedPool(this.state).map(pooledChip),
+    ]));
   }
 
   /**
@@ -2751,6 +2902,15 @@ export class CreatorEditor {
       // decides what the short edge is the short edge *of*, and the size on the
       // second half is the product of the two.
       ...(this.canvasPills ? [pillSet([aspectPill, resPill])] : []),
+      // The seed, for the one face that folds the sampler row away: the simple
+      // view. Drawn on every body that has the widget and shown by the
+      // stylesheet only where the row is folded — the desk and the node face
+      // have the full seed group a line below and would be saying it twice.
+      ...(this.samplingWidgets?.seed ? seedPill({
+        widgets: this.samplingWidgets,
+        ...this.widgetIO(),
+        set: (name, v) => { this.widgetIO().set(name, v); this.render(); },
+      }) : []),
       // The end of the row, and one flex item rather than three. Everything
       // above says what the shot *is*; these say where it runs and what it
       // belongs to, and the auto margin that holds them against the far end of

@@ -490,9 +490,14 @@ export function inheritTakes(subject, assets, { over = null } = {}) {
   for (const handle of subject.from ?? []) {
     moved = inheritTake(subject, "from", find(handle), { over }) || moved;
   }
-  for (const slot of ["motion", "voice"]) {
-    if (subject[slot]) moved = inheritTake(subject, slot, find(subject[slot])) || moved;
+  // The same pair read the same way, and broken by the same change: `find` was
+  // handed the whole list and matched no asset, so a clip dropped in the action
+  // slot quietly stopped being narrowed to "motion" the way every other slot
+  // narrows its file.
+  for (const handle of motionOf(subject)) {
+    moved = inheritTake(subject, "motion", find(handle)) || moved;
   }
+  if (subject.voice) moved = inheritTake(subject, "voice", find(subject.voice)) || moved;
   for (const handle of replacesOf(subject)) {
     moved = inheritTake(subject, "replaces", find(handle)) || moved;
   }
@@ -2715,6 +2720,40 @@ export function rescueCastFiles(timeline, segment) {
   moveCastFilesToPool(timeline, segment);
 }
 
+/**
+ * A member's files were renamed: every slot and every key that named them
+ * follows. One walk for both directions of the move — the strip growing sends
+ * the cast's files to the pool, shrinking brings them back — so the two cannot
+ * disagree about what a member is made of.
+ *
+ * An action is a *list* of clips and a voice is one file — see `motionOf`, and
+ * the serializer that writes the two apart. Both were once renamed as if they
+ * were one handle, which stopped meaning anything the day an action became a
+ * list: `renamed.has(["vid-1"])` is false, so the clip moved into the pool under
+ * its new `ref-N` while the member went on pointing at the `vid-N` that nothing
+ * holds any more. Their action then rode into no shot at all (#91).
+ *
+ * The words attached to a file — a note, and the triggers that wake it — are
+ * keyed by its handle, so they move with it. Triggers were left behind, and
+ * `subjectTriggers` reads only the keys a member still claims: the word came
+ * off the clip the moment the strip grew, and a plate meant to wait for
+ * "running" rode into every shot instead (#92).
+ */
+function followRenamed(subject, renamed) {
+  const rename = (handle) => renamed.get(handle) ?? handle;
+  if (Array.isArray(subject.from)) subject.from = subject.from.map(rename);
+  const motion = motionOf(subject);
+  if (motion.length) subject.motion = motion.map(rename);
+  if (renamed.has(subject.voice)) subject.voice = renamed.get(subject.voice);
+  for (const key of ["notes", "triggers"]) {
+    if (!subject[key]) continue;
+    subject[key] = Object.fromEntries(Object.entries(subject[key])
+      .map(([handle, text]) => [rename(handle), text]));
+  }
+  const stood = replacesOf(subject);
+  if (stood.length) subject.replaces = stood.map(rename);
+}
+
 function moveCastFilesToPool(timeline, segment) {
   const cast = timeline.subjects ?? [];
   if (!cast.length) return;
@@ -2741,21 +2780,7 @@ function moveCastFilesToPool(timeline, segment) {
     segment.assets = segment.assets.filter((entry) => entry !== asset);
   }
   if (!renamed.size) return;
-  for (const subject of cast) {
-    if (Array.isArray(subject.from)) {
-      subject.from = subject.from.map((handle) => renamed.get(handle) ?? handle);
-    }
-    for (const slot of ["motion", "voice"]) {
-      if (renamed.has(subject[slot])) subject[slot] = renamed.get(subject[slot]);
-    }
-    // The words attached to a file are keyed by its handle, so they move with it.
-    if (subject.notes) {
-      subject.notes = Object.fromEntries(Object.entries(subject.notes)
-        .map(([handle, text]) => [renamed.get(handle) ?? handle, text]));
-    }
-    const stood = replacesOf(subject);
-    if (stood.length) subject.replaces = stood.map((h) => renamed.get(h) ?? h);
-  }
+  for (const subject of cast) followRenamed(subject, renamed);
   for (const key of ["prompt", "soundscape", "music"]) {
     if (segment[key]) segment[key] = renameCitations(segment[key], renamed);
   }
@@ -2823,21 +2848,7 @@ function collapsePool(timeline) {
     timeline.assets = timeline.assets.filter((entry) => entry !== asset);
   }
   if (!renamed.size) return;
-  for (const subject of timeline.subjects ?? []) {
-    if (Array.isArray(subject.from)) {
-      subject.from = subject.from.map((handle) => renamed.get(handle) ?? handle);
-    }
-    for (const slot of ["motion", "voice"]) {
-      if (renamed.has(subject[slot])) subject[slot] = renamed.get(subject[slot]);
-    }
-    // The words attached to a file are keyed by its handle, so they move with it.
-    if (subject.notes) {
-      subject.notes = Object.fromEntries(Object.entries(subject.notes)
-        .map(([handle, text]) => [renamed.get(handle) ?? handle, text]));
-    }
-    const stood = replacesOf(subject);
-    if (stood.length) subject.replaces = stood.map((h) => renamed.get(h) ?? h);
-  }
+  for (const subject of timeline.subjects ?? []) followRenamed(subject, renamed);
   // Both scopes' prose. The piece's own text can cite a pool handle, and it
   // still holds the strip open on its own — but a citation left pointing at a
   // handle nothing answers to would survive being emptied, which is worse than
@@ -4214,6 +4225,34 @@ export function emptyPreStage() {
   };
 }
 
+/** What Clear takes off a pre-stage: the writing on either branch. The image
+ *  branch writes a prompt, an init and its references; the H3 branch writes
+ *  a Creator request, cleared by the same keys as a shot. The machine — arch,
+ *  canvas, LoRAs, turbo, the checkpoints — stays, the line the piece's Clear
+ *  draws. `ref_lora` names a LoRA in the stack, so it is machine and stays;
+ *  with no references it reads nothing. */
+const PRESTAGE_CLEARED_KEYS = ["prompt", "init", "refs"];
+const STILL_CLEARED_KEYS = ["prompt", "soundscape", "music", "refined", "assets"];
+
+export function preStageWritten(state) {
+  if ((state.prompt || "").trim() || state.init || state.refs?.length) return true;
+  const request = state[PRESTAGE_STILL_ARCH]?.request;
+  return Boolean(request && ((request.prompt || "").trim()
+    || (request.soundscape || "").trim() || (request.music || "").trim()
+    || request.refined || request.assets?.length));
+}
+
+/** Empty the pre-stage's writing in place — the body holds this object. */
+export function clearPreStage(state) {
+  const blank = emptyPreStage();
+  for (const key of PRESTAGE_CLEARED_KEYS) state[key] = blank[key];
+  const request = state[PRESTAGE_STILL_ARCH]?.request;
+  if (request) {
+    const empty = emptyState();
+    for (const key of STILL_CLEARED_KEYS) request[key] = empty[key];
+  }
+}
+
 export function emptyPreStageTurbo() {
   const empty = {};
   for (const [arch, turbo] of Object.entries(PRESTAGE_TURBO)) {
@@ -4390,6 +4429,37 @@ function serializePreStageTurbo(turbo) {
 
 /** Fill empty weight fields from unambiguous filename matches — the same
  *  service `guessModels` does for the video nodes, for the same first-run. */
+/**
+ * Fill an image arch's empty weight fields from what this machine last picked
+ * for that family, in place. -> whether it changed anything.
+ *
+ * `remembered` is `settings.weights`, keyed by family id — the same block the
+ * chat room's first run writes and `adoptRemembered` reads for the video
+ * families. The pre-stage guessed from the folder listing alone before this,
+ * so a machine set up in the room opened its first pre-stage with the rows
+ * the room had already answered sitting empty. Runs before the guess for the
+ * reason `adoptRemembered` does: an answer somebody gave beats a filename read.
+ */
+export function adoptRememberedPreStage(models, remembered) {
+  let changed = false;
+  for (const arch of PRESTAGE_IMAGE_ARCHES) {
+    const block = remembered?.[IMAGE_FAMILY[arch].id];
+    if (!block || typeof block !== "object") continue;
+    for (const field of PRESTAGE_FIELDS[arch]) {
+      if (models[arch][field] || typeof block[field] !== "string" || !block[field].trim()) continue;
+      models[arch][field] = block[field].trim();
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+/** The family an arch's picks are remembered under. Every arch, not only the
+ *  image ones: the video family's own still is filed under that family, which
+ *  `IMAGE_FAMILY` leaves out by construction — reading it there threw on
+ *  every H3 still and took the whole extension down with it. */
+export const preStageFamilyId = (arch) => stillFamily(arch).id;
+
 export function guessPreStageModels(models, byFolder) {
   const lists = {
     model: byFolder?.diffusion_models ?? [], turbo_model: byFolder?.diffusion_models ?? [],
@@ -5525,24 +5595,29 @@ export function passedOver(state, pick) {
 }
 
 /**
- * The files on this card's row that a cast member holds back from this shot:
- * claimed by somebody the prose cites, and waiting for a word it does not say.
- * What `compile_request` cuts beside the uncited members' files, read off the
- * same prose — chosen under `pick` where it holds a `{a|b}`, so a plate named
- * only in the alternative the seed takes wakes and the other stays asleep.
- * Without a `pick` the text is read as typed, both alternatives at once, which
- * is the superset: what the slot counters want, since a plate that *may* wake
- * has to fit.
+ * The files on this card's row that the cast holds back from this shot: what
+ * `compile_request` cuts, read off the same prose. A member nobody names
+ * takes every picture they alone are built out of with them, and a member who
+ * is named leaves behind the plates waiting for a word the sentence does not
+ * say — unless the sentence writes the file's own handle, which is the
+ * plainest way of asking for it, whoever it belongs to.
+ *
+ * Chosen under `pick` where the prose holds a `{a|b}`, so a plate named only
+ * in the alternative the seed takes wakes and the other stays asleep. Without
+ * a `pick` the text is read as typed, both alternatives at once, which is the
+ * superset: what the slot counters want, since a plate that *may* wake has to
+ * fit.
  *
  * The cast is the piece's — `state.cast` on a segment, `state.subjects` on a
- * lone node — and an uncited member's files are not here at all: those are
- * muted on the row already (`dropCited`), and a member nobody names has no
- * word to say.
+ * lone node. The uncited members' files used to be left out on the grounds
+ * that `dropCited` mutes them, but that only ever ran on a mention being
+ * deleted: somebody cast and never yet written sat on the row lit, and the
+ * card read as Ref2VA, for a render that was going to send nothing (#92).
  */
 export function asleepHere(state, pick = null) {
   const cast = state.cast ?? state.subjects ?? [];
   const found = new Set();
-  if (!cast.some((subject) => Object.keys(subjectTriggers(subject)).length)) return found;
+  if (!cast.length) return found;
   let texts = poolTexts(state);
   if (pick) {
     const own = (text) => resolveVariations(text ?? "", pick.seed, pick.card);
@@ -5558,13 +5633,15 @@ export function asleepHere(state, pick = null) {
   }
   const named = citedSubjects(texts, cast);
   // Sole claims only, as the compiler cuts: a file awake on one member who is
-  // cited stays for both.
-  const awake = new Set();
+  // cited stays for both — and a file the prose writes by handle stays for
+  // everyone.
+  const awake = citedHandles(texts);
   for (const subject of cast) {
+    for (const handle of subjectFiles(subject)) found.add(handle);
     if (!named.has(subject.handle)) continue;
     const sleeping = subjectAsleep(subject, texts);
     for (const handle of subjectFiles(subject)) {
-      if (sleeping.has(handle)) found.add(handle); else awake.add(handle);
+      if (!sleeping.has(handle)) awake.add(handle);
     }
   }
   for (const handle of awake) found.delete(handle);
@@ -5586,7 +5663,9 @@ export function citedSubjects(texts, cast) {
 
 /** The subjects a segment's text casts into it, in cast order. */
 export function citedCast(state) {
-  const cast = state.cast ?? [];
+  // The piece's cast on a segment, the node's own on a lone shot — the same
+  // pair `asleepHere` reads, so the two cannot disagree about who is here.
+  const cast = state.cast ?? state.subjects ?? [];
   if (!cast.length) return [];
   const found = citedSubjects(poolTexts(state), cast);
   return cast.filter((subject) => found.has(subject.handle));

@@ -97,11 +97,12 @@ for case, files in zip(CAST, reflected["files"]):
 
 
 def py_asleep(prompt):
-    """What `compile_request` cuts for want of a word, as the mirror reports it:
-    a cited member's files, minus what stays awake on anybody cited."""
+    """What `compile_request` cuts, as the mirror reports it: everybody's
+    files, minus what stays awake on a cited member, minus what the prose
+    writes by handle — the `absent` line of `compile_request`, exactly."""
     cited = subjects.cited(parsed, [prompt])
-    claimed = {h for s in cited for h in s.files}
-    return sorted(claimed - subjects.awake(cited, [prompt]))
+    written = set(compiler.HANDLE_RE.findall(prompt))
+    return sorted(subjects.claimed(parsed) - subjects.awake(cited, [prompt]) - written)
 
 
 for text, handles in zip(SENTENCES, reflected["asleep"]):

@@ -78,7 +78,7 @@ const remembered = () => uiSetting("control_weights", {}) ?? {};
  *  `models.rememberWeights` is: the bench already has the answer, and a memory
  *  that failed to write is next time's problem rather than this click's. */
 function remember(op, picks) {
-  patchSettings({ control_weights: { ...remembered(), [op]: picks } });
+  patchSettings({ control_weights: { [op]: picks } });
 }
 
 /**

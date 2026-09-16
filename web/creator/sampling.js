@@ -16,7 +16,7 @@
 // `control_after_generate` is the frontend's own linked control and there is
 // nothing for a JSON field to be.
 
-import { el, icon } from "./dom.js";
+import { el, icon, dismissable, placeNear } from "./dom.js";
 import { t } from "./i18n.js";
 import { openChoicePopover, stepperPill, pillSet, pillClass, accelClass } from "./pills.js";
 import { DEFAULT_VIDEO_FAMILY, widgetsOf as S_widgetsOf } from "./state.js";
@@ -321,6 +321,118 @@ export function segmentSeedPill({ own, piece, onChange, taken = null }) {
  * -> an array, so a caller can spread it, and an empty one where there is no
  * seed widget to draw (a timeline segment's own editor).
  */
+/**
+ * The seed's fingerprint: a 5x5 mirrored mark drawn from the number.
+ *
+ * A seed is an identifier, and the only thing anyone asks of one is "is this
+ * the same as before?" — ten digits answer that slowly and take 90px; a mark
+ * answers it at a glance in 14. Fifteen bits off an xorshift of the seed,
+ * mirrored about the middle column so every mark has the symmetry that makes
+ * a shape read as one thing. 32,768 marks, which is plenty for telling this
+ * render from the last one; the number itself is in the tooltip and the
+ * editor for anyone who wants to copy it.
+ */
+export function seedMark(seed, size = 14) {
+  let x = (Number(seed) >>> 0) || 1;
+  const bits = [];
+  for (let i = 0; i < 15; i++) {
+    x ^= x << 13; x >>>= 0; x ^= x >>> 17; x ^= x << 5; x >>>= 0;
+    bits.push((x >>> 7) & 1);
+  }
+  // A sparse mark reads as a smudge: keep at least six cells lit.
+  if (bits.reduce((a, b) => a + b, 0) < 6) for (let i = 0; i < 15; i += 3) bits[i] = 1;
+  let cells = "";
+  for (let r = 0; r < 5; r++) for (let c = 0; c < 3; c++) if (bits[r * 3 + c]) {
+    cells += `<rect x="${c}" y="${r}" width="1.02" height="1.02" rx=".18"/>`;
+    if (c < 2) cells += `<rect x="${4 - c}" y="${r}" width="1.02" height="1.02" rx=".18"/>`;
+  }
+  const node = el("span", { class: "mmc-seed-mark", "aria-hidden": "true" });
+  node.innerHTML = `<svg viewBox="0 0 5 5" width="${size}" height="${size}">${cells}</svg>`;
+  return node;
+}
+
+/**
+ * The seed as one small pill, for the row that has folded the sampler away —
+ * the simple view's shot row. Two halves, like the sets beside it: a die that
+ * rolls a new seed now, and the seed's own mark (seedMark) — white while the
+ * next render will roll it again, accent on a lit half while it is kept.
+ * Pressing the mark opens a field to
+ * type or paste a number, with the fresh/keep switch under it. Beside the pill,
+ * only once a render has run on a different seed, a dashed ghost carrying that
+ * render's mark — press it and that seed is back and kept. Same widgets, same
+ * `{value, set}` as the sampler row, so the two never disagree.
+ *
+ * Returns the pill and the ghost as siblings for the row.
+ */
+export function seedPill({ widgets, value, set }) {
+  if (!widgets.seed) return [];
+  const control = value("control_after_generate", "fixed");
+  const seed = Number(value("seed", 0));
+  const last = lastSeed(widgets.seed);
+  const fresh = control !== "fixed";
+  const said = fresh
+    ? t("Seed {seed} — changes on the next render. Click to type one, or to keep it.", { seed })
+    : t("Seed {seed} — kept for every render. Click to type one, or to let it change.", { seed });
+  const pill = el("div", { class: "mmc-pill mmc-seed-pill", "data-mode": fresh ? "fresh" : "kept" }, [
+    el("button", {
+      class: "mmc-seed-cell mmc-seed-roll",
+      title: t("Roll a new seed now"),
+      onclick: () => set("seed", Math.floor(Math.random() * 0xffffffff)),
+    }, [icon("dice", 20)]),
+    el("button", {
+      class: "mmc-seed-cell mmc-seed-id",
+      title: said,
+      onclick: (event) => openSeedPopover(event.currentTarget, { seed, fresh, set }),
+    }, [seedMark(seed)]),
+  ]);
+  const ghost = last === null || last === seed ? [] : [el("button", {
+    class: "mmc-pill mmc-seed-ghost",
+    title: t("Back to {seed}, the seed the last render ran on — and keep it", { seed: last }),
+    onclick: () => { set("seed", last); set("control_after_generate", "fixed"); },
+  }, [
+    el("span", { class: "mmc-seed-cell" }, [icon("rewind", 20)]),
+    el("span", { class: "mmc-seed-cell" }, [seedMark(last)]),
+  ])];
+  return [pill, ...ghost];
+}
+
+/** The number, typeable, and what happens to it after a render. */
+function openSeedPopover(anchor, { seed, fresh, set }) {
+  // The mark follows the typing, so a pasted seed shows its face before it
+  // is committed — that is the whole of what the mark is for.
+  let mark = seedMark(seed, 16);
+  const field = el("input", {
+    class: "mmc-seed-input mmc-seed-field", type: "text", inputmode: "numeric",
+    spellcheck: "false", autocomplete: "off", value: String(seed),
+    oninput: (event) => {
+      const digits = String(event.target.value).replace(/[^\d]/g, "");
+      if (!digits) return;
+      const next = seedMark(Number(digits), 16);
+      mark.replaceWith(next); mark = next;
+    },
+    onchange: (event) => {
+      const parsed = Number(String(event.target.value).replace(/[^\d]/g, "")) || 0;
+      set("seed", parsed);
+    },
+    onpointerdown: (event) => event.stopPropagation(),
+  });
+  const way = (id, label, on) => el("button", {
+    class: "mmc-seed-way", role: "radio", "aria-checked": on ? "true" : "false", text: label,
+    onclick: () => { close(); set("control_after_generate", id); },
+  });
+  const pop = el("div", { class: "mmc-pop mmc-seed-pop" }, [
+    el("div", { class: "mmc-seed-fieldrow" }, [mark, field]),
+    el("div", { class: "mmc-seed-ways", role: "radiogroup" }, [
+      way("randomize", t("Fresh every render"), fresh),
+      way("fixed", t("Keep this one"), !fresh),
+    ]),
+  ]);
+  document.body.appendChild(pop);
+  placeNear(pop, anchor);
+  const close = dismissable(pop);
+  field.focus();
+}
+
 function seedPills({ widgets, value, set, perSegment }) {
   if (!widgets.seed) return [];
   const pills = [];

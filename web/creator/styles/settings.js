@@ -197,10 +197,9 @@ export const css = `
   font-size: inherit; font-weight: 400; line-height: 28px; height: 28px; color: var(--mmc-text);
   /* One line, scrolling under the caret rather than wrapping: a path that
      folds onto a second line reads as two paths. */
-  white-space: pre; overflow-x: auto; scrollbar-width: none;
+  white-space: pre; overflow-x: auto;
 }
 .mmc-set-dest .mmc-out-field:focus, .mmc-set-dest .mmc-out-field.bad { border: 0; outline: none; }
-.mmc-set-dest .mmc-out-field::-webkit-scrollbar { display: none; }
 .mmc-set-dest .mmc-out-problem { grid-column: 2; padding: 2px 2px 8px; }
 /* The token chips exist while the destination is being edited and not
    otherwise: at rest the card is a field per family and its reading, not

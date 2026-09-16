@@ -753,12 +753,17 @@ class PresetLibrary {
       ...this.folders().map((folder) => [folder, folder]),
     ];
     if (!shelves.some(([key]) => key === this.shelf)) this.shelf = SHELF_ALL;
+    // Rebuilt on every pick so the lit chip follows the shelf; the row's
+    // scroll is kept because a rebuild resets it and the chip you just
+    // pressed is usually the one scrolled into view.
+    const scrolled = this.shelfRow.scrollLeft;
     this.shelfRow.replaceChildren(...shelves.map(([key, label]) => el("button", {
       class: "mmc-shelf",
       "aria-pressed": key === this.shelf,
       text: label,
-      onclick: () => { this.shelf = key; this.renderGrid(); },
+      onclick: () => { this.shelf = key; this.renderShelves(); this.renderGrid(); },
     })));
+    this.shelfRow.scrollLeft = scrolled;
   }
 
   visible() {

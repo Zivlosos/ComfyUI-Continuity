@@ -1485,6 +1485,12 @@ def compile_request(data, image_size_lookup=None, continues=False, canvas_spec=N
     # costume nobody is wearing. Read off `prose` after `varied_piece` made its
     # choices, so a `{hat|cap}` wakes the plate the seed picked.
     absent = subjects.claimed(everybody) - subjects.awake(cast, prose)
+    # ...unless the prose names the file itself. `@ref-1` written into a shot
+    # that never says `@vera` is the piece shelf's own promise ("cite the
+    # handle in a segment's own prompt to use it just there"), and `cited_pool`
+    # keeps it by exactly this rule — cutting it here left the citation
+    # dangling and refused the shot for a picture that was attached (#91).
+    absent -= {h for text in prose for h in HANDLE_RE.findall(text)}
     for subject in cast:
         # Every file of theirs cut for want of a word, and no words of their
         # own to stand on: `subjects.here` would refuse this as pictures not

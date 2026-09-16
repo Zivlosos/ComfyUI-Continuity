@@ -282,6 +282,16 @@ export const css = `
    the column, and a flex gap is paid between rows whether or not either has a
    height — which is how a card with a rail and a prompt on it opened with sixty
    pixels of nothing stacked between them. Nothing to draw, no row. */
+/* No scrollbars anywhere in the pack. Everything that scrolls — a card, a cast
+   list, a strip of chips, a popover's list — still scrolls under the wheel and
+   the trackpad; it just does not draw a rail for it. Matched on the class
+   prefix rather than on a root because the popovers are portaled to <body>
+   and have no pack root above them. Both spellings: Firefox reads the
+   property, the Electron desktop app reads the pseudo-element. */
+[class^="mmc-"], [class*=" mmc-"] { scrollbar-width: none; }
+[class^="mmc-"]::-webkit-scrollbar, [class*=" mmc-"]::-webkit-scrollbar { display: none; }
+/* The exceptions are the strips of cards that run sideways — each declares
+   its own hairline in its own module (.mmc-tl-strip, .mmc-fs-strip). */
 .mmc-root > div:empty { display: none; }
 .mmc-root {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;

@@ -296,6 +296,19 @@ check("a shot whose only reference belonged to somebody absent is text-only",
       _only.mode, "T2VA")
 check("...and carries no picture at all", [a.handle for a in _only.ref_images], [])
 
+# ...but a shot that writes the file's own handle keeps it, whoever it belongs
+# to. Citing `@img-1` is the plainest way of asking for a picture, and a member
+# being built out of it does not make the sentence mean less; cutting it as
+# "somebody absent's" left the citation dangling and refused the shot (#91).
+_named = compiler.compile_request(request(
+    "@img-1, empty.",
+    [image("img-1")],
+    [{"handle": "anna", "from": ["img-1"]}]))
+check("a file the prose names outright stays, though its owner is not in the shot",
+      [a.handle for a in _named.ref_images], ["img-1"])
+check("...and is cited as a picture, with no subject defined around it",
+      "<Picture 1>, empty." in _named.body and "<Subject 1>" not in _named.prompt, True)
+
 # A cast in a generation with nothing attached to it at all — T2VA, the mode
 # most of this pack's prompts are written in. The two sections a cast makes
 # derivable have to be emitted here too: `<Subject 1>` in a description the

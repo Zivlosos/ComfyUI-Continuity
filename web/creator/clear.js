@@ -25,7 +25,7 @@ const ARM_MS = 5000;
  *   what is already empty.
  * @param {() => void} spec.run   empty the piece and commit.
  */
-export function clearButton({ written, run }) {
+export function clearButton({ written, run, what = null }) {
   let armed = null;   // the disarm callback while armed, null while idle
 
   const label = el("span", { text: t("Clear") });
@@ -33,8 +33,8 @@ export function clearButton({ written, run }) {
     class: "mmc-tool mmc-tool-danger",
     disabled: written ? undefined : true,
     title: written
-      ? t("Empty the prompts, the cast, the references and the shots — everything you wrote "
-        + "for this scene. The weights, the LoRAs, the canvas and the sampler stay as they are.")
+      ? (what ?? t("Empty the prompts, the cast, the references and the shots — everything you wrote "
+        + "for this scene. The weights, the LoRAs, the canvas and the sampler stay as they are."))
       : t("Nothing written yet."),
     onclick: () => {
       if (armed) { armed(); run(); return; }

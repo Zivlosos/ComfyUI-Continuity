@@ -82,7 +82,7 @@ const SETTLE_MS = 220;
 const remembered = () => uiSetting("upscale_weights", {}) ?? {};
 
 function remember(op, picks) {
-  patchSettings({ upscale_weights: { ...remembered(), [op]: picks } });
+  patchSettings({ upscale_weights: { [op]: picks } });
 }
 
 /**

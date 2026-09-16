@@ -16,6 +16,136 @@ badged. A cited member whose last source is missing or muted can no longer
 pass compilation on untouched face/hair retention rows alone; actual words,
 surviving files and worded LoRAs remain valid. Loading a workflow preserves
 saved mute choices, and a shot does not change shared pool mute choices.
+**The reference row and the compiler agree about what a shot sends (#91,
+#92).** Which files a shot carries was being worked out in three places that
+had drifted apart, and the reports were the gaps between them. The compiler
+cut every picture of a member the shot did not name, without asking whether
+the shot named the *file*: `@ref-1` in a shot that never wrote `@vera` was
+injected by one step and cut by the next, then refused as "no such asset is
+attached" for a picture that was on the shelf the whole time. The shelf's
+readout had the same blind spot and said *in shots 1, 2* about a file shot 3
+cited outright. The row's mute-on-delete never asked either: `@anna and
+@img-1` with the `@img-1` chip deleted is still `@anna`, and compile still
+sends the picture through her name, but the row muted it — and underneath,
+the check for "is this name still written" only understood `img-1`-shaped
+handles, so every member counted as gone the moment any chip of theirs was.
+The row also lit somebody cast and never yet written, and reported the card
+as Ref2VA for a render that was going to send nothing; and a word that woke a
+plate showed only after the card was closed and opened again, because the row
+was drawn on render and never on a keystroke. One reading now, mirrored to
+the compiler's own line: everybody's files, minus what a cited member wakes,
+minus what the sentence writes by handle — and the row is redrawn under the
+caret. Two more found on the way: the trigger words on a file were the one
+per-handle key the strip's growing and shrinking did not carry across, so a
+clip meant to wait for *running* rode into every shot the moment a second
+card existed; and the refiner's first template pin on any install painted off
+the old answer, because the save waited for a settings block that a fresh
+file does not hold yet.
+
+**A shot says what it is made of again, and a member's action stops going
+missing (#91).** Two faults wore one face, and both needed a strip of more than
+one card to show up. A piece of one shot keeps the cast's pictures on that
+shot; growing a second card moves them onto the piece, because card 2 cannot
+see card 1's row. The reference row read the card's own files and nothing else,
+so from that moment it had nothing left to draw — casting somebody emptied the
+one place that answers "what is this shot made of", on every card at once, with
+no error anywhere near it. The row now draws the piece's references too,
+alongside the card's own, on every card that cites them: whose picture it is,
+what was set on it, and a dashed edge with *on the piece* beside it, because
+the ✕ and the mute are missing on purpose — both would reach every other card,
+and a shared reference is changed on the Timeline's own shelf where it answers
+for all of them at once. Underneath it, the second fault was not cosmetic. A
+member's action became a *list* of clips, and the two places that rename their
+handles as the files move carried on reading it as one handle: the clip went
+onto the piece under its new name while the member went on naming the old one,
+so their action rode into no shot at all — a reference genuinely lost, not
+merely undrawn — and it stranded the file on the piece afterwards, which left
+the node folded into the strip summary for good. Take inheritance read the same
+slot the same way and had quietly stopped narrowing an action clip to *motion*.
+All three read the slot properly now, and an older piece is repaired on the way
+in, the way every load repairs one.
+
+**A LoRA can be pinned to a family.** The clay-render style went on every
+Krea still by hand: after a trip to Flux the stack was Flux's, and coming back
+meant finding the file and dialling the same 0.8 in again. Every chip now
+wears a pin (on hover, where the version pin sits on a card). Pinned, the LoRA
+is the family's — strength, trigger words and checkpoint claim as they were
+when pinned — and every stack drawn for that family carries it: the face of
+a one-shot piece, a timeline's own stack, the pre-stage on that arch, on any
+node, after a reload or a restart. A file pins to one family, so pinning it
+on Flux takes it off Krea, and a stack on any other family drops it the next
+time it is drawn. On the row the pin collapses the chip to its tile — the
+accent square with the pin and three letters of the file — so a standing
+order does not take the room of today's choices; hover unfolds it to change
+the strength, mute it or unpin it, which leaves it in the stack as an
+ordinary chip. The pins live in `continuity.loras.json` beside the stars,
+and the card's version pin changed its glyph to a bookmark so the two are
+not confused.
+
+**The chat room's turbo is a switch per side, and the sampler row follows
+it.** The room had one turbo switch, wired to the still side, and it only ever
+swapped the checkpoint: the node's widgets stayed at the family's ordinary
+row, so Krea 2 Turbo sampled at forty steps and cfg 3.5 and came out as noise.
+Now *Picture turbo* and *Clip turbo* each pick what the fast run is — the
+family's distilled checkpoint, a distillation LoRA over the ordinary one, or
+on the clip side no file at all for a merged checkpoint — offering only what
+the family declares, and the render's row is set the way the pre-stage's and
+the timeline's own switches set it: the picked stop's step count, the
+distillation's sampler, and the flow shifts a clip's file was distilled
+against. The gear grew a *Models* tab with every file each family loads and
+its turbo under it, so the machine's picks can be changed without setting up
+again. The room's render card now shows the pack's own step previews (it was
+listening for core's, which the pack suppresses), the transcript no longer
+jumps to the last finished render on every step (each finished picture was a
+fresh `<img>` loading from nothing once a second), and a popover opened from
+the gear or the weights popover no longer closes it.
+
+**The node and the chat room read the same model picks.** Every writer of the
+remembered weights — a node's weights popover, the pre-stage, the room, the
+two benches — sent the whole map from its own cache of it, and a cache primed
+before something else had written, or never primed, put an empty map over
+every other family's picks: the room set a family up and the node forgot it,
+or the reverse, until the files were picked again. The settings file now
+merges that map per family and each writer sends only the family it changed.
+The render route and the machine card also take the same reading the room's
+own forms show — this machine's memory over the folder listing's guess — so a
+family the room calls ready is a family it renders with, and the gear
+re-reads the file when it opens so a pick made on a node is what the Models
+tab shows.
+
+**The chat room sets itself up the first time it opens.** Three questions as
+the room's own first messages — who does the thinking, what does the drawing,
+what shape — each asked with the answer already found on the machine: the text
+encoders on disk, a running LM Studio or Ollama, the families whose files are
+all in the model folders. Every place the model can run opens a form with that
+place's model list, so nothing is typed that can be picked; a hosted API takes
+a provider and a key and lists what the key reaches. The answers are written
+where the node reads them — the files per family into the same memory a node
+fills its empty weight rows from (the pre-stage now reads and writes it too,
+for the image families), the model into the refiner's settings — so a node
+dropped on the canvas afterwards opens set up. The refiner's choices moved from
+the browser's own store to the settings file for that reason: a model chosen in
+one browser was no model in the next, on the same machine. *Set up again*
+behind the gear asks the three afresh. The room's two sizes are now remembered
+across reloads; the settings file was dropping them.
+
+**Chat: a room on the tools dashboard where you talk to the refiner and it
+renders.** Ask for a picture or a shot, then ask for changes; the model writes
+what you would have typed into the prompt box and the render goes on the
+ordinary queue, so Cancel reaches it and the file lands in the gallery. Each
+render gets a handle you can cite, uploads get one too, and a finished card can
+be opened in the editor or retaken. It is laid out like any chat surface:
+one column, a composer at the foot whose **+** opens the pack's own picker,
+attachments as chips until they are sent, and under the text the families
+and the shape — the simple view's own aspect grid. The model's name is in the
+bar; behind the gear beside it are a picture size and a clip size (a still is
+drawn larger than a clip is sampled, so they are two numbers), the seed, turbo,
+a Refine switch that puts a clip's prompt through the family's own prompting
+first, and a skill to append. Stills and one-shot video only; no timeline, cast or saved
+conversations yet.
+
+**The simple view shows the seed.** A seed pill on the simple card, drawn as
+two halves, and the card scrolls; a pre-stage `{a|b}` chooses on the seed.
 
 **A cast member can wear a LoRA.** A character LoRA is somebody's appearance
 as weights rather than as a file, and it had to be hung on the piece or on a

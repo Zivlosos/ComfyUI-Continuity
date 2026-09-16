@@ -30,7 +30,7 @@
 import { el, icon, ICONS, svg, dismissable, keepScroll, placeNear, swappable } from "./dom.js";
 import { DEFAULT_STILL_ARCH, stillFamily } from "./manifest.js";
 import { openPicker } from "./picker.js";
-import { openLoras, loraBlock, loraBase } from "./loras.js";
+import { openLoras, loraBlock, loraBase, settlePins } from "./loras.js";
 import { openFrameGrab } from "./framegrab.js";
 import { openContactSheet } from "./contact.js";
 import { openChoicePopover, stepperPill, aspectGlyph, aspectGrid, edgeSlider, PILL_GLYPH,
@@ -40,11 +40,13 @@ import { CreatorEditor } from "./editor.js";
 import { openPresetLibrary } from "./presetlib.js";
 import * as P from "./presets.js";
 import { PromptBox, focusEnd, openEditorSheet } from "./prompt.js";
-import { blobIO, samplingBar } from "./sampling.js";
+import { blobIO, samplingBar, seedPill } from "./sampling.js";
+import { clearButton } from "./clear.js";
 import { loadLoraNames, loraNames } from "./turbo.js";
 import { Stage, stageSource } from "./stage.js";
-import { loadCatalog, refreshCatalog, catalogByFolder } from "./models.js";
-import { viewUrl } from "./api.js";
+import { loadCatalog, refreshCatalog, catalogByFolder, rememberedWeights,
+         rememberStillWeights } from "./models.js";
+import { viewUrl, primeSettings } from "./api.js";
 import { editPicture, asPick, applyPick, cropLabel } from "./picture.js";
 import { t } from "./i18n.js";
 import * as S from "./state.js";
@@ -99,7 +101,10 @@ export class PreStageEditor {
    * @param {() => string|number} options.nodeId
    */
   constructor({ state, onCommit, samplingWidgets, onWidgetChange, nodeId,
-                stage = null, archPill = null, presetTarget = null }) {
+                stage = null, archPill = null, presetTarget = null, clearTool = null }) {
+    // The body's, like the preset target: what Clear empties is the pre-stage
+    // on both branches, and only the body knows both.
+    this.clearTool = clearTool;
     // Supplied by `PreStageBody` for the same reason the arch pill is: a preset
     // can change the architecture, and remounting the body is not something the
     // body being remounted can do.
@@ -125,7 +130,10 @@ export class PreStageEditor {
       getState: () => ({ ...this.state, assets: this.state.refs ?? [] }),
       onInput: (text) => {
         this.state.prompt = text;
-        this.onCommit?.();
+        // The whole commit, not just the write-out: the rail's Clear reads
+        // whether anything is written, and the shot face redraws on every
+        // keystroke for the same reason.
+        this.commit();
       },
       onAttach: (row) => this.attachFromMention(row),
       attachBlocked: () => this.refBlocked(),
@@ -184,6 +192,7 @@ export class PreStageEditor {
     this.prompt.claim(this.panel);
 
     loadCatalog(() => this.adoptWeights());
+    primeSettings(() => this.adoptWeights());
     this.prompt.setValue(this.state.prompt ?? "");
     this.render();
     this.probeInit();
@@ -193,8 +202,13 @@ export class PreStageEditor {
     // The stage is the body's — see the constructor.
   }
 
+  /** Fill empty weight rows: what this machine last picked for the family
+   *  first, then an unambiguous filename match. Both only ever fill an empty
+   *  row — see `models.adoptWeights`, which is the same two steps for a piece. */
   adoptWeights() {
-    if (S.guessPreStageModels(this.state.models, catalogByFolder())) this.commit();
+    const remembered = S.adoptRememberedPreStage(this.state.models, rememberedWeights());
+    const guessed = S.guessPreStageModels(this.state.models, catalogByFolder());
+    if (remembered || guessed) this.commit();
     else this.render();
   }
 
@@ -627,6 +641,9 @@ export class PreStageEditor {
       ...state.refs.map((ref, slot) => this.renderRefChip(ref, slot)),
     ];
     this.assetsHost.replaceChildren(...(chips.length ? [keepScroll(el("div", { class: "mmc-assets" }, chips))] : []));
+    // The arch's pins go on before the row is read — and, since one stack
+    // serves every arch on this node, a pin made for another arch comes off.
+    if (settlePins(state, S.preStageFamilyId(state.arch), () => this.commit())) this.onCommit?.();
     this.loraHost.replaceChildren(...(state.loras.length ? [this.renderLoras()] : []));
     this.pillsHost.replaceChildren(this.renderPills());
     this.noticeHost.replaceChildren(
@@ -769,6 +786,9 @@ export class PreStageEditor {
         tool(t("Add LoRA"), "effect",
              t("Manage the LoRAs patched onto the image model. Krea LoRAs train on RAW and apply on Turbo too."),
              () => this.manageLoras()),
+        // Last in the cluster, as on the video rail: everything to its left
+        // writes the still, and this takes it back.
+        ...(this.clearTool?.() ?? []),
       ]),
       el("div", { class: "mmc-rail-group" }, [
         tool(t("Presets"), "star",
@@ -918,6 +938,8 @@ export class PreStageEditor {
     // reason the manager drops the mode row for them.
     return loraBlock(this.state, {
       targets: null,
+      pinTo: S.preStageFamilyId(this.state.arch),
+      onPinChange: () => this.commit(),
       onToggle: (entry) => { S.toggleLora(this.state, entry.name); this.commit(); },
       onManage: (entry) => this.manageLoras(entry),
       onSwap: (entry) => this.swapLora(entry),
@@ -1071,6 +1093,15 @@ export class PreStageEditor {
         onChange: (next) => { state.init.denoise = next; this.commit(); },
       }));
     }
+
+    // The seed, for the simple view, where the sampler row is folded away —
+    // the same pill the video face draws, off the same node widget. See
+    // `CreatorEditor.renderPills`.
+    if (this.samplingWidgets?.seed) pills.push(...seedPill({
+      widgets: this.samplingWidgets,
+      ...this.widgetIO(),
+      set: (name, value) => { this.widgetIO().set(name, value); this.render(); },
+    }));
 
     return el("div", { class: "mmc-pills" }, pills);
   }
@@ -1322,6 +1353,9 @@ export class PreStageEditor {
             value: side[field] || NONE,
             onPick: (picked) => {
               side[field] = picked === NONE ? "" : picked;
+              // This machine's answer about the family as much as this
+              // piece's — the next pre-stage, and the chat room, start from it.
+              rememberStillWeights(S.preStageFamilyId(state.arch), side);
               this.commit();
               render();
             },
@@ -1485,6 +1519,20 @@ export class PreStageBody {
       stage: this.stage,
       archPill: () => this.renderArchPill(),
       presetTarget: () => this.presetTarget(),
+      clearTool: () => [this.clearTool()],
+    });
+  }
+
+  /** The pre-stage's Clear, for either branch's rail. Remounts rather than
+   *  re-rendering: the H3 branch's editor holds the request it was built on,
+   *  and the request is emptied in place, but the image branch's chips and
+   *  the still's assets both come off state a mount reads once. */
+  clearTool() {
+    return clearButton({
+      written: S.preStageWritten(this.state),
+      what: t("Empty the prompt, the init image and the references — everything you wrote "
+            + "for this still. The architecture, the canvas, the LoRAs and the sampler stay."),
+      run: () => { S.clearPreStage(this.state); this.onCommit?.(); this.mount(); },
     });
   }
 
@@ -1506,7 +1554,12 @@ export class PreStageBody {
         read: () => this.state.sampling,
         write: (block) => { this.state.sampling = block; },
       },
-      onCommit: () => this.onCommit?.(),
+      // The body's commit, which redraws — as the piece's node does for its
+      // shot face. Forwarding to the node alone left the rail's Clear stale
+      // until something else redrew it.
+      onCommit: () => this.commit(),
+      // A still on H3 is H3's: what the family always wears, it wears here.
+      pinFamily: () => S.preStageFamilyId(S.PRESTAGE_STILL_ARCH),
       samplingWidgets: this.samplingWidgets,
       onWidgetChange: this.onWidgetChange,
       nodeId: this.nodeId,
@@ -1525,6 +1578,7 @@ export class PreStageBody {
       modelPill: () => [this.renderArchPill()],
       extraPills: () => this.renderStillPills(),
       extraTools: () => [this.renderFrameGrabTool()],
+      clearTool: () => [this.clearTool()],
       // The `@` menu's roster, exactly as the video face wires it — a still on
       // this branch is a video generation, and the request is the piece a
       // member is cast into: its assets are the shot's row, its subjects the

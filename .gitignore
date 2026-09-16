@@ -31,6 +31,10 @@ docs/vid/*
 # are what ships. Safe to delete.
 .atlas-clips/
 
+# Local-only scripts (screenshot drivers, bench rigs). The vendor scripts in
+# tools/ proper ship; these do not.
+tools/local/
+
 # Envs / logs
 .venv/
 venv/

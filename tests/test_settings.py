@@ -239,6 +239,82 @@ refuses("a string", {"video_crf": "18"}, "whole number")
 refuses("a boolean", {"video_crf": True}, "whole number")
 refuses("something that is not an object", ["video_crf", 18], "must be an object")
 
+# ---- the chat room's rail ------------------------------------------------------
+#
+# The room sends its rail with every turn and every render, so nothing queued
+# reads this — it is only where the rail is remembered between sessions. Which
+# is exactly why it has to be checked: a block `clean` did not know about was
+# dropped on the way through, the page cached what came back, and every choice
+# on the rail was forgotten on reload with nothing anywhere saying so.
+
+RAIL = {"still_family": "qwenedit", "video_family": "h3", "aspect": "16:9",
+        "short_edge": 1024, "turbo": True, "seed": 7, "seed_policy": "fixed",
+        "refine": False, "skill": "noir"}
+
+check("an empty rail is the default", settings.clean({})["chat"], {})
+check("a rail is stored whole", settings.clean({"chat": RAIL})["chat"], RAIL)
+check("a null rail is the default", settings.clean({"chat": None})["chat"], {})
+
+# Structural only. A family this install no longer has is a preference to fall
+# back from — the room's own pill reads an absent family as the first one it
+# does have — not a settings file to refuse.
+check("a family id is kept as written, whatever the registry has",
+      settings.clean({"chat": {"still_family": "somethingelse"}})["chat"],
+      {"still_family": "somethingelse"})
+# And a field from a newer build costs nothing: dropped, so the rest of the
+# rail — and the rest of the settings — still saves.
+check("a field this build has never heard of is dropped",
+      settings.clean({"chat": {**RAIL, "cast": ["anna"]}})["chat"], RAIL)
+
+# The turbo switch, one per side: a flag, the file it reaches for (empty is the
+# checkpoint) and the step stop. The old single `turbo` stays readable.
+SPLIT = {"still_turbo": True, "still_turbo_lora": "", "still_turbo_quality": "good",
+         "video_turbo": True, "video_turbo_lora": "h3_turbo.safetensors",
+         "video_turbo_quality": "medium"}
+check("each side's turbo switch is stored whole",
+      settings.clean({"chat": SPLIT})["chat"], SPLIT)
+refuses("a turbo file that is not a name", {"chat": {"video_turbo_lora": 3}}, "must be a name")
+refuses("a side's switch that is not a flag", {"chat": {"video_turbo": "yes"}}, "true or false")
+
+refuses("a seed policy that is neither", {"chat": {"seed_policy": "sometimes"}},
+        "one of fixed, random")
+refuses("a fractional short edge", {"chat": {"short_edge": 768.5}}, "whole number")
+refuses("a boolean short edge", {"chat": {"short_edge": True}}, "whole number")
+refuses("a short edge of no pixels", {"chat": {"short_edge": 0}}, "1 or more")
+refuses("a negative seed", {"chat": {"seed": -1}}, "0 or more")
+refuses("a family id that is not a name", {"chat": {"video_family": 3}}, "must be a name")
+refuses("a switch that is not one", {"chat": {"turbo": "yes"}}, "true or false")
+refuses("a rail that is not an object", {"chat": ["still_family"]}, "must be an object")
+
+# The room sizes a picture and a clip apart and says whether its first run has
+# been answered; a rail that dropped either would ask the same questions and
+# forget the same sliders on every reload.
+SPLIT = {"still_edge": 1024, "video_edge": 768, "setup": True}
+check("the split edges and the setup flag are stored",
+      settings.clean({"chat": SPLIT})["chat"], SPLIT)
+refuses("a picture edge of no pixels", {"chat": {"still_edge": 0}}, "1 or more")
+
+# ---- the prompt refiner -------------------------------------------------------
+#
+# The refiner's choices used to live in localStorage, per browser profile. They
+# are answers about this machine, so they come here — structurally checked, the
+# way the rail is, and with a key from a newer build dropped rather than refused.
+
+REFINER = {"backend": "remote", "model": "qwen3vl_4b.safetensors",
+           "remoteModel": "qwen3-vl:4b", "eject": True, "temperature": 0.3,
+           "seed": -1, "maxTokens": 6144, "language": "German", "skill": "noir",
+           "skillModes": {"noir": "add"}, "templates": {"h3": "REF2VA"}}
+check("an empty refiner block is the default", settings.clean({})["refiner"], {})
+check("a refiner block is stored whole", settings.clean({"refiner": REFINER})["refiner"], REFINER)
+check("a key this build has never heard of is dropped",
+      settings.clean({"refiner": {**REFINER, "url": "http://x"}})["refiner"], REFINER)
+refuses("a backend that is neither", {"refiner": {"backend": "cloud"}}, "one of local, remote")
+refuses("a model that is not a name", {"refiner": {"model": 4}}, "must be a name")
+refuses("a temperature that is not a number", {"refiner": {"temperature": "hot"}}, "must be a number")
+refuses("a boolean budget", {"refiner": {"maxTokens": True}}, "must be a number")
+refuses("a template table that is not names", {"refiner": {"templates": {"h3": 1}}}, "names to names")
+refuses("a refiner that is not an object", {"refiner": "local"}, "must be an object")
+
 # ---- the file -----------------------------------------------------------------
 
 with tempfile.TemporaryDirectory() as directory:
@@ -273,6 +349,36 @@ with tempfile.TemporaryDirectory() as directory:
           (settings.video_prefix("ltx25"), settings.video_prefix("h3"),
            settings.image_prefix("krea2")),
           ("client/shoot-3/take", DEFAULT_PREFIXES["video"]["h3"], "client/stills"))
+
+    # The whole point of the block existing: it survives the round trip through
+    # the file, which is what a rail that is forgotten on reload does not do.
+    check("a rail comes back off the disk as it went in",
+          settings.save({"chat": RAIL})["chat"], RAIL)
+    check("...and is still there after another field is saved",
+          settings.save({"video_crf": 14})["chat"], RAIL)
+    check("...and is what loads", settings.load()["chat"], RAIL)
+    settings.save({"chat": {}})
+
+    # The weights map merges per family. Every writer of it — a node's weights
+    # popover, the chat room, the two benches — sends the family it changed,
+    # and one sending a stale copy of the whole map used to put an empty map
+    # over every other family's picks: the "I had to pick my models again"
+    # bug. A family that *is* named is replaced whole, so a slot a node
+    # cleared is cleared here too.
+    settings.save({"weights": {"krea2": {"model": "krea2.safetensors", "vae": "ae.safetensors"}}})
+    check("a second family's picks leave the first's alone",
+          settings.save({"weights": {"h3": {"clip": "qwen.safetensors"}}})["weights"],
+          {"krea2": {"model": "krea2.safetensors", "vae": "ae.safetensors"},
+           "h3": {"clip": "qwen.safetensors"}})
+    check("a family named again is replaced whole",
+          settings.save({"weights": {"krea2": {"model": "krea2_v2.safetensors"}}})["weights"]["krea2"],
+          {"model": "krea2_v2.safetensors"})
+    check("the benches' maps merge the same way",
+          settings.save({"upscale_weights": {"dlss": {"model": "a"}}})["upscale_weights"]
+          and settings.save({"upscale_weights": {"seedvr": {"model": "b"}}})["upscale_weights"],
+          {"dlss": {"model": "a"}, "seedvr": {"model": "b"}})
+    settings.save({"weights": {}, "upscale_weights": {}})
+    check("an empty map is a no-op, not a wipe", settings.load()["weights"]["h3"], {"clip": "qwen.safetensors"})
 
     settings.save({"video_crf": 14, "video_prefix": DEFAULT_PREFIXES["video"],
                    "image_prefix": DEFAULT_PREFIXES["still"]})

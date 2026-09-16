@@ -16,7 +16,7 @@ import { clearButton } from "./clear.js";
 import { el, icon, mountOverlay, swappable } from "./dom.js";
 import { CreatorEditor, pickTakes, takesHelp } from "./editor.js";
 import { t } from "./i18n.js";
-import { openLoras, loraBlock, loraBase } from "./loras.js";
+import { openLoras, loraBlock, loraBase, settlePins } from "./loras.js";
 import { openPicker } from "./picker.js";
 import { openPresetLibrary, styleCastMember } from "./presetlib.js";
 import * as P from "./presets.js";
@@ -573,6 +573,13 @@ class Timeline {
     this.barHost = el("div", { class: "mmc-tl-bar" });
     this.loraHost = el("div", { class: "mmc-tl-loras" });
     this.stripHost = el("div", { class: "mmc-tl-strip" });
+    // A trackpad swipes sideways on its own; a wheel only ever sends deltaY,
+    // and without this the strip is unreachable for anyone using one.
+    this.stripHost.addEventListener("wheel", (event) => {
+      if (event.deltaX || !event.deltaY) return;
+      event.preventDefault();
+      this.stripHost.scrollLeft += event.deltaY;
+    }, { passive: false });
     // Under the strip, because it is under the strip in what it describes: the
     // cards are what the piece is made of and the lane is what it is cut to.
     // It brings its own axis — see `sound.js` for why it cannot borrow the
@@ -648,9 +655,14 @@ class Timeline {
    * feature is introduced.
    */
   renderLoras() {
-    const entries = this.timeline.loras ?? [];
+    // The family's pins go on before the stack is read; see loras.js.
+    this.timeline.loras ??= [];
+    if (settlePins(this.timeline, S.pieceFamily(this.timeline), () => this.commit())) this.onCommit?.();
+    const entries = this.timeline.loras;
     this.loraHost.replaceChildren(...(entries.length ? [loraBlock(this.timeline, {
       family: S.pieceFamily(this.timeline),
+      pinTo: S.pieceFamily(this.timeline),
+      onPinChange: () => this.commit(),
       targets: S.timelineCheckpoints(this.timeline),
       // Which of these the turbo switch put there. It is drawn as the switch's
       // rather than as a file somebody picked — see `loraChip`. The shot face
@@ -760,21 +772,19 @@ class Timeline {
     // whether to cite the piece copy or drop it. See `S.poolDoubles`.
     const doubles = owners.length || everywhere || cited.length
       ? [] : S.poolDoubles(this.timeline, asset);
-    // A cast file is in the shots that name its owner, which is the shelf's own
-    // question and is asked in the shelf's own words.
-    const ownerShots = owners.map((subject) => {
-      if (S.subjectCitedGlobally(this.timeline, subject)) {
-        return { cited: true, text: t("in every shot") };
-      }
-      const shots = S.subjectCitations(this.timeline, subject);
-      return {
-        cited: shots.length > 0,
-        text: shots.length
-          ? t(shots.length === 1 ? "in shot {list}" : "in shots {list}",
-              { list: shots.join(", ") })
-          : t("in no shot yet"),
-      };
-    });
+    // A cast file is in the shots that name its owner — or the file itself:
+    // `@ref-1` written into a shot that never says `@vera` still carries it,
+    // and `cited` already counts both routes. Read in the shelf's own words,
+    // since that is the shelf's own question (#91).
+    const ownerShots = owners.length
+      ? (everywhere || owners.some((subject) => S.subjectCitedGlobally(this.timeline, subject)))
+        ? [{ cited: true, text: t("in every shot") }]
+        : [{ cited: cited.length > 0,
+             text: cited.length
+               ? t(cited.length === 1 ? "in shot {list}" : "in shots {list}",
+                   { list: cited.join(", ") })
+               : t("in no shot yet") }]
+      : [];
     const where = owners.length
       ? ownerShots.map((shot) => shot.text).join(" · ")
       : everywhere
@@ -3491,6 +3501,8 @@ export class TimelineBody {
       // about where they live — which is what makes growing a second one a
       // matter of adding a card and not of moving any settings.
       piece: this.timeline,
+      // The face's rail is the family's stack — it is where a pin is made.
+      pinFamily: () => S.pieceFamily(this.timeline),
       // The face is wearing the piece's only card, and the piece is what a cast
       // member is cast into — see the window's own hook of the same name.
       castFromLibrary: (member) => {

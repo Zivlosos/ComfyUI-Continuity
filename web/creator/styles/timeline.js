@@ -205,6 +205,13 @@ export const css = `
      it. The strip is as tall as its cards; the body scrolls. */
   flex: none;
 }
+/* The exception to base.js's no-scrollbar rule: off the end of this strip
+   there is more, nothing else says so, and the hairline is the one thing a
+   mouse-wheel user can drag. The pseudo-element has to be turned back on
+   before it can be sized. */
+.mmc-tl-strip { scrollbar-width: thin; scrollbar-color: var(--mmc-line) transparent; }
+.mmc-tl-strip::-webkit-scrollbar { display: block; height: 6px; }
+.mmc-tl-strip::-webkit-scrollbar-thumb { background: var(--mmc-line); border-radius: 3px; }
 /* The cards row, which is all a seam or the add button occupies: they have no
    rail above them and nothing to say underneath. */
 .mmc-tl-seam, .mmc-tl-add { grid-row: 2; }
@@ -861,6 +868,85 @@ export const css = `
   font-size: calc(12.5px * var(--mmc-type)); text-align: center; padding: 0;
   min-width: 3ch; max-width: 18ch;
 }
+/* The seed as one small pill (sampling.seedPill): two halves, like the set
+   beside it — a die that rolls it, and the seed's own mark. Hidden by default —
+   only the simple view shows it, and that rule is the shell's
+   (styles/fullscreen.js), since which face has folded the sampler row away is
+   the shell's to know. */
+.mmc-seed-pill { display: none; gap: 0; padding: 0; overflow: hidden; cursor: default; }
+/* One half: the same box whichever glyph it holds, on the pill or on the ghost,
+   so the four glyphs land on two centres and the ghost is the pill's twin. */
+.mmc-seed-cell {
+  display: flex; align-items: center; justify-content: center; flex: none;
+  width: 34px; height: 100%; padding: 0; background: none; border: 0;
+  color: var(--mmc-dim); font: inherit;
+}
+.mmc-seed-cell + .mmc-seed-cell { border-left: 1px solid var(--mmc-line); }
+.mmc-seed-cell > svg {
+  width: 20px; height: 20px; stroke: currentColor; fill: none;
+  stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round;
+}
+.mmc-seed-roll, .mmc-seed-id { cursor: pointer; }
+/* Each half answers on its own, so both press-targets show before a click. A
+   wash of ink rather than a surface: the simple view paints the pill in the
+   surface a hover would otherwise reach for. */
+.mmc-seed-roll:hover { color: var(--mmc-strong); background: color-mix(in srgb, var(--mmc-strong) 7%, transparent); }
+.mmc-seed-roll svg { transition: transform .18s ease; }
+.mmc-seed-roll:active svg { transform: rotate(90deg); }
+/* The ink is the state. White: a glyph like any other, and the next render
+   rolls again. Accent on a lit half: this seed, every render — the pressed
+   stop of a set, in the pack's own colour for a thing that is held. Hovering
+   a fresh mark shows the accent it would take. */
+.mmc-seed-id { color: var(--mmc-strong); }
+.mmc-seed-id:hover { color: var(--mmc-accent); background: color-mix(in srgb, var(--mmc-strong) 7%, transparent); }
+.mmc-seed-pill[data-mode="kept"] .mmc-seed-id {
+  color: var(--mmc-accent); background: color-mix(in srgb, var(--mmc-accent) 14%, transparent);
+}
+.mmc-seed-pill[data-mode="kept"] .mmc-seed-id:hover { background: color-mix(in srgb, var(--mmc-accent) 24%, transparent); }
+/* The mark: five by five, mirrored, in whatever ink its holder has. Fill
+   only — the pill's rule strokes every svg at 1.7, which in a 5-unit box is a
+   third of a cell and welds the mark into one solid square. */
+.mmc-seed-mark { display: flex; }
+.mmc-seed-mark svg { display: block; width: 14px; height: 14px; stroke: none; }
+.mmc-seed-fieldrow .mmc-seed-mark svg { width: 16px; height: 16px; }
+.mmc-seed-mark rect { fill: currentColor; stroke: none; }
+/* The last render's seed, as a ghost beside the pill — the pill's own two
+   halves, in dim ink, with no fill and a dashed line, because it is an offer
+   and not a state; drawn only while it differs from the seed on the pill
+   (sampling.seedPill decides). Press it and it is the seed, kept. */
+.mmc-seed-ghost {
+  display: none; gap: 0; padding: 0; overflow: hidden; background: none;
+  border: 1px dashed var(--mmc-line-2); color: var(--mmc-dim);
+}
+.mmc-seed-ghost .mmc-seed-cell + .mmc-seed-cell { border-left-style: dashed; border-left-color: var(--mmc-line-2); }
+.mmc-seed-ghost:hover { border-style: solid; background: none; }
+.mmc-seed-ghost:hover .mmc-seed-cell { color: var(--mmc-strong); }
+/* The editor under the mark: the number, typeable, with its mark beside it
+   following the keys, and the two ways a seed can go after a render. */
+/* As wide as its two ways need, never narrower than the field wants: at a
+   larger text size a fixed 250 broke "Fresh every render" onto two lines. */
+.mmc-seed-pop { width: max-content; min-width: 250px; padding: 10px; }
+.mmc-seed-fieldrow {
+  display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 10px 0 9px;
+  background: var(--mmc-bg); border: 1px solid var(--mmc-line); border-radius: 12px;
+  color: var(--mmc-strong);
+}
+.mmc-seed-fieldrow .mmc-seed-mark { flex: none; }
+.mmc-seed-field {
+  flex: 1; min-width: 0; max-width: none; text-align: left;
+  font-size: calc(14px * var(--mmc-type)); letter-spacing: .03em; color: var(--mmc-strong);
+}
+.mmc-seed-ways {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 2px; padding: 3px; margin-top: 8px;
+  background: var(--mmc-bg); border: 1px solid var(--mmc-line); border-radius: 12px;
+}
+.mmc-seed-way {
+  height: 28px; padding: 0 12px; border: 0; border-radius: 9px; background: none; color: var(--mmc-dim);
+  font: inherit; font-size: calc(12.5px * var(--mmc-type)); cursor: pointer; white-space: nowrap;
+}
+.mmc-seed-way:hover { color: var(--mmc-text); }
+.mmc-seed-way[aria-checked="true"] { background: var(--mmc-surface-3); color: var(--mmc-strong); }
+
 /* Dim on "fixed" — the default, and the state where nothing happens to the seed
    between queues. The three that do move it read at full strength. */
 .mmc-seed-mode { font-size: calc(11px * var(--mmc-type)); padding: 0 8px 0 4px; color: var(--mmc-off); }

@@ -176,6 +176,25 @@ sent = json.loads(queue.queue[-1][2]["1"]["inputs"]["job"])
 check("the job's kind is the caller's", sent["kind"], "refine")
 check("and the body keeps its own", sent["body"]["kind"], "segment")
 
+# ---- a prompt that is not a job ---------------------------------------------
+#
+# A `ContinuityJob` is not the only one-node prompt this pack queues without a
+# node on the canvas: the chat room renders by building a PreStage or a Creator
+# around the blob it is holding, which is an ordinary render that saves an
+# ordinary file. So the four steps — mint, validate, queue, hand the id back —
+# are their own function and `submit` is the envelope on top of it.
+
+execution.validate_prompt = _validates
+render = {"1": {"class_type": "MiniMaxH3PreStage",
+                "inputs": {"prestage_data": "{}", "seed": 7, "steps": 52}}}
+prompt_id = asyncio.run(jobs.enqueue(render, "tab-9"))
+number, queued_id, queued, extra, outputs, sensitive = queue.queue[-1]
+check("a prompt that is nobody's job still queues", queued_id, prompt_id)
+check("as the node the caller built, not as a job envelope", queued, render)
+check("addressed to the tab that asked for it", extra["client_id"], "tab-9")
+check("and validated first, like anything else on this queue",
+      _validates.saw[1], render)
+
 # A validator that refuses is a bug in this pack rather than something the
 # person pressing can act on, and it must not reach the queue.
 async def _refuses(prompt_id, prompt, targets):
