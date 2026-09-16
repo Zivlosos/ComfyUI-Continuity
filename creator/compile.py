@@ -100,6 +100,17 @@ UPSCALE_MODES = ("two_pass", "direct", "redetail")
 DEFAULT_REFINE_DENOISE = 0.5
 MIN_REFINE_DENOISE = 0.1
 MAX_REFINE_DENOISE = 0.9
+# What draws the first pass's picture up to the target before the refine.
+# "bicubic" is the road every two-pass render took; "trained" is the family's
+# latent upscaler, a file the piece picks under weights (H3's `upscaler` slot).
+# The frontend applies the measured recipe when the switch is thrown — 0.3 and
+# 3 steps for the trained net — but the numbers are the blob's, not implied.
+REFINE_UPSCALERS = ("bicubic", "trained")
+DEFAULT_REFINE_UPSCALER = "bicubic"
+# Steps the refine runs at the target; 0 is the sampler's own count, which
+# with `denoise` under 1 means the whole count again over the lower schedule.
+DEFAULT_REFINE_STEPS = 0
+MAX_REFINE_STEPS = 200
 
 # How far the seam restore re-noises the frames a continued shot inherits. 0 is
 # off, and the default: the pass in front hands over its tail exactly as it
@@ -302,6 +313,11 @@ class Refine:
     width: int
     height: int
     denoise: float
+    # See `REFINE_UPSCALERS` and `DEFAULT_REFINE_STEPS`. Both read by H3's
+    # `emit_refine`; LTX's second stage is its own trained upscaler on a
+    # fixed schedule and reads neither.
+    upscaler: str = DEFAULT_REFINE_UPSCALER
+    steps: int = DEFAULT_REFINE_STEPS
 
 
 @dataclass(frozen=True)
@@ -1201,6 +1217,28 @@ def refine_denoise(raw):
     return min(MAX_REFINE_DENOISE, max(MIN_REFINE_DENOISE, value))
 
 
+def refine_upscaler(raw):
+    """The blob's `refine_upscaler`, defaulted. Whether "trained" has a file
+    behind it is the family's to check, where the weights are (`emit_refine`)."""
+    if raw is None:
+        return DEFAULT_REFINE_UPSCALER
+    if raw not in REFINE_UPSCALERS:
+        raise CompileError(f"refine_upscaler must be one of {', '.join(REFINE_UPSCALERS)} "
+                           f"(got {raw!r})")
+    return raw
+
+
+def refine_steps(raw):
+    """The blob's `refine_steps`, defaulted and clamped; 0 is the sampler's count."""
+    if raw is None:
+        return DEFAULT_REFINE_STEPS
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        raise CompileError(f"refine_steps must be a whole number (got {raw!r})")
+    return min(MAX_REFINE_STEPS, max(0, value))
+
+
 def seam_restore_denoise(raw):
     """A segment's `seam_restore`, clamped -> the denoise, or 0.0 for off."""
     if raw is None or raw is False:
@@ -1878,7 +1916,9 @@ def compile_request(data, image_size_lookup=None, continues=False, canvas_spec=N
     if two_pass:
         target = canvas.resolve_canvas(ratio, short_edge, rules)
         if target != (width, height):
-            refine = Refine(*target, denoise=refine_denoise(data.get("refine_denoise")))
+            refine = Refine(*target, denoise=refine_denoise(data.get("refine_denoise")),
+                            upscaler=refine_upscaler(data.get("refine_upscaler")),
+                            steps=refine_steps(data.get("refine_steps")))
 
     # The re-detail pass takes the canvas as sampled and doubles it. No ratio to
     # re-resolve and no snapping: doubling a canvas already on the /32 grid puts
@@ -2776,7 +2816,8 @@ def _inject_pool(pool, request, extra_texts=(), cast=()):
 # architectures does not mean re-picking six files and re-dialling a row each
 # way — and nothing on this side ever reads either.
 PIECE_FIELDS = ("family", "aspect", "aspect_source", "short_edge", "upscale",
-                "sample_edge", "refine_denoise", "face", "models",
+                "sample_edge", "refine_denoise", "refine_upscaler", "refine_steps",
+                "face", "models",
                 "models_spare", "upscale_models", "turbo",
                 "output_prefix", "subjects", "sampling", "sampling_spare")
 
@@ -3547,7 +3588,8 @@ def _chained_request(data, segment, pool, global_prompt, cast=()):
     request["aspect"] = data.get("aspect", "16:9")
     request["short_edge"] = data.get("short_edge", rules_of(data).native_short_edge)
     # The two-pass choice travels with the canvas it is a property of.
-    for key in ("upscale", "sample_edge", "refine_denoise"):
+    for key in ("upscale", "sample_edge", "refine_denoise", "refine_upscaler",
+                "refine_steps"):
         request.pop(key, None)
         if key in data:
             request[key] = data[key]
@@ -3975,7 +4017,8 @@ def group_payload(data, start=0, end=None):
         **({"aspect_source": merged_aspect_source} if merged_aspect_source else {}),
         "short_edge": data.get("short_edge", rules_of(data).native_short_edge),
         # The two-pass choice is the timeline's, like the canvas it belongs to.
-        **{key: data[key] for key in ("upscale", "sample_edge", "refine_denoise") if key in data},
+        **{key: data[key] for key in ("upscale", "sample_edge", "refine_denoise",
+                                      "refine_upscaler", "refine_steps") if key in data},
         # The unblended sound seam's tail is the timeline's setting, the same
         # one `_chained_request` writes; a merged pass used to fall back to the
         # default on its own seam (issue #47).

@@ -1548,6 +1548,18 @@ check("refine_denoise clamps rather than raising",
       (compiler.MAX_REFINE_DENOISE, compiler.MIN_REFINE_DENOISE))
 expect_error("a non-number refine_denoise",
              lambda: build(short_edge=1152, refine_denoise="lots"), "refine_denoise")
+check("the refine's upscaler and steps default to bicubic and the sampler's count",
+      (build(short_edge=1152).refine.upscaler, build(short_edge=1152).refine.steps),
+      ("bicubic", 0))
+check("...and carry what the blob says, clamped",
+      (build(short_edge=1152, refine_upscaler="trained", refine_steps=3).refine.upscaler,
+       build(short_edge=1152, refine_steps=-2).refine.steps,
+       build(short_edge=1152, refine_steps=999).refine.steps),
+      ("trained", 0, 200))
+expect_error("an unknown refine_upscaler",
+             lambda: build(short_edge=1152, refine_upscaler="lanczos"), "refine_upscaler")
+expect_error("a non-number refine_steps",
+             lambda: build(short_edge=1152, refine_steps="few"), "refine_steps")
 
 # The first pass can also sit under native — `sample_edge` lowers it, native
 # stays both the default and the ceiling, and the target can be anywhere above.

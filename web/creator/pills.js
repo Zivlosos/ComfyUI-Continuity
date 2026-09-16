@@ -9,6 +9,8 @@ import { el, icon, dismissable, placeNear } from "./dom.js";
 import { t } from "./i18n.js";
 import { rulesFor } from "./canvas.js";
 import { UPSCALE_MODES, DEFAULT_REFINE_DENOISE, MIN_REFINE_DENOISE, MAX_REFINE_DENOISE,
+         DEFAULT_REFINE_UPSCALER, DEFAULT_REFINE_STEPS, MAX_REFINE_STEPS,
+         TRAINED_REFINE, BICUBIC_REFINE,
          twoPass, sampleEdge, emptyFace, isClip, pieceFamily, refineOf,
          redetailTarget, capabilityOf,
          MIN_FACE_CANVAS, MAX_FACE_CANVAS,
@@ -800,6 +802,45 @@ export function openResolutionPopover(anchor, target, geometry, commit) {
       ]));
     }
     if (twoPass(target)) {
+      // What draws the first pass up, on the family that has a choice. LTX's
+      // second stage *is* its trained upscaler (`factor`), so the row is H3's
+      // alone. The trained half is an offer until a file is picked under
+      // weights, and the row says where. Throwing the switch applies the
+      // measured recipe to the two knobs under it — the switch is the one
+      // place a user meets those numbers, and a net at bicubic's 0.5 buys
+      // nothing, which the lab showed before this row existed.
+      if (!factor) {
+        const picked = Boolean(target.models?.upscaler);
+        const trained = target.refine_upscaler === "trained";
+        const choose = (which) => {
+          if ((which === "trained") === trained) return;
+          target.refine_upscaler = which;
+          Object.assign(target, which === "trained" ? TRAINED_REFINE : BICUBIC_REFINE);
+          body.repaint(); commit();
+        };
+        rows.push(el("div", { class: "mmc-refine-row" }, [
+          el("span", { class: "mmc-refine-label", text: t("drawn up by") }),
+          el("div", { class: "mmc-aspect-flip mmc-refine-flip" }, [
+            el("button", { class: "mmc-flip-opt", text: t("bicubic"),
+                           "aria-pressed": String(!trained),
+                           title: t("Interpolation. The second pass invents every detail "
+                                  + "from a blurred picture, so it needs a deep re-noise."),
+                           onclick: () => choose("bicubic") }),
+            el("button", { class: "mmc-flip-opt", text: t("trained"),
+                           "aria-pressed": String(trained), disabled: !picked,
+                           title: picked
+                             ? t("The latent upscaler picked under weights draws the "
+                               + "picture up. Holds faces at a light re-noise and needs "
+                               + "few steps — measured at 0.30 and 3.")
+                             : t("Pick a latent upscaler under weights first."),
+                           onclick: () => choose("trained") }),
+          ]),
+        ]));
+        if (!picked) {
+          rows.push(el("div", { class: "mmc-twopass-hint",
+                               text: t("no latent upscaler under weights") }));
+        }
+      }
       rows.push(el("div", { class: "mmc-refine-row" }, [
         el("span", { class: "mmc-refine-label", text: t("refine") }),
         stepperPill({
@@ -815,6 +856,24 @@ export function openResolutionPopover(anchor, target, geometry, commit) {
           onChange: (next) => { target.refine_denoise = next; body.repaint(); commit(); },
         }),
       ]));
+      if (!factor) {
+        // The refine's own step count. "all" is the sampler's count run again
+        // over the lower schedule, which is what every two-pass render did
+        // before the dial existed; a small number is the short tail the
+        // trained net makes possible.
+        rows.push(el("div", { class: "mmc-refine-row" }, [
+          el("span", { class: "mmc-refine-label", text: t("steps") }),
+          stepperPill({
+            value: Number(target.refine_steps ?? DEFAULT_REFINE_STEPS),
+            min: 0, max: MAX_REFINE_STEPS, step: 1, width: "40px",
+            title: t("Steps the second pass runs at the target. 'all' is the sampler's "
+                   + "count again; a short tail is faster and, through the trained "
+                   + "upscaler, just as clean."),
+            format: (n) => (n === 0 ? t("all") : String(n)),
+            onChange: (next) => { target.refine_steps = next; body.repaint(); commit(); },
+          }),
+        ]));
+      }
     }
     section.className = rows.length ? "mmc-twopass" : "";
     section.replaceChildren(...rows);
@@ -853,8 +912,11 @@ export function openResolutionPopover(anchor, target, geometry, commit) {
             ? t("Sampled at {edge} px, then the ×{factor} latent upscaler takes it to {target} px.",
                 { edge: sampleEdge(target), factor,
                   target: secondPass(sampleEdge(target)) })
-            : t("Sampled at {edge} px, then a second pass refines up to this size.",
-                { edge: sampleEdge(target) }),
+            : target.refine_upscaler === "trained"
+              ? t("Sampled at {edge} px, drawn up by the trained upscaler, then refined at this size.",
+                  { edge: sampleEdge(target) })
+              : t("Sampled at {edge} px, then a second pass refines up to this size.",
+                  { edge: sampleEdge(target) }),
         };
       }
       return {
