@@ -2047,6 +2047,7 @@ export class CreatorEditor {
     const joiner = current && !/\s$/.test(current) ? " " : "";
     this.state.prompt = `${current}${joiner}@${handle} `;
     this.prompt.setValue(this.state.prompt);
+    this.liveCited([handle]);
     this.commit();
   }
 

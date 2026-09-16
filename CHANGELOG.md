@@ -6,6 +6,20 @@ exactly as it was written, wall of text and all.
 
 ## Unreleased
 
+**Re-inserting a reference name restores its file, and muted cast files look
+muted (#88).** Deleting the last mention could mute a reference, but putting
+it back through the prompt menu or the cast shelf's citation button did not
+call the reactivation hook. The sentence then named a file the render would
+not receive. These paths now use the same capacity-checked reactivation as
+paste and undo, for images, clips, audio and cast-owned files, and by the same
+rule: only a name the box did not hold a moment ago, so a file muted in the
+row beside a name still written stays muted. Muted cast tiles are dimmed and
+badged. A cited member whose last source is missing, muted or never attached
+can no longer compile to `<Subject 1> is .` on untouched face/hair retention
+rows alone; typed words, surviving files and worded LoRAs still define them,
+and a member nobody cites costs no shot anything. Loading a workflow preserves
+saved mute choices, and a shot does not change shared pool mute choices.
+
 **The reference row and the compiler agree about what a shot sends (#91,
 #92).** Which files a shot carries was being worked out in three places that
 had drifted apart, and the reports were the gaps between them. The compiler

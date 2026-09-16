@@ -357,9 +357,12 @@ export class PromptBox {
    *   redesign takes a reference or a cast member out of a shot, so the host has
    *   to hear about it — see `CreatorEditor.dropCited`.
    * @param {(handles:string[])=>void} [hooks.onCited]  chips that are in the box
-   *   now and were not a keystroke ago. The other half of `onUncited`: deleting
-   *   a mention mutes the reference, so writing one back has to bring it live
-   *   again — see `CreatorEditor.liveCited`.
+   *   now and were not a keystroke ago — typed, pasted, undone or picked from
+   *   the menu. The other half of `onUncited`: deleting a mention mutes the
+   *   reference, so writing one back has to bring it live again — see
+   *   `CreatorEditor.liveCited`. A name already in the box is not reported
+   *   again: its file muted while it stands written is the row's own mute
+   *   button, and a second mention is not a request to undo that.
    */
   constructor(hooks) {
     this.hooks = hooks;
@@ -1417,11 +1420,16 @@ export class PromptBox {
    *  rebuilt out from under the measurement — the name goes on the end, which is
    *  what every other "write their name in for me" in this pack does. */
   writeName(before, spot, handle) {
+    // `setValue` takes a census for a restored document and reports nothing,
+    // so the citation is reported here — the same "was not chipped a keystroke
+    // ago" rule `onEdit` applies, read before the box is rebuilt.
+    const fresh = !this.chipped.has(handle);
     const text = spot
       ? `${before.slice(0, spot.at)}@${handle} ${before.slice(spot.at + spot.length)}`
       : `${before}${before && !/\s$/.test(before) ? " " : ""}@${handle} `;
     this.setValue(text);
     this.hooks.onInput(text);
+    if (fresh) this.hooks.onCited?.([handle]);
     this.placeCaret((spot ? spot.at : text.length - handle.length - 2) + handle.length + 2);
   }
 
@@ -1464,6 +1472,9 @@ export class PromptBox {
 
   /** Swap the typed "@query" for a chip, followed by a space. */
   insertChip(handle) {
+    // Reported to the host below by the same rule as `onEdit`: a chip the box
+    // did not hold a moment ago is the reference asking to be sent again.
+    const fresh = !this.chipped.has(handle);
     const trigger = this.triggerRange();
     const selection = window.getSelection();
     const range = document.createRange();
@@ -1479,6 +1490,7 @@ export class PromptBox {
       this.root.appendChild(document.createTextNode(" "));
       this.censusChips();
       this.hooks.onInput(this.getValue());
+      if (fresh) this.hooks.onCited?.([handle]);
       return;
     }
     const chip = this.chip(handle);
@@ -1492,6 +1504,7 @@ export class PromptBox {
     selection.addRange(after);
     this.censusChips();
     this.hooks.onInput(this.getValue());
+    if (fresh) this.hooks.onCited?.([handle]);
   }
 
   // ---- suggestion menu -----------------------------------------------------

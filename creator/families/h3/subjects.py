@@ -350,6 +350,12 @@ def parse(raw):
         # made of nothing but that still defines something, and the word is
         # what the definition line says (`definitions`). A LoRA with no word
         # is weights the prompt cannot reach for, and defines nobody.
+        #
+        # Untouched seeded rows count here. `parse` runs over the whole cast,
+        # cited or not, and a member the moment they are cast is nothing but
+        # those rows — refusing them would stop every shot in the piece until a
+        # picture was attached. Whether the rows *define* anybody is asked of
+        # the cited cast only, in `here`.
         worded = any(str(w).strip() for entry in loras for w in (entry.get("triggers") or ()))
         if not sources and not motion and not replaces and not description \
                 and not features and not worded:
@@ -575,9 +581,15 @@ def here(cast, assets):
     is wanted — is a mistake about the member rather than about this shot, and
     `check` still says so.
 
-    A member trimmed down to nothing is refused by name: `parse` already holds
-    that a subject needs something behind it, and one whose whole account was
-    the picture that just went is a `<Subject N>` standing for nothing here.
+    A member with nothing behind them *here* is refused by name. `parse` let
+    them through — a member is nothing but seeded rows the moment they are
+    cast, and an uncited one costs no shot anything — but `here` runs on the
+    cited cast, and a `<Subject N>` in this shot's prompt has to stand for
+    something. Seeded rows such as "face" and "hair" say what to retain from a
+    file, not what somebody looks like without one, so they do not count
+    (`_described`); counting them wrote `<Subject 1> is .` once the last
+    picture was muted or was never attached. Words on a row, a description, a
+    worded LoRA or somebody to stand in for all do.
     """
     present = {a.handle for a in assets}
     out = []
@@ -586,25 +598,25 @@ def here(cast, assets):
         motion = tuple(h for h in subject.motion if h in present)
         voice = subject.voice if subject.voice in present else None
         replaces = tuple(h for h in subject.replaces if h in present)
+        if not keep and not motion and not replaces and not subject.description \
+                and not _described(subject.features) and not subject.lora_words:
+            raise SubjectError(
+                f"@{subject.handle} walks on here, and their reference files "
+                f"are not attached to this shot — enable or attach one of "
+                f"them again, or describe what they look like, or take the name "
+                f"out of this shot's prompt"
+            )
         if (len(keep) == len(subject.sources) and motion == subject.motion
                 and voice == subject.voice and replaces == subject.replaces):
             out.append(subject)
             continue
-        if not keep and not motion and not replaces and not subject.description \
-                and not subject.features:
-            raise SubjectError(
-                f"@{subject.handle} walks on here, and the pictures they are "
-                f"built out of are not attached to this shot — attach one of "
-                f"them again, or describe what they look like, or take the name "
-                f"out of this shot's prompt"
-            )
         out.append(Subject(
             handle=subject.handle, sources=keep, takes=subject.takes,
             description=subject.description, features=subject.features,
             motion=motion, voice=voice, replaces=replaces,
             replaces_what=subject.replaces_what if replaces else "",
             marker=subject.marker, seeded=subject.seeded,
-            notes=subject.notes, triggers=subject.triggers))
+            notes=subject.notes, triggers=subject.triggers, loras=subject.loras))
     return out
 
 

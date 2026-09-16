@@ -86,6 +86,13 @@ expect_error("a subject with nothing behind it at all is refused",
 expect_error("a description of only whitespace is nothing behind it",
              lambda: subjects.parse([{"handle": "anna", "description": "   "}]),
              "needs something behind it")
+# A member the moment they are cast: no file, nothing typed, the seeded rows
+# only. `parse` runs over the whole cast, so refusing this would refuse every
+# shot in the piece; whether the rows define anybody is `here`'s question.
+check("a freshly cast member parses on their seeded rows alone",
+      [f.attr for f in subjects.parse([{"handle": "anna", "seeded": True,
+          "features": [{"attr": "face"}, {"attr": "hair"}]}])[0].features],
+      ["face", "hair"])
 
 # A cast in a generation with no references in it. There is no picture to point
 # at in T2VA, so the description is the whole of what the label can mean — and
@@ -386,6 +393,47 @@ expect_error("a cited subject whose files are all missing is refused",
                  "@anna walks in.", [image("img-1")],
                  [{"handle": "anna", "from": ["img-9"]}])),
              "not attached to this shot")
+
+# The shelf seeds retention rows for every kind of cast member. Those rows do
+# not replace a missing picture: without typed words they never enter the
+# definition, which previously let a muted file yield "<Subject 1> is .".
+# Nor one never attached: a member cited straight off "+ cast" is the same
+# empty label.
+for _takes, _attr in (("person", "face"), ("object", "form"),
+                      ("scene", "environment"), ("style", "palette")):
+    for _from, _sources in (([], []), (["img-9"], []),
+                            (["img-9"], [image("img-9", enabled=False)])):
+        expect_error(f"{_takes} seeded rows cannot hide a missing or muted last source",
+                     lambda: compiler.compile_request(request(
+                         "@reference is shown.", [image("img-1"), *_sources],
+                         [{"handle": "reference", "takes": _takes,
+                           "from": _from, "seeded": True,
+                           "features": [{"attr": _attr}]}])),
+                     "enable or attach")
+
+# ...but only in the shot that cites them. An empty member on the shelf is not
+# in this sentence, and a shot without them compiles as it always did.
+_bystander = compiler.compile_request(request(
+    "an empty room.", [],
+    [{"handle": "anna", "from": [], "takes": "person", "seeded": True,
+      "features": [{"attr": a} for a in ("face", "hair", "build", "clothing")]}]))
+check("an uncited empty member does not block an unrelated shot",
+      "Subject" in _bystander.prompt, False)
+
+_surviving = compiler.compile_request(request(
+    "@anna walks in.", [image("img-1"), image("img-2", enabled=False)],
+    [{"handle": "anna", "from": ["img-1", "img-2"], "seeded": True,
+      "features": [{"attr": "face"}, {"attr": "hair"}]}]))
+check("a surviving picture still defines a seeded cast member",
+      "<Subject 1> is the person in <Picture 1>." in _surviving.prompt, True)
+
+_described_row = compiler.compile_request(request(
+    "@anna walks in.", [image("img-1", enabled=False)],
+    [{"handle": "anna", "from": ["img-1"], "seeded": True,
+      "features": [{"attr": "face"}, {"attr": "hair", "is": "long dark hair"}]}]))
+check("a genuinely described row survives the loss of its source",
+      "<Subject 1> is the person, long dark hair." in _described_row.prompt, True)
+
 expect_error("a subject cannot be built out of a keyframe",
              lambda: compiler.compile_request(request(
                  "@anna walks in.",
