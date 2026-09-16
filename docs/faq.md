@@ -75,7 +75,8 @@ which is what this pack is tested against.
 
 By design. H3's 32B encoder is truncated to its hidden states and has no head
 to decode text with. Use a Qwen3-VL 4B or 8B (the Krea 2 and Ideogram
-encoders are exactly that), or point the refiner at a server.
+encoders are exactly that), any Qwen3.5 text encoder, or point the refiner at
+a server.
 
 ### My 6-second H3 video is 5.9 or 6.1 seconds
 

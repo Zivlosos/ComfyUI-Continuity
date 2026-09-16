@@ -999,7 +999,7 @@ async def refine_prompt(request):
                 "refiner's settings."
             }, status=400)
         return web.json_response({"error":
-            "No text encoder chosen. Put a Qwen3-VL 4B or 8B text encoder in "
+            "No text encoder chosen. Put a Qwen3-VL or Qwen3.5 text encoder in "
             "models/text_encoders and pick it in the refiner's settings."
         }, status=400)
 

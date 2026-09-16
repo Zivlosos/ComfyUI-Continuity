@@ -48,10 +48,16 @@ TOP_P = 0.95
 MIN_P = 0.05
 REPETITION_PENALTY = 1.05
 
-# The two ComfyUI loads standalone with their language head intact. The 32B is
-# named here as well so picking it produces the real reason rather than
-# `KeyError`.
-SUPPORTED = ("qwen3vl_4b", "qwen3vl_8b")
+# The kinds ComfyUI loads standalone with a way back to vocabulary and that
+# speak the ChatML `refine.chatml` writes: Qwen3-VL's two sizes, and the Qwen3.5
+# family, which core generates from through the same `BaseGenerate` (the 9B and
+# 27B carry an `lm_head`; the smaller three decode through their tied
+# embeddings, as core's own TextGenerate node does). Smallest first: this is
+# also `chat._local_refiner`'s order of preference. Gemma and the T5s generate
+# or do not, but neither reads this chat format, so neither is here. The 32B is
+# named as well so picking it produces the real reason rather than `KeyError`.
+SUPPORTED = ("qwen3vl_4b", "qwen3vl_8b",
+             "qwen35_08b", "qwen35_2b", "qwen35_4b", "qwen35_9b", "qwen35_27b")
 TRUNCATED = "qwen3vl_32b"
 
 
@@ -85,13 +91,14 @@ def _check(clip, name):
         raise refine.RefineError(
             f"'{name}' is H3's own conditioning encoder — Qwen3-VL-32B truncated to "
             f"50 of its 64 layers, with no final norm and no language head. It has "
-            f"nothing to decode text with. Load a separate Qwen3-VL 4B or 8B text "
+            f"nothing to decode text with. Load a separate Qwen3-VL or Qwen3.5 text "
             f"encoder for the refiner."
         )
     if kind not in SUPPORTED:
         raise refine.RefineError(
             f"'{name}' loads as {kind or 'an unrecognised text encoder'}. The refiner "
-            f"writes Qwen's chat format, so it needs a Qwen3-VL 4B or 8B text encoder."
+            f"writes Qwen's chat format, so it needs a Qwen3-VL (4B, 8B) or Qwen3.5 "
+            f"(0.8B to 27B) text encoder."
         )
 
     # A model consumed as a mid-network tap is truncated the same way H3's is,

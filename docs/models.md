@@ -168,7 +168,8 @@ Matte tracing need.
 ## The Refine button
 
 Any Qwen3-VL 4B or 8B in `text_encoders`, for example
-`qwen3vl_4b_bf16.safetensors`. If you already have Krea 2 or Ideogram 4.0
+`qwen3vl_4b_bf16.safetensors`, or any Qwen3.5 (0.8B to 27B) that ComfyUI
+loads as a text encoder. If you already have Krea 2 or Ideogram 4.0
 installed, you're done: their text encoders are those exact files.
 
 H3's own 32B encoder is not a candidate. It is truncated and has no head to

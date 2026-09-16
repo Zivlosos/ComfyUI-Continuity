@@ -413,7 +413,7 @@ def _no_model(block):
             "refiner's settings."
         }, status=400)
     return web.json_response({"error":
-        "No text encoder chosen. Put a Qwen3-VL 4B or 8B text encoder in "
+        "No text encoder chosen. Put a Qwen3-VL or Qwen3.5 text encoder in "
         "models/text_encoders and pick it in the refiner's settings."
     }, status=400)
 
@@ -680,9 +680,9 @@ async def chat_turn(request):
 def _local_refiner(names):
     """The text encoder the room would think with, out of the folder listing.
 
-    The two ComfyUI loads with a language head are named in
-    `refine_local.SUPPORTED`; a file whose name says one of them is the answer,
-    smallest first, because the room's turn is a queue slot on the card the
+    The kinds ComfyUI can generate from are named in `refine_local.SUPPORTED`,
+    smallest first; a file whose name says one of them is the answer, in that
+    order, because the room's turn is a queue slot on the card the
     render wants. Nothing recognised means the person is offered the list.
     """
     for wanted in refine_local.SUPPORTED:
