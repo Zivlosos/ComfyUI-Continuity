@@ -47,6 +47,15 @@ carries `minimax_h3_lms_v1.0_r64.safetensors` (a sharpener) and
 `minimax_h3_style_transfer_v1.0_r64.safetensors` under `loras/`; both go in
 `models/loras` and both were trained against Ref2VA.
 
+Optional: a **trained latent upscaler** for the resolution pill's two passes.
+LBH-123-AI's
+[Minimax_h3_latent_Upscaler](https://huggingface.co/LBH-123-AI/Minimax_h3_latent_Upscaler)
+(`minimax_h3_latent_upscaler_3d_fp16.safetensors`, 691 MB) goes in
+`models/latent_upscale_models`. Pick it under the node's weights control, then
+switch the resolution popover's *drawn up by* to **trained**: the refine pass
+draws the first pass up with it instead of bicubic, and holds a face at a
+lighter refine (0.30, 3 steps) than bicubic can. Nothing changes without it.
+
 Optional: a **VDN-H3 stage** for the sampler row's VDN pill. A stage is a
 directory, not a file, and it goes under `models/vdn/` with its layout intact
 (`model_spec.json`, `linear_branch/`, `adapters/`). The bf16 release is

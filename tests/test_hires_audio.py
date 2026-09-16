@@ -25,7 +25,7 @@ try:
     import torch
 
     import layout
-    hires = layout.load("hires").hires
+    hires = layout.load("latentup", "hires").hires
     import comfy.nested_tensor
 except Exception as exc:  # noqa: BLE001
     print(f"skipped: ComfyUI not importable ({type(exc).__name__}: {exc})")

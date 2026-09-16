@@ -1319,6 +1319,19 @@ export const UPSCALE_MODES = ["two_pass", "direct", "redetail"];
 export const DEFAULT_REFINE_DENOISE = 0.5;
 export const MIN_REFINE_DENOISE = 0.1;
 export const MAX_REFINE_DENOISE = 0.9;
+/** What draws the first pass up before the refine: bicubic, or the family's
+ *  trained latent upscaler (a file picked under weights). Mirrors
+ *  `compile.REFINE_UPSCALERS`. The recipe the switch applies when thrown to
+ *  "trained" — 0.3 and 3 steps — is what the lab measured on 2026-09-16: the
+ *  net holds a face at that denoise where bicubic smears it, at a third of
+ *  the refine's cost. Values, not defaults: the blob carries them. */
+export const REFINE_UPSCALERS = ["bicubic", "trained"];
+export const DEFAULT_REFINE_UPSCALER = REFINE_UPSCALERS[0];
+export const TRAINED_REFINE = { refine_denoise: 0.3, refine_steps: 3 };
+export const BICUBIC_REFINE = { refine_denoise: DEFAULT_REFINE_DENOISE, refine_steps: 0 };
+/** Steps the refine runs at the target; 0 is the sampler's own count. */
+export const DEFAULT_REFINE_STEPS = 0;
+export const MAX_REFINE_STEPS = 200;
 
 /** `rules` rather than the default family's constants: "native" is where a
  *  family's weights were trained, and the two this pack ships were trained at
@@ -1623,6 +1636,22 @@ const clampRefineDenoise = (value) => {
   if (!Number.isFinite(n)) return DEFAULT_REFINE_DENOISE;
   return Math.min(MAX_REFINE_DENOISE, Math.max(MIN_REFINE_DENOISE, n));
 };
+const parseRefineUpscaler = (value) =>
+  REFINE_UPSCALERS.includes(value) ? value : DEFAULT_REFINE_UPSCALER;
+const clampRefineSteps = (value) => {
+  const n = Math.round(Number(value));
+  if (!Number.isFinite(n)) return DEFAULT_REFINE_STEPS;
+  return Math.min(MAX_REFINE_STEPS, Math.max(0, n));
+};
+/** The two-pass knobs' serialization, absent at their defaults. */
+const serializeRefine = (owner) => ({
+  ...(owner.refine_denoise !== DEFAULT_REFINE_DENOISE
+    ? { refine_denoise: owner.refine_denoise } : {}),
+  ...(owner.refine_upscaler !== DEFAULT_REFINE_UPSCALER
+    ? { refine_upscaler: owner.refine_upscaler } : {}),
+  ...(owner.refine_steps !== DEFAULT_REFINE_STEPS
+    ? { refine_steps: owner.refine_steps } : {}),
+});
 
 /** A fresh generation. `prefix` is where its renders land when the blob does
  *  not say — the video default, or the stills folder for the pre-stage's H3
@@ -1659,6 +1688,8 @@ export function emptyState() {
     upscale: UPSCALE_MODES[0],
     sample_edge: VIDEO_RULES.nativeShortEdge,
     refine_denoise: DEFAULT_REFINE_DENOISE,
+    refine_upscaler: DEFAULT_REFINE_UPSCALER,
+    refine_steps: DEFAULT_REFINE_STEPS,
     // The face pass, off until asked for. Owned wherever the canvas is owned.
     face: emptyFace(),
     // The DLSS 5 refiner over the finished frames, off until asked for.
@@ -1749,6 +1780,8 @@ export function parseState(raw) {
       state.sample_edge = clampSampleEdge(state.sample_edge,
                                           rulesFor(pieceFamily(state)));
       state.refine_denoise = clampRefineDenoise(state.refine_denoise);
+      state.refine_upscaler = parseRefineUpscaler(state.refine_upscaler);
+      state.refine_steps = clampRefineSteps(state.refine_steps);
       state.face = parseFace(state.face);
       state.neural = parseNeural(state.neural);
       state.guide_lora = parseGuideLora(state.guide_lora, pieceFamily(state));
@@ -1932,8 +1965,7 @@ export function serializeState(state) {
     ...(state.upscale !== UPSCALE_MODES[0] ? { upscale: state.upscale } : {}),
     ...(state.sample_edge !== rulesFor(pieceFamily(state)).nativeShortEdge
       ? { sample_edge: state.sample_edge } : {}),
-    ...(state.refine_denoise !== DEFAULT_REFINE_DENOISE
-      ? { refine_denoise: state.refine_denoise } : {}),
+    ...serializeRefine(state),
     ...serializeFace(state.face),
     ...serializeNeural(state.neural),
     ...serializeGuideLora(state.guide_lora),
@@ -2329,6 +2361,8 @@ export function emptyTimeline() {
     upscale: UPSCALE_MODES[0],
     sample_edge: VIDEO_RULES.nativeShortEdge,
     refine_denoise: DEFAULT_REFINE_DENOISE,
+    refine_upscaler: DEFAULT_REFINE_UPSCALER,
+    refine_steps: DEFAULT_REFINE_STEPS,
     // The face pass, off until asked for. One answer for the whole piece; a
     // card may still opt out of it.
     face: emptyFace(),
@@ -2946,6 +2980,8 @@ function syncCanvas(timeline) {
     segment.upscale = timeline.upscale;
     segment.sample_edge = timeline.sample_edge;
     segment.refine_denoise = timeline.refine_denoise;
+    segment.refine_upscaler = timeline.refine_upscaler;
+    segment.refine_steps = timeline.refine_steps;
     // The face pass is *not* mirrored down: a segment's `face` key is its own
     // switch, not a copy of the piece's settings. What is cleaned up here is a
     // card left saying "on" after the piece was switched off — compile refuses
@@ -3178,7 +3214,8 @@ export { syncCanvas as syncTimeline };
  * Mirrors `compile.PIECE_FIELDS`.
  */
 export const PIECE_FIELDS = ["family", "aspect", "aspect_source", "short_edge",
-                             "upscale", "sample_edge", "refine_denoise", "face",
+                             "upscale", "sample_edge", "refine_denoise",
+                             "refine_upscaler", "refine_steps", "face",
                              "models", "models_spare", "upscale_models", "turbo",
                              "output_prefix", "subjects", "sampling",
                              "sampling_spare"];
@@ -3278,6 +3315,8 @@ export function parseTimeline(raw) {
       timeline.sample_edge = clampSampleEdge(timeline.sample_edge,
                                              rulesFor(pieceFamily(timeline)));
       timeline.refine_denoise = clampRefineDenoise(timeline.refine_denoise);
+      timeline.refine_upscaler = parseRefineUpscaler(timeline.refine_upscaler);
+      timeline.refine_steps = clampRefineSteps(timeline.refine_steps);
       timeline.face = parseFace(timeline.face);
       timeline.neural = parseNeural(timeline.neural);
       timeline.guide_lora = parseGuideLora(timeline.guide_lora, pieceFamily(timeline));
@@ -3440,8 +3479,7 @@ export function serializeTimeline(timeline) {
     ...(timeline.upscale !== UPSCALE_MODES[0] ? { upscale: timeline.upscale } : {}),
     ...(timeline.sample_edge !== rulesFor(pieceFamily(timeline)).nativeShortEdge
       ? { sample_edge: timeline.sample_edge } : {}),
-    ...(timeline.refine_denoise !== DEFAULT_REFINE_DENOISE
-      ? { refine_denoise: timeline.refine_denoise } : {}),
+    ...serializeRefine(timeline),
     ...serializeFace(timeline.face),
     ...serializeNeural(timeline.neural),
     ...serializeGuideLora(timeline.guide_lora),

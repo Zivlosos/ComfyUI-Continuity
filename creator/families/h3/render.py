@@ -737,14 +737,32 @@ class H3(base.Family):
         refine_against = graph.node(
             "ConditioningZeroOut", conditioning=second.out(1)).out(0)
         refine_model = patched(graph, second.out(0), sampling, acceleration, weights)
+        # The trained upscaler rides as an input only when the piece asks for
+        # it, so a piece on bicubic keeps the cache key it had. Asked here and
+        # not in compile because the file is a weight, and the weights are
+        # here. The step count is the sampler's unless the piece says
+        # otherwise: `refine_steps` is the dial for the split-schedule recipe
+        # (discussion #85), a short tail at the target instead of the whole
+        # step count run again there — measured 2026-09-16: the net at 0.3
+        # and 3 steps holds the face bicubic smears at that denoise.
+        upscaler = ""
+        if compiled.refine.upscaler == "trained":
+            upscaler = weights.get("upscaler") or ""
+            if not upscaler:
+                raise compiler.CompileError(
+                    "This piece refines through the trained latent upscaler and no "
+                    "upscaler has been picked. Choose one under the node's 'weights' "
+                    "control (models/latent_upscale_models), or set the resolution "
+                    "pill's upscaler back to bicubic.")
         return graph.node(
             REFINE_NODE,
             model=refine_model, positive=second.out(1), negative=refine_against,
             latent=latent,
             width=compiled.refine.width, height=compiled.refine.height,
-            seed=seed, steps=sampling.steps, cfg=sampling.cfg,
+            seed=seed, steps=compiled.refine.steps or sampling.steps, cfg=sampling.cfg,
             sampler_name=sampling.sampler_name, scheduler=sampling.scheduler,
             denoise=compiled.refine.denoise,
+            **({"upscaler": upscaler} if upscaler else {}),
         ).out(0)
 
     def face_payload(self, payload, face):

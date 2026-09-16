@@ -162,6 +162,7 @@ This pack is glue. The work underneath it belongs to other people:
 - [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF) by city96 - loads the `.gguf` files the weights popover offers
 - [ComfyUI#15416](https://github.com/Comfy-Org/ComfyUI/issues/15416) by matlowai - the fix behind H3 single-frame stills
 - [ComfyUI-MiniMaxH3_LatentUpscaler](https://github.com/Tr1dae/ComfyUI-MiniMaxH3_LatentUpscaler) by Tr1dae - pioneered the two-pass upscale our refine pass reimplements
+- [Minimax_h3_latent_Upscaler](https://huggingface.co/LBH-123-AI/Minimax_h3_latent_Upscaler) by LBH-123-AI - the trained latent upscaler behind the refine's "trained" road; the network is re-implemented here, the weights are theirs (Apache-2.0)
 - [ComfyUI-H3-FaceRefine](https://github.com/Carasibana/ComfyUI-H3-FaceRefine) by Carasibana, and zuanfilm's graph on it - worked out the face pass ours reimplements
 - [ComfyUI-MAINodes](https://github.com/matlowai/ComfyUI-MAINodes) by matlowai - the Motion Lab de-rope, whose method and measured dials the motion fix reimplements
 - [minimax-h3-style-atlas](https://github.com/hoodtronik/minimax-h3-style-atlas) by hoodtronik, over [minimax_h3_1k](https://huggingface.co/datasets/ostris/minimax_h3_1k) by ostris - the 941 looks on the style tab

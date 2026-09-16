@@ -6,6 +6,21 @@ exactly as it was written, wall of text and all.
 
 ## Unreleased
 
+**A trained latent upscaler for H3's two passes, and the refine's own step
+count (#85).** The second pass used to draw the first pass up by bicubic
+interpolation and re-run the whole step count over the lower half of the
+schedule. The resolution popover now has a *drawn up by* switch: bicubic, or
+LBH-123-AI's trained H3 latent upscaler once a file is picked under weights
+(`models/latent_upscale_models`, a new optional slot). Measured on the lab:
+under the old 0.5 re-noise the net changes nothing, and the community
+recipe's speed comes from its short schedule, not the net; where the net
+earns its place is a light refine — at 0.30 the bicubic road smears the
+latent grid across a face and the net holds it, at 3 steps. Throwing the
+switch applies that recipe; a *steps* dial beside *refine* makes the count
+the piece's on either road, "all" being the sampler's count as before. The
+net is ~700 MB, a few seconds per pass, rides in a `ModelPatcher` beside the
+DiT, and softens fine texture slightly against bicubic-then-redraw.
+
 **Adding a sheet during a render no longer sits on a grey button (#89).**
 Every sheet the picker built went through ComfyUI's queue, so a sheet
 combined while a render was running waited behind it — the picker's Add grey

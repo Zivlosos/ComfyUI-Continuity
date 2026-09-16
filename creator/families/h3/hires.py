@@ -55,13 +55,18 @@ import comfy.utils
 import latent_preview
 from comfy_api.latest import io
 
+from . import latentup
 
-def upscale_video_latent(video, width, height):
-    """The video half, interpolated to the target canvas. [B,C,T,H,W] in and out.
+
+def upscale_video_latent(video, width, height, upscaler=""):
+    """The video half, drawn up to the target canvas. [B,C,T,H,W] in and out.
 
     Bicubic per frame, like a hires-fix: the temporal axis is already right and
-    interpolating across it would smear motion between latent frames.
+    interpolating across it would smear motion between latent frames. Or, with
+    a file named, the trained net — see `latentup`.
     """
+    if upscaler:
+        return latentup.upscale(video, width, height, upscaler)
     batch, channels, frames = video.shape[0], video.shape[1], video.shape[2]
     flat = video.movedim(2, 1).reshape(batch * frames, channels, *video.shape[3:])
     flat = comfy.utils.common_upscale(flat, width // 16, height // 16, "bicubic", "disabled")
@@ -95,18 +100,22 @@ class MiniMaxH3RefinePass(io.ComfyNode):
                 io.Float.Input("denoise", default=0.5, min=0.01, max=0.99, step=0.01,
                     tooltip="How much of the schedule the refinement runs. Strictly under "
                             "1.0: at 1.0 nothing of the first pass survives to refine."),
+                io.String.Input("upscaler", default="", optional=True,
+                    tooltip="A trained H3 latent upscaler under models/latent_upscale_models "
+                            "to draw the picture up with. Empty is bicubic."),
             ],
             outputs=[io.Latent.Output()],
         )
 
     @classmethod
     def execute(cls, model, positive, negative, latent, width, height,
-                seed, steps, cfg, sampler_name, scheduler, denoise) -> io.NodeOutput:
+                seed, steps, cfg, sampler_name, scheduler, denoise,
+                upscaler="") -> io.NodeOutput:
         samples = latent["samples"]
         if not samples.is_nested:
             raise ValueError("expected MiniMax H3's AV latent — a (video, audio) pair")
         video, audio = samples.unbind()
-        video = upscale_video_latent(video, width, height)
+        video = upscale_video_latent(video, width, height, upscaler)
 
         # Noise for the picture, none for the sound. The zeros are not what
         # preserves the audio — the mask below is — but noising a stream the

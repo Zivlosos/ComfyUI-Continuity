@@ -255,6 +255,16 @@ export const css = `
   padding: 4px 10px 0;
 }
 .mmc-refine-label { color: var(--mmc-dim); font-size: calc(12px * var(--mmc-type)); }
+/* The bicubic/trained switch: the aspect popover's flip, held to the width of
+   the steppers beside it so the column of controls lines up. */
+.mmc-refine-flip { flex: 0 0 auto; width: 148px; }
+.mmc-flip-opt:disabled { color: var(--mmc-faint); cursor: default; }
+/* Where the trained half is an offer: one dim line under the switch saying what
+   is missing and where it goes. */
+.mmc-twopass-hint {
+  color: var(--mmc-dim); font-size: calc(11px * var(--mmc-type)); line-height: 1.4;
+  padding: 0 10px 2px; text-align: right;
+}
 
 /* The face-pass popover: the same option rows and knob rows as the two-pass
    section above, plus one line saying what it costs. Fixed width so the note

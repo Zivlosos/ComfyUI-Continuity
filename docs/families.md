@@ -34,7 +34,11 @@ Video with synchronized sound, and stills on the pre-stage.
   picture and doubles the cost.
 - **Above 768 px it renders in two passes** by default: sample at the native
   size, then refine up, rather than going off-distribution directly. The
-  choice lives in the resolution popover.
+  choice lives in the resolution popover, with what draws the first pass up
+  beside it: bicubic, or a trained latent upscaler once one is picked under
+  weights (see [models.md](models.md#minimax-h3-video-with-sound-and-stills)).
+  Switching to the trained one sets the refine to 0.30 and 3 steps, the
+  recipe measured for it; both stay yours to change.
 - **Spoken dialogue** is a first-class feature; see the spoken lines section
   in [the-node.md](the-node.md#spoken-lines).
 - **Turbo** is a distillation LoRA (in the same repo as the weights), driven

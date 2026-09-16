@@ -849,6 +849,31 @@ check("the reel decodes the refined latent, not the first pass's",
       hires_graph[hires_kinds["MiniMaxH3Reel"][0][1]["samples"][0]]["class_type"],
       "MiniMaxH3RefinePass")
 
+# The trained upscaler and the refine's own step count (discussion #85). The
+# file rides as an input only when the piece asks for it, and the steps are
+# the sampler's unless the piece says otherwise — both so a piece on the old
+# road keeps the cache key it had. A picked file alone changes nothing.
+check("no upscaler input on bicubic", "upscaler" in refine_inputs, False)
+picked_only = by_class(build(data=json.dumps(
+    {**json.loads(DATA), "short_edge": 1152,
+     "models": {**MODELS, "upscaler": "h3_up.safetensors"}})).expand)
+check("a picked file alone leaves the refine on bicubic",
+      "upscaler" in picked_only["MiniMaxH3RefinePass"][0][1], False)
+net_kinds = by_class(build(data=json.dumps(
+    {**json.loads(DATA), "short_edge": 1152, "refine_upscaler": "trained",
+     "refine_steps": 3, "refine_denoise": 0.3,
+     "models": {**MODELS, "upscaler": "h3_up.safetensors"}})).expand)
+net_inputs = net_kinds["MiniMaxH3RefinePass"][0][1]
+check("the trained road reaches the refine pass with its file, steps and denoise",
+      (net_inputs["upscaler"], net_inputs["steps"], net_inputs["denoise"]),
+      ("h3_up.safetensors", 3, 0.3))
+check("...and nothing else in the graph loads it",
+      [c for c in net_kinds if "Upscale" in c], [])
+expect_error("the trained road with no file picked",
+             lambda: build(data=json.dumps(
+                 {**json.loads(DATA), "short_edge": 1152, "refine_upscaler": "trained"})),
+             "no upscaler has been picked")
+
 direct_kinds = by_class(build(data=json.dumps(
     {**json.loads(DATA), "short_edge": 1152, "upscale": "direct"})).expand)
 check("direct past native is the old one-pass graph",

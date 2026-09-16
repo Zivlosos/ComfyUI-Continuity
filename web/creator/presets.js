@@ -523,7 +523,7 @@ export function capturePiece(timeline, io) {
   const family = S.pieceFamily(blob);
   return {
     look: pick(blob, ["aspect", "short_edge", "upscale", "sample_edge", "refine_denoise",
-                      "face"]),
+                      "refine_upscaler", "refine_steps", "face"]),
     weights: blob.models ?? {},
     // The family rides with the row, because the row is only meaningful under
     // it: `steps` and `sampler_name` are spelled the same on both video
@@ -1298,7 +1298,7 @@ function lookDefaults(family) {
   const empty = S.emptyTimeline();
   S.setFamily(empty, family);
   return pick(empty, ["aspect", "short_edge", "upscale", "sample_edge", "refine_denoise",
-                      "face"]);
+                      "refine_upscaler", "refine_steps", "face"]);
 }
 
 /** Re-handle a list of assets against what the target already has, so applying
