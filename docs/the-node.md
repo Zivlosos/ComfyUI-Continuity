@@ -133,13 +133,16 @@ wears the ring hollow. The words are kept with the member in the cast
 library and follow a picture onto its RefMod.
 
 A muted file on the cast card has a dimmed thumbnail and a mute badge. Its
-claim stays on the member, but it is not sent to the model. Selecting a file
-or cast name from the prompt menu again restores that shot's muted references,
-subject to the usual reference limits. Merely reopening a saved workflow does
-not turn muted files back on; use the reference row's mute switch to restore a
-shared pool file. If every source of a cited member is unavailable, untouched
-default rows such as face and hair do not count as a description: enable a
-source or give the member an actual description before rendering.
+claim stays on the member, but it is not sent to the model. Deleting the last
+mention of a name mutes what it brought; writing the name back - typed, pasted,
+undone, picked from the prompt menu or pressed on the shelf - brings it live
+again, within the usual reference limits. A name still written whose file is
+muted was muted in the row on purpose, and a second mention leaves it so; the
+row's mute switch is the way back, there and for a shared pool file. Reopening
+a saved workflow changes no mute. If every source of a cited member is
+unavailable, untouched default rows such as face and hair do not count as a
+description: enable a source or give the member an actual description before
+rendering.
 
 A member can also **wear a LoRA**. On the open card, under the tiles, the
 line `wears` holds the LoRAs hung on them - `+ LoRA` opens the LoRA manager

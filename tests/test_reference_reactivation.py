@@ -103,10 +103,12 @@ for (const path of ["insert", "write", "shelf"]) {
   const { state, box, events } = host([file("img-1", "image", { enabled: false })]);
   box.setValue("@img-1 stays attached, but muted.");
   out.reopen = { muted: S.muted(state.assets[0]), events: [...events] };
-  // Selecting a name again is an explicit request even if its old chip was
-  // restored already. No empty-text transition is required to recover it.
+  // Nor is picking that name from the menu again. `enabled: false` beside a
+  // name still written is the row's own mute button, and the menu, the
+  // keyboard and the shelf all report only chips the box did not hold yet.
   box.writeName(state.prompt, null, "img-1");
-  out.savedRecited = !S.muted(state.assets[0]);
+  box.insertChip("img-1");
+  out.savedRecited = { muted: S.muted(state.assets[0]), events: [...events] };
 }
 
 // A card cannot wake the piece's shared pool or a sibling's references.
@@ -143,7 +145,8 @@ for path in ("insert", "write", "shelf"):
                                   "unrelatedMuted": True, "claims": ["img-1"]})
 check("reopening does not silently unmute saved references", result["reopen"],
       {"muted": True, "events": []})
-check("explicit re-citation recovers an already visible saved name", result["savedRecited"], True)
+check("a second mention of a written name leaves a deliberate mute alone",
+      result["savedRecited"], {"muted": True, "events": ["input", "input"]})
 check("a shot leaves shared pool mute decisions alone", result["pool"],
       {"muted": True, "localMuted": True})
 check("re-citation refuses and explains an over-cap reference", result["cap"],
