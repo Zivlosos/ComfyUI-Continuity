@@ -122,6 +122,24 @@ both.segments[1].assets = [image("img-1", "chair.png")];
 S.syncTimeline(both);
 out.both = row(both, 1);
 
+// The shelf's own readout of her picture, when a card cites the *file* and
+// not her. "in shots 1, 2" was read off the shots that write her name alone,
+// so a third card saying `@ref-1` was in the compile and off the shelf.
+{
+  const { openTimeline } = await import("./web/creator/timeline.js");
+  const timeline = S.parseTimeline(JSON.stringify({
+    version: 2, prompt: "", aspect: "16:9", short_edge: 720,
+    assets: [image("ref-1", "anna.png")],
+    subjects: [{ handle: "anna", takes: "person", from: ["ref-1"] }],
+    segments: [{ prompt: "@anna walks in", duration_s: 5 },
+               { prompt: "an empty room", duration_s: 5 },
+               { prompt: "@ref-1 on the wall", duration_s: 5 }] }));
+  openTimeline({ timeline, onCommit: () => {} });
+  await new Promise((done) => setTimeout(done, 0));
+  const modal = document.body.children.at(-1);
+  out.shelf = all(modal, "mmc-tl-pool-where").map((n) => n.text ?? n.textContent ?? "");
+}
+
 // ---- the member's action ----------------------------------------------------
 
 const withMotion = () => {
@@ -197,6 +215,8 @@ for name in ("grown1", "grown2"):
     check(f"{name}: whose it is is still a door — that one opens her", card["owners"], 1)
 
 check("a card that never names her draws nothing of hers", got["quiet"]["files"], [])
+check("the shelf counts a card that cites the file and not her (#91)",
+      got["shelf"], ["in shots 1, 3"])
 
 both = got["both"]
 check("the card's own file leads, the piece's follows", both["files"], ["chair.png", "anna.png"])
