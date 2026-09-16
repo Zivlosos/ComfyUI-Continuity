@@ -490,9 +490,14 @@ export function inheritTakes(subject, assets, { over = null } = {}) {
   for (const handle of subject.from ?? []) {
     moved = inheritTake(subject, "from", find(handle), { over }) || moved;
   }
-  for (const slot of ["motion", "voice"]) {
-    if (subject[slot]) moved = inheritTake(subject, slot, find(subject[slot])) || moved;
+  // The same pair read the same way, and broken by the same change: `find` was
+  // handed the whole list and matched no asset, so a clip dropped in the action
+  // slot quietly stopped being narrowed to "motion" the way every other slot
+  // narrows its file.
+  for (const handle of motionOf(subject)) {
+    moved = inheritTake(subject, "motion", find(handle)) || moved;
   }
+  if (subject.voice) moved = inheritTake(subject, "voice", find(subject.voice)) || moved;
   for (const handle of replacesOf(subject)) {
     moved = inheritTake(subject, "replaces", find(handle)) || moved;
   }
@@ -2745,9 +2750,17 @@ function moveCastFilesToPool(timeline, segment) {
     if (Array.isArray(subject.from)) {
       subject.from = subject.from.map((handle) => renamed.get(handle) ?? handle);
     }
-    for (const slot of ["motion", "voice"]) {
-      if (renamed.has(subject[slot])) subject[slot] = renamed.get(subject[slot]);
-    }
+    // An action is a *list* of clips and a voice is one file — see `motionOf`,
+    // and the serializer that writes the two apart. Both were renamed here as
+    // if they were one handle, which stopped meaning anything the day an action
+    // became a list: `renamed.has(["vid-1"])` is false, so the clip moved into
+    // the pool under its new `ref-N` while the member went on pointing at the
+    // `vid-N` that nothing holds any more. Their action then rode into no shot
+    // at all — a reference genuinely lost, not merely undrawn — and with no
+    // dangling handle in any prose there was nothing on screen to say so (#91).
+    const motion = motionOf(subject);
+    if (motion.length) subject.motion = motion.map((handle) => renamed.get(handle) ?? handle);
+    if (renamed.has(subject.voice)) subject.voice = renamed.get(subject.voice);
     // The words attached to a file are keyed by its handle, so they move with it.
     if (subject.notes) {
       subject.notes = Object.fromEntries(Object.entries(subject.notes)
@@ -2827,9 +2840,13 @@ function collapsePool(timeline) {
     if (Array.isArray(subject.from)) {
       subject.from = subject.from.map((handle) => renamed.get(handle) ?? handle);
     }
-    for (const slot of ["motion", "voice"]) {
-      if (renamed.has(subject[slot])) subject[slot] = renamed.get(subject[slot]);
-    }
+    // The same read as the promotion's, and the same repair — see the note
+    // there. Missing it here left the clip stranded on the piece when the strip
+    // shrank back, which is what held the one-way door open: a pool nothing
+    // claims keeps `loneShot` false and the node folded into the strip summary.
+    const motion = motionOf(subject);
+    if (motion.length) subject.motion = motion.map((handle) => renamed.get(handle) ?? handle);
+    if (renamed.has(subject.voice)) subject.voice = renamed.get(subject.voice);
     // The words attached to a file are keyed by its handle, so they move with it.
     if (subject.notes) {
       subject.notes = Object.fromEntries(Object.entries(subject.notes)

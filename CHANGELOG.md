@@ -6,6 +6,29 @@ exactly as it was written, wall of text and all.
 
 ## Unreleased
 
+**A shot says what it is made of again, and a member's action stops going
+missing (#91).** Two faults wore one face, and both needed a strip of more than
+one card to show up. A piece of one shot keeps the cast's pictures on that
+shot; growing a second card moves them onto the piece, because card 2 cannot
+see card 1's row. The reference row read the card's own files and nothing else,
+so from that moment it had nothing left to draw — casting somebody emptied the
+one place that answers "what is this shot made of", on every card at once, with
+no error anywhere near it. The row now draws the piece's references too,
+alongside the card's own, on every card that cites them: whose picture it is,
+what was set on it, and a dashed edge with *on the piece* beside it, because
+the ✕ and the mute are missing on purpose — both would reach every other card,
+and a shared reference is changed on the Timeline's own shelf where it answers
+for all of them at once. Underneath it, the second fault was not cosmetic. A
+member's action became a *list* of clips, and the two places that rename their
+handles as the files move carried on reading it as one handle: the clip went
+onto the piece under its new name while the member went on naming the old one,
+so their action rode into no shot at all — a reference genuinely lost, not
+merely undrawn — and it stranded the file on the piece afterwards, which left
+the node folded into the strip summary for good. Take inheritance read the same
+slot the same way and had quietly stopped narrowing an action clip to *motion*.
+All three read the slot properly now, and an older piece is repaired on the way
+in, the way every load repairs one.
+
 **A LoRA can be pinned to a family.** The clay-render style went on every
 Krea still by hand: after a trip to Flux the stack was Flux's, and coming back
 meant finding the file and dialling the same 0.8 in again. Every chip now

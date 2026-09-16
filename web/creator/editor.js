@@ -1560,8 +1560,11 @@ export class CreatorEditor {
     const geometry = S.resolved(state, source ? this.sizeOf(source) : null, this.piece);
 
     this.railHost.replaceChildren(this.renderRail());
+    // The piece's cited references are rows of this one now — see
+    // `renderAssets` — so it is built whenever either list has something in it.
+    // Reading only `assets` is what emptied the row on every card of a strip.
     this.assetsHost.replaceChildren(
-      ...(state.assets.length ? [this.renderAssets()] : []));
+      ...(state.assets.length || S.citedPool(state).length ? [this.renderAssets()] : []));
     this.renderCastShelf();
     // The family's pins go on before the row is read: a stack that does not
     // hold them yet takes them here, and is written out with them.
@@ -2426,9 +2429,104 @@ export class CreatorEditor {
       }, parts);
     };
 
+    /**
+     * A reference the *piece* carries, drawn on a card it rides into.
+     *
+     * A strip of more than one card keeps the cast's pictures in the pool —
+     * `state.promoteCastFiles` moves them there the moment a second card
+     * exists, because card 2 cannot see card 1's row, and
+     * `presets.addSubjectToPiece` puts them there outright once it is a strip.
+     * Anything attached from the Timeline's own bar lives there by definition.
+     *
+     * This row read `state.assets` and nothing else, so from that moment it had
+     * nothing left to draw: casting somebody emptied the one place that answers
+     * "what is this shot made of", on every card at once, and the host was left
+     * an empty div with no error anywhere near it (#91). The reference itself
+     * was never lost — `citedPool` is exactly what compile injects, and the
+     * mode, the checkpoint and the counters all read through it — so the
+     * renders were right and only the row was lying about them.
+     *
+     * Drawn, not owned. Every button a card's own chip carries would be a
+     * piece-wide act on this one: the ✕ would take it off every other card, the
+     * mute and the sheet would change what all of them send. So it carries
+     * none of them — "a citation of it in a segment has nothing to open", which
+     * is the rule the Timeline's own pool chip is written to — and says where
+     * it is set instead. What it does keep is whose it is, because that is the
+     * fact the row exists to show and the door onto them is the cast's, not
+     * this file's.
+     *
+     * Only the cited entries. An uncited one rides into nothing, and this row
+     * is about this shot; the piece's shelf is where the rest are reported,
+     * and it already says "cited nowhere yet" about them.
+     */
+    const pooledChip = (asset) => {
+      const thumb = asset.kind === "image"
+        ? el("img", { class: "mmc-asset-thumb", alt: asset.filename,
+                      src: viewUrl(asset.filename, { preview: true, crop: S.thumbCrop(asset) }) })
+        : el("span", { class: "mmc-asset-thumb" }, [svg(ICONS[asset.kind], 15)]);
+      // A span, where the card's own chip has a door: the sheet behind that
+      // door sets `ref_size`, the narrowing and the trim, and all three belong
+      // to the piece. Opening it here would offer a card-shaped edit to
+      // something every other card is reading.
+      const parts = [thumb, el("span", { class: "mmc-asset-handle", text: `@${asset.handle}` })];
+      const owner = (this.castPiece.subjects ?? []).find(
+        (subject) => S.subjectFiles(subject).includes(asset.handle)
+                     || S.replacesOf(subject).includes(asset.handle));
+      const mod = S.isRefMod(asset);
+      const note = owner ? S.subjectNotes(owner)[asset.handle] ?? "" : "";
+      const wake = owner ? S.subjectTriggers(owner)[asset.handle] ?? "" : "";
+      if (owner) {
+        parts.push(el("button", {
+          class: `mmc-asset-owner mmc-tag-${S.tagIndex(owner.handle)}`,
+          text: mod ? t("{who}'s RefMod", { who: owner.handle }) : t("{who}'s", { who: owner.handle }),
+          title: (note ? `${note}\n` : "")
+            + t("@{who} is built out of this, and this shot writes their name. "
+              + "Click to open them.", { who: owner.handle }),
+          onclick: () => this.openCastMember(owner.handle),
+        }));
+        if (note) parts.push(el("span", { class: "mmc-asset-note", text: note }));
+        // Lit, always: `citedPool` drops a plate whose word the sentence does
+        // not say, so one that reached this row is one that woke.
+        if (wake) parts.push(el("span", {
+          class: "mmc-asset-wake on",
+          text: t("wakes on {words}", { words: wake }),
+          title: t("In this shot: the sentence says one of these words."),
+        }));
+      } else if (mod) {
+        parts.push(el("span", { class: "mmc-asset-owner", text: t("RefMod") }));
+      }
+      const said = referenceSummary(asset);
+      if (said) parts.push(el("span", { class: "mmc-asset-said", text: said }));
+      // Why this chip has neither of the two buttons every other chip has. A
+      // row where some entries can be removed and some cannot, with nothing
+      // saying which is which, is a row that reads as half broken.
+      parts.push(el("span", {
+        class: "mmc-asset-pooled",
+        text: t("on the piece"),
+        title: t("Attached to the whole piece, and carried into this shot by the name in "
+               + "its prompt. Change it or take it off in the Timeline's own reference "
+               + "shelf, where it answers for every shot at once."),
+      }));
+      return el("div", {
+        class: `mmc-asset mmc-asset-pooled-chip mmc-tag-${S.tagIndex(asset.handle)}${
+          owner ? " mmc-asset-cast" : ""}${S.muted(asset) ? " off" : ""}${
+          passed.has(asset.handle) ? " passed" : ""}`,
+        ...(owner ? { style: { "--owner": `var(--mmc-tag-${S.tagIndex(owner.handle)})` } } : {}),
+        title: passed.has(asset.handle)
+          ? t("Not in this take: the sentence names it only in an alternative this seed passes over.")
+          : asset.filename,
+      }, parts);
+    };
+
     // Bounded on the face (see the stylesheet), so it needs the wheel the way
     // the prompt box does — otherwise the row that scrolls zooms the canvas.
-    return keepScroll(el("div", { class: "mmc-assets" }, this.state.assets.map(chip)));
+    // The card's own files lead: they are the ones this shot can act on, and a
+    // row that opened with three chips nothing here can change would read as a
+    // row of dead controls.
+    return keepScroll(el("div", { class: "mmc-assets" }, [
+      ...this.state.assets.map(chip),
+      ...S.citedPool(this.state).map(pooledChip),
+    ]));
   }
 
   /**
