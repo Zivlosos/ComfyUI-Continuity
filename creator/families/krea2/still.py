@@ -21,6 +21,10 @@ ARCH = "krea2"
 # speed axis is the Turbo checkpoint.
 FIELDS = ("model", "turbo_model", "clip", "vae")
 
+# Which VAE the `vae` field has to hold, checked off the file's header before
+# the render is queued — see `vaekind`.
+VAE_KIND = "qwen_image"
+
 # What CLIPLoader calls the Qwen3-VL-4B encoder.
 CLIP_TYPE = "krea2"
 

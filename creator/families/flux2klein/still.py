@@ -27,6 +27,10 @@ ARCH = "flux2klein"
 # sizes, and there is no LoRA extraction of it.
 FIELDS = ("model", "turbo_model", "clip", "vae")
 
+# Which VAE the `vae` field has to hold, checked off the file's header before
+# the render is queued — see `vaekind`.
+VAE_KIND = "flux2"
+
 # What CLIPLoader calls the Qwen3 encoder these weights read prose through.
 CLIP_TYPE = "flux2"
 

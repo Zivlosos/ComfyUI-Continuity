@@ -134,6 +134,11 @@ class Slot:
     # different thing from one whose loader this render happens not to build.
     # Every H3 slot is required, which is why the flag defaults to off.
     optional: bool = False
+    # What the picked file has to *be*, read off its header before anything
+    # is queued: a `vaekind` id, for the VAE slots. Empty means unchecked —
+    # a transformer or encoder has no table here, and core's loader is the
+    # one that refuses those. See `vaekind` for why this exists.
+    kind: str = ""
     # What to say when an optional slot is asked for and nobody filled it.
     # Only optional slots need one: a required slot is refused by `check` before
     # a node is emitted, naming the field and its folder, while an optional one
@@ -306,15 +311,29 @@ def check(weights, needed, where=None):
     the sentence says which segment is asking rather than only what is missing.
     """
     for name in needed:
-        if weights.get(name):
-            continue
         slot = weights.slots[name]
+        filename = weights.get(name)
+        if filename:
+            if slot.kind:
+                verify_kind(slot, filename)
+            continue
         blame = f"{where[name]} routes to it — " if where and name in where else ""
         raise ValueError(
             f"{blame}{slot.label.capitalize()} has not been picked. "
             f"Open the node's 'weights' control and choose a file from "
             f"models/{slot.folder}."
         )
+
+
+def verify_kind(slot, filename):
+    """Refuse a picked file whose header says it is a different VAE than the
+    slot decodes with. Resolved through `folder_paths` here rather than in
+    `vaekind` so that module stays importable without ComfyUI."""
+    import folder_paths
+
+    from . import vaekind
+
+    vaekind.check(folder_paths.get_full_path(slot.folder, filename), slot.kind, filename)
 
 
 def device_options():

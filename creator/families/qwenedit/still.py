@@ -23,6 +23,10 @@ ARCH = "qwenedit"
 # Lightning LoRA, not a second checkpoint, so there is nothing to route between.
 FIELDS = ("model", "clip", "vae")
 
+# Which VAE the `vae` field has to hold, checked off the file's header before
+# the render is queued — see `vaekind`.
+VAE_KIND = "qwen_image"
+
 # What CLIPLoader calls the Qwen2.5-VL-7B encoder.
 CLIP_TYPE = "qwen_image"
 

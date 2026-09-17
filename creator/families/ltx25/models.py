@@ -52,9 +52,10 @@ SLOTS = {
                       loader="CLIPLoader", input="clip_name",
                       extra={"type": CLIP_TYPE}),
     "vae": core.Slot("vae", "the video VAE",
-                     loader="VAELoader", input="vae_name"),
+                     loader="VAELoader", input="vae_name", kind="ltx_video"),
     "audio_vae": core.Slot("vae", "the audio VAE",
-                           loader="VAELoader", input="vae_name", audio=True),
+                           loader="VAELoader", input="vae_name", audio=True,
+                           kind="ltx_audio"),
     # Both opt-in, and both a pass rather than a component: the head answers
     # "how long should this shot be" for the seconds pill's auto, and the
     # upscaler is the second stage of Lightricks' own two-stage pipeline.

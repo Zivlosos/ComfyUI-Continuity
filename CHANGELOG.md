@@ -6,6 +6,19 @@ exactly as it was written, wall of text and all.
 
 ## Unreleased
 
+**A wrong VAE is refused by name before the render starts.** The picker
+lists every file in `models/vae`, and nothing about `flux2-vae.safetensors`
+says it is not the one Krea 2 decodes with — so the wrong pick sampled the
+whole render and died in core's decode with a tensor-size error (#94). Every
+VAE slot now says which VAE it wants, and the queue reads the picked file's
+header — the same tensor names core's own loader switches on, a few
+kilobytes, no weights opened — and refuses a file that is positively
+another model's: "flux2-vae.safetensors is the Flux 2 VAE. This family
+decodes with the Qwen image VAE — pick that one from models/vae." A file
+the table does not recognise is left to the loader, so nothing is grounded
+over a VAE this check has merely not met. Covers the H3 and LTX video and
+audio VAEs and the four image families (`creator/vaekind.py`).
+
 **The chat room renders with the node, and its gear is the node's own row.**
 The room used to keep a rail of its own — families, a turbo switch per side,
 a seed policy, a Models tab — a second implementation of settings the node

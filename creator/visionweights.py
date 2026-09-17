@@ -69,7 +69,12 @@ def has_vision(path):
     return any(VISION_KEY in name for name in names)
 
 
-def _safetensors_tensor_names(path):
+def safetensors_header(path):
+    """`{tensor name: {"dtype", "shape", "data_offsets"}}`, or None when the
+    front of the file is not a safetensors header. Metadata stripped: a caller
+    is asking what tensors are in the file, and `vaekind` reads their shapes.
+    Raises what `has_vision` catches; a caller reading a file it did not pick
+    should catch the same."""
     with open(path, "rb") as handle:
         prefix = handle.read(8)
         if len(prefix) < 8:
@@ -80,7 +85,12 @@ def _safetensors_tensor_names(path):
         header = json.loads(handle.read(length))
     if not isinstance(header, dict):
         return None
-    return [key for key in header if key != "__metadata__"]
+    return {key: value for key, value in header.items() if key != "__metadata__"}
+
+
+def _safetensors_tensor_names(path):
+    header = safetensors_header(path)
+    return None if header is None else list(header)
 
 
 def _gguf_tensor_names(path):

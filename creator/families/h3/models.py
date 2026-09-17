@@ -32,9 +32,10 @@ SLOTS = {
                       loader="CLIPLoader", input="clip_name",
                       extra={"type": CLIP_TYPE}),
     "vae": core.Slot("vae", "the video VAE",
-                     loader="VAELoader", input="vae_name"),
+                     loader="VAELoader", input="vae_name", kind="h3_video"),
     "audio_vae": core.Slot("vae", "the audio VAE",
-                           loader="VAELoader", input="vae_name", audio=True),
+                           loader="VAELoader", input="vae_name", audio=True,
+                           kind="h3_audio"),
     "preview": core.Slot("vae_approx", "the preview decoder"),
     # The face pass's detector: a SAM3 checkpoint, which is a fused file — model
     # and its own text encoder together — and so is picked from `checkpoints`

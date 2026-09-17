@@ -112,8 +112,9 @@ class ImageWeights:
         return self.files.get(name)
 
 
-def check(weights, payload):
-    """Refuse now if a file this render needs was never picked.
+def check(weights, payload, family):
+    """Refuse now if a file this render needs was never picked — or if the
+    VAE that was picked is another model's (`family.VAE_KIND`, via `vaekind`).
 
     The DiT field is whichever one the payload resolved (`model` or
     `turbo_model`); the unconditional checkpoint is never required, because the
@@ -129,6 +130,12 @@ def check(weights, payload):
             f"pre-stage node's 'weights' control and choose a file from "
             f"models/{FOLDERS[name]}."
         )
+    import folder_paths
+
+    from . import vaekind
+
+    vaekind.check(folder_paths.get_full_path(FOLDERS["vae"], weights.get("vae")),
+                  family.VAE_KIND, weights.get("vae"))
 
 
 def check_vision(weights, payload, family):
@@ -194,7 +201,7 @@ def emit(payload, weights, sampling, unique_id, family, filename_prefix=None):
     if payload.arch != weights.arch:
         raise CompileError("the payload and the weights disagree about the architecture")
     family.require_support()
-    check(weights, payload)
+    check(weights, payload, family)
     check_vision(weights, payload, family)
 
     graph = GraphBuilder()

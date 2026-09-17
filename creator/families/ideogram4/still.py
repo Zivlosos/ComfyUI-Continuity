@@ -26,6 +26,10 @@ ARCH = "ideogram4"
 # speed axis is the preset table; the second file is the unconditional branch.
 FIELDS = ("model", "uncond_model", "clip", "vae")
 
+# Which VAE the `vae` field has to hold, checked off the file's header before
+# the render is queued — see `vaekind`.
+VAE_KIND = "flux2"
+
 # What CLIPLoader calls the Qwen3-VL-8B encoder.
 CLIP_TYPE = "ideogram4"
 
