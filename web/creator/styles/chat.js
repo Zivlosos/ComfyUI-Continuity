@@ -108,6 +108,7 @@ export const css = `
   transition: opacity 340ms ease, transform 340ms cubic-bezier(.2, .7, .2, 1);
 }
 .mmc-ch-mark i.on { opacity: 1; transform: scale(1); }
+.mmc-ch-count { font-weight: 500; color: var(--mmc-dim); font-variant-numeric: tabular-nums; }
 /* A turn that failed before there was a reply: what went wrong, and the way
    to try it again beside it — a failure is a moment for direction. */
 .mmc-ch-fail { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }

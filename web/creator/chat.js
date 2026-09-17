@@ -1311,7 +1311,16 @@ class Room {
         this.thinkingTimer = setInterval(mark.step, 640);
       }
     }
-    this.thinkingText.textContent = this.thinking();
+    // The count in bold, the words around it quiet: the number is the one
+    // thing on the line that moves. Split on a marker so the translated
+    // sentence keeps its own word order.
+    if (state.tokens?.value) {
+      const [before, after] = t("Writing · {count} tokens", { count: "\u0000" }).split("\u0000");
+      this.thinkingText.replaceChildren(before,
+        el("b", { class: "mmc-ch-count", text: state.tokens.value.toLocaleString() }), after ?? "");
+    } else {
+      this.thinkingText.textContent = this.thinking();
+    }
     return this.thinkingEl;
   }
 
