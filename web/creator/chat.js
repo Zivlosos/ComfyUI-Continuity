@@ -38,7 +38,7 @@
 
 import { el, icon, mark, spinner, dragsFiles, mountOverlay, keepScroll, placeNear, dismissable } from "./dom.js";
 import { openChoicePopover, openAspectPopover, edgeSlider, aspectGlyph } from "./pills.js";
-import { seedPill } from "./sampling.js";
+import { seedPill, seedMarkBits } from "./sampling.js";
 import { rulesFor, resolveCanvas } from "./canvas.js";
 import { resolvedPreStage, PRESTAGE_CANVAS_MULTIPLE, PRESTAGE_MIN_EDGE, PRESTAGE_MAX_EDGE,
          PRESTAGE_DEFAULT_EDGE } from "./state.js";
@@ -46,8 +46,9 @@ import { openPicker } from "./picker.js";
 import { outputUrl, upload, uiSetting, patchSettings, primeSettings,
          viewUrl } from "./api.js";
 import { settings as refinerSettings, chosenModel, openSettings, listSkills, refineRequest } from "./refine.js";
-import { FAMILIES } from "./manifest.js";
-import { run, watch as watchQueue } from "./queue.js";
+import { FAMILIES, videoFamily, stillFamily } from "./manifest.js";
+import { run, watch as watchQueue, dropQueued } from "./queue.js";
+import { openLoupe } from "./loupe.js";
 import { FirstRun, freshSetup, scanMachine } from "./chatsetup.js";
 import { Sides } from "./chatnode.js";
 import { castIntoPiece } from "./presets.js";
@@ -517,6 +518,7 @@ function watchRender(card) {
           if (!best || (entry.max ?? 0) > (best.max ?? 0)) best = entry;
         }
         if (!best?.max) return;
+        card.startedAt ??= Date.now();
         card.state = "running";
         card.progress = Math.max(0, Math.min(1, (best.value ?? 0) / best.max));
         return notify();
@@ -569,6 +571,11 @@ function watchRender(card) {
         card.saved = saved;
         card.state = "done";
         card.progress = 1;
+        // How long the sampler had it: from the first step reported to the
+        // file, which is the number anybody comparing two renders wants,
+        // rather than from the press, which counts the queue in front.
+        card.landedAt = Date.now();
+        if (card.startedAt) card.took = card.landedAt - card.startedAt;
         release(card);
         land(card);
         return stop();
@@ -664,6 +671,37 @@ function land(card) {
   notify();
 }
 
+/**
+ * A seed mark whose cells can be changed one by one: twenty-five elements
+ * rather than one SVG, so a cell that stays lit between two marks stays and
+ * the rest fade. `step` moves to the next mark off `seedMarkBits`' own walk.
+ */
+function seedMarkCells() {
+  const node = el("span", { class: "mmc-ch-mark", "aria-hidden": "true" });
+  const cells = Array.from({ length: 25 }, () => node.appendChild(el("i")));
+  let seed = (Date.now() >>> 0) || 1;
+  const step = () => {
+    const { bits, next } = seedMarkBits(seed);
+    seed = next;
+    const lit = new Array(25).fill(false);
+    for (let r = 0; r < 5; r++) for (let c = 0; c < 3; c++) if (bits[r * 3 + c]) {
+      lit[r * 5 + c] = true;
+      lit[r * 5 + (4 - c)] = true;
+    }
+    cells.forEach((cell, i) => cell.classList.toggle("on", lit[i]));
+  };
+  step();
+  return { node, step };
+}
+
+/** A duration as the slate says it: seconds under a minute, else minutes
+ *  and seconds — "18 s", "1 m 42 s". */
+function took(ms) {
+  const total = Math.max(0, Math.round(ms / 1000));
+  return total < 60 ? t("{n} s", { n: total })
+    : t("{m} m {s} s", { m: Math.floor(total / 60), s: total % 60 });
+}
+
 /** The ledger as the box's "attached" list: what `@` offers first. */
 function ledgerAssets() {
   const media = { still: "image", clip: "video", sound: "audio" };
@@ -701,9 +739,6 @@ function stripSummary() {
  * @param {object} [options]
  * @param {Function} [options.back]  where the wordmark goes, as every bench's
  *   does: called after the room closes. Absent means the wordmark is not a door.
- * @param {Function} [options.openRender]  `async ({path, kind}) => void` — put a
- *   finished render's own setup onto the piece's node and go to it. Absent
- *   disables that door rather than half-wiring it.
  * @param {Function} options.node  the piece's node under the room;
  *   `options.preStage` the pre-stage beside it or null, `options.spawnPreStage`
  *   puts one there — see `chatnode.Sides`.
@@ -721,7 +756,6 @@ class Room {
   constructor(options, resolve) {
     this.resolve = resolve;
     this.back = options.back ?? null;
-    this.openRender = options.openRender ?? null;
     this.sides = new Sides({ ...options, rail, setRail });
     this.queue = { remaining: 0, running: false };
     this.skills = [];
@@ -931,6 +965,7 @@ class Room {
 
   close() {
     if (open === this) open = null;
+    this.stopThinking();
     this.unfollow?.();
     this.unwatchQueue?.();
     this.unmount?.();
@@ -1125,11 +1160,8 @@ class Room {
     });
     for (const message of this.rows.keys()) if (!seen.has(message)) this.rows.delete(message);
     if (state.setup) rows.push(this.firstRun.render());
-    if (state.busy) {
-      rows.push(el("div", { class: "mmc-ch-msg mmc-ch-bot" },
-                   [el("div", { class: "mmc-ch-said mmc-ch-thinking" },
-                       [spinner(), el("span", { text: this.thinking() })])]));
-    }
+    if (state.busy) rows.push(this.thinkingRow());
+    else this.stopThinking();
     if (state.error) {
       // The turn failed before there was a reply: the last message is the
       // person's, and asking again is asking it again.
@@ -1171,7 +1203,7 @@ class Room {
       message.say, message.bad, message.action?.kind, can,
       card && [card.state, card.progress, card.frameUrl, card.frameIsClip, card.tokens?.value,
                card.saved, card.refined, card.error, card.entry?.handle, card.isClip,
-               card.state === "queued" ? this.queue.remaining : 0, Boolean(this.openRender)],
+               card.state === "queued" ? this.queue.remaining : 0],
     ]);
   }
 
@@ -1247,45 +1279,92 @@ class Room {
 
   /** What the room is waiting for, said honestly. A local turn is a model on
    *  the same card the renders want, so "thinking" is a lie while it is third
-   *  in a queue. */
+   *  in a queue. The count is the tokens written so far and nothing else: the
+   *  budget beside it was a limit dressed as a progress bar. */
   thinking() {
-    if (state.tokens?.max) {
-      return t("Writing — {value}/{max} tokens",
-               { value: state.tokens.value, max: state.tokens.max });
+    if (state.tokens?.value) {
+      return t("Writing · {count} tokens", { count: state.tokens.value.toLocaleString() });
     }
     const ahead = Math.max(0, this.queue.remaining - 1);
     if (ahead > 0) return t("Waiting — {count} ahead on the queue", { count: ahead });
     return t("Thinking…");
   }
 
-  /** One render, from the moment it is queued to the file it becomes. */
+  /**
+   * The line that stands while the model writes: the seed mark, walking.
+   *
+   * The ring said "busy" and nothing about whose. This is the seed pill's own
+   * fingerprint — the same fifteen bits off the same xorshift — stepping
+   * through the seeds it could be, each mark the next state after the last so
+   * the cells drift rather than jump; in the accent, because it is the one
+   * live thing on the surface. One row for the whole wait, its words updated
+   * in place: a new row per token tick would restart every cell's fade.
+   */
+  thinkingRow() {
+    if (!this.thinkingEl) {
+      const mark = seedMarkCells();
+      this.thinkingEl = el("div", { class: "mmc-ch-msg mmc-ch-bot" },
+        [el("div", { class: "mmc-ch-said mmc-ch-thinking" },
+            [mark.node, this.thinkingText = el("span")])]);
+      // A person who asked for no motion gets one mark, standing.
+      if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        this.thinkingTimer = setInterval(mark.step, 640);
+      }
+    }
+    this.thinkingText.textContent = this.thinking();
+    return this.thinkingEl;
+  }
+
+  stopThinking() {
+    clearInterval(this.thinkingTimer);
+    this.thinkingTimer = null;
+    this.thinkingEl = null;
+  }
+
+  /**
+   * One render, from the moment it is queued to the file it becomes.
+   *
+   * The card is a plate over a row of doors. The plate turns: its front is the
+   * picture, its back is the slate — the words the render was made from and
+   * what made it — and the doors under it stay put on both sides, so a still
+   * can be sent on while its prompt is being read. Only the plate turns, and
+   * it turns inside the picture's own box, so a tall render and a wide one
+   * each have a back the size of their front.
+   */
   renderCard(card, message) {
-    const body = [];
     // The box has the render's shape before there is a render: the picture
     // arrives into the space it was always going to take, and a step frame of
     // another shape does not push the conversation about.
     const shape = { aspectRatio: aspectOf(card.action?.aspect ?? rail().aspect) };
+    let media;
     if (card.state === "done" && card.saved) {
       const url = outputUrl(card.saved);
-      body.push(card.isClip
+      media = card.isClip
         ? el("video", { class: "mmc-ch-shot", src: url, controls: true,
                         loop: true, playsinline: true, preload: "metadata" })
-        : el("img", { class: "mmc-ch-shot", src: url, alt: "", draggable: false }));
+        : el("img", { class: "mmc-ch-shot", src: url, alt: "", draggable: false });
+      // Two presses open the loupe, the gesture every finished picture in the
+      // pack answers to. The source is the annotated path the loupe reads.
+      media.title = t("Double-click to look closer.");
+      media.ondblclick = (event) => {
+        event.preventDefault();
+        openLoupe({ source: this.sourceOf(card) });
+      };
     } else if (card.frameUrl && card.frameIsClip) {
-      const clip = el("video", { class: "mmc-ch-shot", src: card.frameUrl, autoplay: true,
-                                 loop: true, playsinline: true, preload: "metadata", style: shape });
-      clip.muted = true;
-      body.push(clip);
+      media = el("video", { class: "mmc-ch-shot", src: card.frameUrl, autoplay: true,
+                            loop: true, playsinline: true, preload: "metadata", style: shape });
+      media.muted = true;
     } else if (card.frameUrl) {
       // One <img> for the life of the render, its src moved per step: a new
       // element per frame is a box with nothing in it until the frame decodes.
       card.frameEl ??= el("img", { class: "mmc-ch-shot", alt: "", draggable: false, style: shape });
       if (card.frameEl.src !== card.frameUrl) card.frameEl.src = card.frameUrl;
-      body.push(card.frameEl);
+      media = card.frameEl;
     } else {
-      body.push(el("div", { class: "mmc-ch-shot mmc-ch-blank", style: shape }, [spinner()]));
+      media = el("div", { class: "mmc-ch-shot mmc-ch-blank", style: shape }, [spinner()]);
     }
 
+    const body = [this.plate(card, media)];
     const note = card.state === "failed" ? card.error
       : card.state === "done" ? null
       : card.state === "running" ? t("Rendering…")
@@ -1299,17 +1378,8 @@ class Room {
         : t("Queued");
     if (note) body.push(el("div", { class: `mmc-ch-note${card.state === "failed" ? " mmc-ch-bad" : ""}`,
                                     text: note }));
-    if (card.state === "done" && card.refined) {
-      // What the sampler actually read is under the hover, whole: the room has
-      // no panel to edit a rewrite in, and Open in the editor is where that is.
-      const wrote = card.refined.skill
-        ? t("Refined by {model} with {skill}", { model: card.refined.model, skill: card.refined.skill })
-        : t("Refined by {model}", { model: card.refined.model });
-      body.push(el("div", { class: "mmc-ch-note", text: wrote,
-                            title: card.piece?.segments?.[0]?.refined?.body || "" }));
-      for (const problem of card.refined.problems ?? []) {
-        body.push(el("div", { class: "mmc-ch-note mmc-ch-bad", text: problem }));
-      }
+    for (const problem of (card.state === "done" && card.refined?.problems) || []) {
+      body.push(el("div", { class: "mmc-ch-note mmc-ch-bad", text: problem }));
     }
     if (card.state === "running" || card.state === "queued") {
       body.push(el("div", { class: "mmc-ch-bar" },
@@ -1327,11 +1397,32 @@ class Room {
         }),
       ]));
     }
+    if (card.state === "running" || card.state === "queued") {
+      // The one door out of a render that has not landed. Queued, the job
+      // comes off the queue untouched; running, the sampler is interrupted —
+      // the same call the shell's Cancel makes.
+      body.push(el("div", { class: "mmc-ch-doors" }, [
+        el("span", { class: "mmc-bn-gap" }),
+        el("button", {
+          class: "mmc-ch-door mmc-ch-cancel", text: t("Cancel"),
+          title: card.state === "queued"
+            ? t("Take this render off the queue.")
+            : t("Stop this render where it is."),
+          onclick: () => this.cancel(card),
+        }),
+      ]));
+    }
     if (card.entry && card.isClip && (card.piece?.segments?.length ?? 0) > 1) {
       body.push(el("div", { class: "mmc-ch-note", text: t("Shot {n} of the strip — the clip plays all {n}.", {
         n: card.piece.segments.length }) }));
     }
     if (card.entry) {
+      const target = card.isClip ? null : this.sides.node();
+      const send = (role, label, title) => el("button", {
+        class: "mmc-ch-door mmc-ch-sendon", text: t(label),
+        title: t("{action} on {target}.", { action: t(title), target: target.title || target.comfyClass }),
+        onclick: () => this.sendOn(card, role),
+      });
       body.push(el("div", { class: "mmc-ch-doors" }, [
         el("button", {
           class: "mmc-ch-handle", text: `@${card.entry.handle}`,
@@ -1339,15 +1430,13 @@ class Room {
           onclick: () => this.cite(card.entry),
         }),
         el("span", { class: "mmc-bn-gap" }),
-        el("button", {
-          class: "mmc-ch-door",
-          text: t("Open in the editor"),
-          disabled: !this.openRender || undefined,
-          title: this.openRender
-            ? t("Put this render's own setup onto the piece and go to it.")
-            : t("There is no piece open to put this on — the room was opened on its own."),
-          onclick: () => this.handOver(card),
-        }),
+        // A still goes on to the piece under the room through the same door
+        // the pre-stage's chips use, in the same words: "→ start" here is
+        // "→ start" there. A clip has no frame to be, so it has neither.
+        ...(target?.mmcBody?.attachFromPreStage ? [
+          send("first_frame", "→ start", "Use this still as the start frame"),
+          send("last_frame", "→ end", "Use this still as the end frame"),
+        ] : []),
         el("button", {
           class: "mmc-ch-door", text: t("Retake"),
           title: t("The same request again, on a new seed."),
@@ -1357,6 +1446,107 @@ class Room {
     }
     return el("div", { class: "mmc-ch-msg mmc-ch-bot" },
                  [el("div", { class: "mmc-ch-card" }, body)]);
+  }
+
+  /** The turning part of a card: the picture on the front, the slate on the
+   *  back, and the one button that turns it. Which side is up is the card's
+   *  own memory, so a repaint mid-render does not turn it back. */
+  plate(card, media) {
+    const turned = Boolean(card.turned);
+    const plate = el("div", { class: `mmc-ch-plate${turned ? " turned" : ""}` }, [
+      el("div", { class: "mmc-ch-face mmc-ch-front" }, [media]),
+      el("div", { class: "mmc-ch-face mmc-ch-back" }, [this.slate(card, media)]),
+    ]);
+    const button = el("button", {
+      class: "mmc-ch-flip", "aria-pressed": String(turned),
+      title: turned ? t("Back to the picture") : t("What made this"),
+      onclick: () => {
+        card.turned = !card.turned;
+        plate.classList.toggle("turned", card.turned);
+        // A moment of light across the plate while it turns, taken off once
+        // the turn is over so the resting card carries no sheen.
+        plate.classList.add("turning");
+        setTimeout(() => plate.classList.remove("turning"), 520);
+        button.setAttribute("aria-pressed", String(card.turned));
+        button.title = card.turned ? t("Back to the picture") : t("What made this");
+        button.replaceChildren(icon(card.turned ? "image" : "flip", 15));
+      },
+    }, [icon(turned ? "image" : "flip", 15)]);
+    plate.append(button);
+    return plate;
+  }
+
+  /**
+   * The back of a card: what was written on the back of a print.
+   *
+   * The words first and largest — the prompt as asked, and under it what the
+   * refiner actually sent to the sampler, which used to live under a hover on
+   * a one-line note. Then the facts, in the pack's readout mono: what made
+   * it, how long it took, its length, its size, its seed, what it opened
+   * from and when it landed. The size is the file's own, read off the picture
+   * when it decodes rather than off any number the request carried.
+   */
+  slate(card, media) {
+    const refined = card.piece?.segments?.at(-1)?.refined?.body || card.refined?.body || "";
+    const wrote = card.refined
+      ? (card.refined.skill
+          ? t("Refined by {model} with {skill}", { model: card.refined.model, skill: card.refined.skill })
+          : t("Refined by {model}", { model: card.refined.model }))
+      : "";
+    const prompt = el("div", { class: "mmc-ch-prompt" }, [
+      el("p", { text: card.action?.prompt || "" }),
+      ...(refined ? [el("p", { class: "mmc-ch-rewrite" },
+                       [el("b", { text: `${wrote} — ` }), document.createTextNode(refined)])] : []),
+    ]);
+    const facts = [];
+    const fact = (key, value, cls) => {
+      const dd = el("dd", { class: cls || null, text: value });
+      facts.push(el("dt", { text: key }), dd);
+      return dd;
+    };
+    const family = card.isClip || card.action?.kind !== "still"
+      ? videoFamily(card.piece?.family)?.label
+      : stillFamily(card.piece?.arch)?.label;
+    if (family) fact(t("made with"), family);
+    if (card.state === "done" && card.took != null) fact(t("took"), took(card.took), "mmc-ch-took");
+    else if (card.state === "running" && card.startedAt) {
+      fact(t("running"), t("{time} · {percent}%", { time: took(Date.now() - card.startedAt),
+                                                     percent: Math.round((card.progress ?? 0) * 100) }),
+           "mmc-ch-took");
+    }
+    if (card.isClip || card.action?.kind === "video") {
+      const take = card.takes?.at(-1);
+      const seconds = Number(take?.duration_s) || Number(card.action?.seconds) || null;
+      if (seconds) fact(t("length"), t("{n} s", { n: seconds }));
+    }
+    const size = fact(t("size"), "—");
+    const measure = () => {
+      const w = media.naturalWidth || media.videoWidth, h = media.naturalHeight || media.videoHeight;
+      if (w && h) size.textContent = `${w} × ${h} · ${card.action?.aspect ?? card.piece?.aspect ?? ""}`.replace(/ · $/, "");
+    };
+    measure();
+    if (media.tagName === "IMG") media.addEventListener("load", measure, { once: true });
+    else if (media.tagName === "VIDEO") media.addEventListener("loadedmetadata", measure, { once: true });
+    if (card.seed != null) fact(t("seed"), String(card.seed));
+    const assets = card.isClip || card.action?.kind !== "still"
+      ? card.piece?.segments?.at(-1)?.assets ?? []
+      : (card.piece?.refs ?? []).map((ref) => ({ ...ref, role: "reference" }));
+    const roles = { first_frame: t("start frame"), last_frame: t("end frame"), reference: t("reference") };
+    for (const asset of assets) {
+      if (asset?.handle) fact(t("from"), `@${asset.handle} · ${roles[asset.role] ?? asset.role}`);
+    }
+    if (card.landedAt) fact(t("landed"), new Date(card.landedAt).toLocaleString(undefined, {
+      hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" }));
+    return el("div", { class: "mmc-ch-slate" }, [prompt, el("dl", { class: "mmc-ch-facts" }, facts)]);
+  }
+
+  /** A finished card's file, in the shape the loupe and the piece take it —
+   *  the annotated path the gallery uses, so nothing is copied. */
+  sourceOf(card) {
+    const saved = card.saved;
+    const folder = saved.subfolder ? `${saved.subfolder}/` : "";
+    return { path: `${folder}${saved.filename} [${saved.type || "output"}]`,
+             kind: card.isClip ? "video" : "image" };
   }
 
   /** One attached thing in a message: the picture, and the handle the model
@@ -1865,6 +2055,7 @@ class Room {
     const base = this.sides.base(kind);
     if (!base) return said(t("There is no node under this room to render with."));
     base.widgets.seed = over.seed ?? (Number(bar.seed) || 0);
+    card.seed = base.widgets.seed;
     let answer;
     try {
       answer = await run("/continuity/chat/render", {
@@ -1905,21 +2096,34 @@ class Room {
     notify();
   }
 
-  /** Put a finished render's own setup onto the piece's node and go to it. */
-  async handOver(card) {
-    if (!this.openRender || !card.saved) return;
-    const path = card.saved.subfolder
-      ? `${card.saved.subfolder}/${card.saved.filename}` : card.saved.filename;
-    try {
-      await this.openRender({ path, kind: card.isClip ? "video" : "image" });
-      // Closed, and not back to the dashboard: the door has already moved the
-      // shell to the step it wrote onto, and putting the cards up over it would
-      // be taking the user somewhere they did not ask to go.
-      this.close();
-    } catch (error) {
-      state.error = String(error.message || error);
-      notify();
+  /**
+   * A finished still, onto the piece under the room as its start or end frame.
+   *
+   * The same door the pre-stage's chips go through — `attachFromPreStage`
+   * on the piece's body — so the capacity and exclusivity rules are its, and
+   * a refusal is said where the press happened. The room stays open: the
+   * still was sent on, and the next thing is usually to ask for the shot.
+   */
+  sendOn(card, role) {
+    const body = this.sides.node()?.mmcBody;
+    if (!body?.attachFromPreStage || !card.saved) return;
+    const refused = body.attachFromPreStage({ role, filename: this.sourceOf(card).path });
+    state.error = refused || null;
+    notify();
+  }
+
+  /** A render that has not landed, stopped. Queued, the job comes off the
+   *  queue and the card says so; running, the sampler is interrupted and the
+   *  queue's own event fails the card — see `watchRender`. */
+  cancel(card) {
+    if (card.state === "queued" && card.promptId) {
+      dropQueued(card.promptId);
+      card.state = "failed";
+      card.error = t("cancelled");
+      card.stop?.();
+      return notify();
     }
+    if (card.state === "running") api.interrupt();
   }
 
   // ---- attachments -------------------------------------------------------------

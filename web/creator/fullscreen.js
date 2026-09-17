@@ -55,7 +55,7 @@
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 import { watch as watchQueue } from "./queue.js";
-import { renderMeta, viewUrl } from "./api.js";
+import { viewUrl } from "./api.js";
 import { el, icon, mark, spinner } from "./dom.js";
 import { buildDashboard } from "./navigate.js";
 import { openBlockout } from "./blockout.js";
@@ -67,7 +67,6 @@ import { openPresetLibrary } from "./presetlib.js";
 import { elapsed, stageSource } from "./stage.js";
 import { t } from "./i18n.js";
 import { noteFullscreen } from "./styles.js";
-import * as P from "./presets.js";
 import * as S from "./state.js";
 
 /** Node classes whose body this editor can host. Kept here rather than imported
@@ -922,10 +921,6 @@ class Fullscreen {
           art: { kind: "chat" },
           go: () => openChat({
             back: () => this.openDash(),
-            // The door out of a finished render and into the piece on the card.
-            // Given rather than found: the room has no idea what a node is, and
-            // spawning a pre-stage that does not exist yet is this shell's.
-            openRender: (asset) => this.takeChatRender(asset),
             // The nodes the room renders with: this piece's, and the pre-stage
             // beside it — spawned on the room's first picture, since a
             // picture is a pre-stage's to make. See `chatnode.js`.
@@ -945,29 +940,6 @@ class Fullscreen {
           }) },
       ] },
     ];
-  }
-
-  /**
-   * The chat room's "Open in the editor" door, for one finished render.
-   *
-   * The render carries the setup that made it — both save nodes embed the
-   * prompt they ran under — so this is the preset library's own reader pointed
-   * at a file instead of at a shelf: `captureFromRender` lifts the blob out of
-   * the metadata and the step's `presetTarget` applies it, which is the one
-   * interface in this pack that knows how to write a setup onto a node.
-   *
-   * Every section of the captured scope, because the room's piece *is* the
-   * whole setup — there is nothing on the node to preserve half of.
-   */
-  async takeChatRender(asset) {
-    const captured = P.captureFromRender(await renderMeta(asset.path), asset);
-    const step = captured.scope === "prestage" ? "pre" : "shot";
-    this.goTo(step);
-    const target = await this.stepTarget(step);
-    if (!target) {
-      throw new Error(t("There is no node here to put that on."));
-    }
-    target.apply(captured.data, P.SCOPE_SECTIONS[captured.scope] ?? [], captured.scope);
   }
 
   /**

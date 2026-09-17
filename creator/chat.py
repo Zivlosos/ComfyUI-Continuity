@@ -874,12 +874,33 @@ def ledger_line(entry):
 
 
 def ledger_block(ledger):
-    """Every made thing, one per line, oldest first."""
-    lines = [ledger_line(entry) for entry in ledger or []
-             if isinstance(entry, dict) and entry.get("handle")]
-    if not lines:
-        return "WHAT HAS BEEN MADE\nNothing yet."
-    return "\n".join(['WHAT HAS BEEN MADE — cite these by handle in "from"'] + lines)
+    """Every made thing, one per line, oldest first — and, apart from them,
+    what the node under the room already holds.
+
+    The two are not one list. What the room made is the model's to reach for:
+    "the same, as a shot" means the still it just made. What is on the node —
+    the start frame somebody attached on the canvas, the shelf's references —
+    was put there for the node's own render, and the room being opened over
+    it is not a request to use it. So those are named, since a person may
+    cite one and the citation has to mean something, but under a heading that
+    says whose they are and when to touch them; listed as made things they
+    were reached for, and a shot came back opening on a frame nobody in the
+    room had mentioned.
+    """
+    entries = [entry for entry in ledger or []
+               if isinstance(entry, dict) and entry.get("handle")]
+    made = [ledger_line(entry) for entry in entries if not entry.get("shelf")]
+    held = [ledger_line(entry) for entry in entries if entry.get("shelf")]
+    if made:
+        block = "\n".join(['WHAT HAS BEEN MADE — cite these by handle in "from"'] + made)
+    else:
+        block = "WHAT HAS BEEN MADE\nNothing yet."
+    if held:
+        block += "\n\n" + "\n".join([
+            "ON THE NODE — files the piece already holds. Cite one only when the "
+            "person names it or asks for what is on the node; never reach for "
+            "one on your own, and never make one a first frame unasked."] + held)
+    return block
 
 
 def strip_block(strip):
@@ -1309,8 +1330,11 @@ def shelf_entries(piece):
         filename = str(asset.get("filename") or "").strip()
         if not filename:
             continue
+        # Marked as the node's, so the model is told them apart from what the
+        # room made — see `ledger_block`.
         out.append({"handle": asset["handle"], "kind": asset.get("kind") or "image",
-                    "filename": filename, "text": filename.rsplit("/", 1)[-1].split(" [")[0]})
+                    "filename": filename, "text": filename.rsplit("/", 1)[-1].split(" [")[0],
+                    "shelf": True})
     return out
 
 

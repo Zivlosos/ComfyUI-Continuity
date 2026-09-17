@@ -322,6 +322,24 @@ export function segmentSeedPill({ own, piece, onChange, taken = null }) {
  * seed widget to draw (a timeline segment's own editor).
  */
 /**
+ * The fifteen bits behind a seed's mark, and the xorshift state they end on —
+ * which is the seed of the *next* mark, for anything that walks the marks
+ * (the chat's thinking line does). Split from `seedMark` so the walk and the
+ * pill can never draw the same seed two ways.
+ */
+export function seedMarkBits(seed) {
+  let x = (Number(seed) >>> 0) || 1;
+  const bits = [];
+  for (let i = 0; i < 15; i++) {
+    x ^= x << 13; x >>>= 0; x ^= x >>> 17; x ^= x << 5; x >>>= 0;
+    bits.push((x >>> 7) & 1);
+  }
+  // A sparse mark reads as a smudge: keep at least six cells lit.
+  if (bits.reduce((a, b) => a + b, 0) < 6) for (let i = 0; i < 15; i += 3) bits[i] = 1;
+  return { bits, next: x };
+}
+
+/**
  * The seed's fingerprint: a 5x5 mirrored mark drawn from the number.
  *
  * A seed is an identifier, and the only thing anyone asks of one is "is this
@@ -333,14 +351,7 @@ export function segmentSeedPill({ own, piece, onChange, taken = null }) {
  * editor for anyone who wants to copy it.
  */
 export function seedMark(seed, size = 14) {
-  let x = (Number(seed) >>> 0) || 1;
-  const bits = [];
-  for (let i = 0; i < 15; i++) {
-    x ^= x << 13; x >>>= 0; x ^= x >>> 17; x ^= x << 5; x >>>= 0;
-    bits.push((x >>> 7) & 1);
-  }
-  // A sparse mark reads as a smudge: keep at least six cells lit.
-  if (bits.reduce((a, b) => a + b, 0) < 6) for (let i = 0; i < 15; i += 3) bits[i] = 1;
+  const { bits } = seedMarkBits(seed);
   let cells = "";
   for (let r = 0; r < 5; r++) for (let c = 0; c < 3; c++) if (bits[r * 3 + c]) {
     cells += `<rect x="${c}" y="${r}" width="1.02" height="1.02" rx=".18"/>`;

@@ -499,6 +499,17 @@ check("an empty ledger says so rather than showing a heading over nothing",
       chat.ledger_block([]), "WHAT HAS BEEN MADE\nNothing yet.")
 check("and a full one is one line per thing",
       chat.ledger_block(LEDGER).count("\n"), 2)
+# The node's own files are not things the room made. Listed apart, under a
+# heading that says not to reach for them — a start frame attached on the
+# canvas was being cited unasked and opening the room's shot.
+held = chat.ledger_block(LEDGER + [{"handle": "img-9", "kind": "image", "text": "a.png", "shelf": True}])
+check("what the node holds is listed under its own heading, after what was made",
+      held.index("WHAT HAS BEEN MADE") < held.index("ON THE NODE") < held.index("img-9"), True)
+check("and not among the made things",
+      held.split("ON THE NODE")[0].count("img-9"), 0)
+check("a node with files and a room that has made nothing still says nothing was made",
+      chat.ledger_block([{"handle": "img-1", "kind": "image", "shelf": True}]).startswith(
+          "WHAT HAS BEEN MADE\nNothing yet.\n\nON THE NODE"), True)
 
 
 # ---- the context and its budget ---------------------------------------------
@@ -888,6 +899,8 @@ check("the room reads the piece's cast off the blob, every file of theirs counte
 check("and the shelf as ledger lines, the one-shot row lifted onto it",
       [(e["handle"], e["kind"], e["text"]) for e in chat.shelf_entries(NODE)],
       [("ref-1", "image", "shelf.png"), ("img-1", "image", "a.png")])
+check("each marked as the node's, so the model is told them apart",
+      all(e["shelf"] for e in chat.shelf_entries(NODE)), True)
 walk = chat.video_piece(chat.validate({"act": "render", "kind": "video",
                                        "prompt": "@anna walks past @img-2", "from": ["img-2"]},
                                       ROOM, cast=["anna"]), ROOM, RAIL, base=NODE)

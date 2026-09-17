@@ -83,7 +83,7 @@ export const css = `
 .mmc-ch-act:hover:not(:disabled) { background: var(--mmc-surface-2); color: var(--mmc-text); }
 .mmc-ch-act:disabled { opacity: .35; cursor: default; }
 .mmc-ch-act:focus-visible { outline: 2px solid var(--mmc-accent); outline-offset: 1px; }
-.mmc-ch-turn { max-width: 78%; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.mmc-ch-flip { max-width: 78%; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
 .mmc-ch-user .mmc-ch-said {
   padding: 10px 15px; border-radius: 18px 18px 6px 18px;
   background: var(--mmc-surface-2);
@@ -94,7 +94,20 @@ export const css = `
   white-space: pre-wrap; word-break: break-word;
 }
 .mmc-ch-bad .mmc-ch-said, .mmc-ch-note.mmc-ch-bad { color: var(--mmc-bad); }
-.mmc-ch-thinking { display: flex; align-items: center; gap: 8px; color: var(--mmc-faint); }
+.mmc-ch-thinking { display: flex; align-items: center; gap: 10px; color: var(--mmc-faint); }
+/* The seed mark, walking, while the model writes: the pill's 5x5 as
+   twenty-five cells so each can fade on its own. In the accent — it is the
+   one live thing on the surface while it stands. */
+.mmc-ch-mark {
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 1.4px;
+  width: 18px; height: 18px; flex: none; color: var(--mmc-accent);
+}
+.mmc-ch-mark i {
+  display: block; border-radius: 1px; background: currentColor;
+  opacity: 0; transform: scale(.55);
+  transition: opacity 340ms ease, transform 340ms cubic-bezier(.2, .7, .2, 1);
+}
+.mmc-ch-mark i.on { opacity: 1; transform: scale(1); }
 /* A turn that failed before there was a reply: what went wrong, and the way
    to try it again beside it — a failure is a moment for direction. */
 .mmc-ch-fail { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
@@ -149,10 +162,76 @@ export const css = `
   background: var(--mmc-surface); overflow: hidden;
   display: flex; flex-direction: column;
 }
+/* The plate is the part that turns. Both faces sit in one grid cell so the
+   back is exactly the picture's box, whatever shape the picture is, and the
+   doors under it never move. */
+.mmc-ch-plate { display: grid; perspective: 1400px; position: relative; }
+.mmc-ch-face {
+  grid-area: 1 / 1; min-width: 0; min-height: 0;
+  backface-visibility: hidden; -webkit-backface-visibility: hidden;
+  transform-style: preserve-3d;
+  transition: transform 520ms cubic-bezier(.2, .7, .15, 1);
+}
+.mmc-ch-front { transform: rotateY(0deg); }
+/* Out of flow, so the picture alone sets the plate's height and a long prompt
+   scrolls inside the back rather than growing the card. */
+.mmc-ch-back { position: absolute; inset: 0; transform: rotateY(-180deg); }
+.mmc-ch-plate.turned .mmc-ch-front { transform: rotateY(180deg); }
+.mmc-ch-plate.turned .mmc-ch-back { transform: rotateY(0deg); }
+/* Light across the plate while it turns — the edge coming towards you
+   catches it, the edge going away loses it — which is what makes the card
+   read as a thing being turned rather than a swap. Off once it has settled. */
+.mmc-ch-plate::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0;
+  background: linear-gradient(100deg, rgba(255,255,255,.10), transparent 45%, rgba(0,0,0,.18));
+  transition: opacity 260ms;
+}
+.mmc-ch-plate.turning::after { opacity: 1; }
 .mmc-ch-shot {
   display: block; width: 100%; height: auto; max-height: 52vh;
   object-fit: contain; background: var(--mmc-media-bg);
 }
+/* The one control on the picture: top right, on a scrim, turns the plate. */
+.mmc-ch-flip {
+  position: absolute; top: 10px; right: 10px; z-index: 2;
+  width: 30px; height: 30px; border-radius: 50%; padding: 0; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--mmc-scrim-2); border: 1px solid var(--mmc-edge); color: var(--mmc-text);
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+}
+.mmc-ch-flip:hover { color: var(--mmc-accent); border-color: var(--mmc-accent); }
+.mmc-ch-flip svg { stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* The back: what was written on the back of a print. The words the render was
+   made from first and largest, then what made it, in the readout mono. */
+.mmc-ch-slate {
+  height: 100%; box-sizing: border-box; overflow: hidden;
+  display: flex; flex-direction: column; min-height: 0;
+  background: var(--mmc-float); text-align: left;
+}
+.mmc-ch-prompt {
+  flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain;
+  padding: 16px 44px 12px 16px;
+  font-size: calc(13.5px * var(--mmc-type)); line-height: 1.5; color: var(--mmc-text);
+}
+/* The last line fades where the words go on under the facts, so a prompt
+   that scrolls says so. */
+.mmc-ch-prompt { mask-image: linear-gradient(black calc(100% - 18px), transparent); }
+.mmc-ch-prompt p { margin: 0; white-space: pre-wrap; }
+.mmc-ch-rewrite {
+  margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--mmc-line-3);
+  color: var(--mmc-dim); font-size: calc(12.5px * var(--mmc-type));
+}
+.mmc-ch-rewrite b { font-weight: 500; color: var(--mmc-faint); }
+.mmc-ch-facts {
+  flex: none; margin: 0; display: grid; grid-template-columns: max-content 1fr;
+  column-gap: 14px; row-gap: 3px; padding: 10px 16px 12px; border-top: 1px solid var(--mmc-line);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: calc(11px * var(--mmc-type));
+  line-height: 1.5; font-variant-numeric: tabular-nums;
+}
+.mmc-ch-facts dt { color: var(--mmc-off); margin: 0; }
+.mmc-ch-facts dd { color: var(--mmc-text); margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mmc-ch-facts dd.mmc-ch-took { color: var(--mmc-strong); }
 /* Before there is anything to show. A box of the right shape rather than a
    collapsing card: the picture arrives into the space it was always going to
    take, instead of pushing the conversation down when it lands. */
@@ -188,6 +267,10 @@ export const css = `
 }
 .mmc-ch-door:hover:not(:disabled) { background: var(--mmc-lift); }
 .mmc-ch-door:disabled { opacity: .45; cursor: default; }
+/* The two that send a still on, in the pre-stage chip's own colours; and the
+   one that stops a render, in the colour of stopping. */
+.mmc-ch-sendon:hover:not(:disabled) { background: none; border-color: var(--mmc-accent); color: var(--mmc-accent); }
+.mmc-ch-cancel:hover:not(:disabled) { background: none; border-color: var(--mmc-bad); color: var(--mmc-bad); }
 
 /* --- the composer ---------------------------------------------------------- */
 /* The dock is full width so the sheet can be centred in it; the sheet is the
@@ -495,10 +578,17 @@ export const css = `
 @media (max-width: 720px) {
   .mmc-ch-log { padding-left: 14px; padding-right: 14px; }
   .mmc-ch-dock { padding-left: 10px; padding-right: 10px; }
-  .mmc-ch-turn { max-width: 90%; }
+  .mmc-ch-flip { max-width: 90%; }
   .mmc-ch-modelname { max-width: 18ch; }
 }
 @media (prefers-reduced-motion: reduce) {
   .mmc-ch-fill { transition: none; }
+  .mmc-ch-mark i { transition: none; }
+  /* No turn: the faces cross-fade in place. */
+  .mmc-ch-face { transition: opacity 200ms; }
+  .mmc-ch-front, .mmc-ch-back, .mmc-ch-plate.turned .mmc-ch-front, .mmc-ch-plate.turned .mmc-ch-back { transform: none; }
+  .mmc-ch-back, .mmc-ch-plate.turned .mmc-ch-front { opacity: 0; pointer-events: none; }
+  .mmc-ch-plate.turned .mmc-ch-back { opacity: 1; pointer-events: auto; }
+  .mmc-ch-plate::after { display: none; }
 }
 `;

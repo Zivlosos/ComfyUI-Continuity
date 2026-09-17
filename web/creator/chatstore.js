@@ -128,6 +128,10 @@ function packCard(card) {
     piece: card.piece ?? null,
     refined: card.refined ?? null,
     error: card.error ?? null,
+    // The slate's numbers. Absent on a card saved before it had a back.
+    seed: card.seed ?? null,
+    took: card.took ?? null,
+    landedAt: card.landedAt ?? null,
   };
 }
 

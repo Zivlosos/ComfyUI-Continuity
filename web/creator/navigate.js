@@ -35,12 +35,7 @@ import { t } from "./i18n.js";
  */
 export function buildDashboard({ groups, onLeave }) {
   const dash = el("div", { class: "mmc-dash" });
-  const sheet = el("div", { class: "mmc-dash-sheet" }, [
-    // What every card on this surface has in common, said once. Without it the
-    // grid is a set of names with no statement of what pressing one does to the
-    // piece you left behind on the card.
-    el("p", { class: "mmc-dash-lede", text: t("Each tool opens over the piece on the card.") }),
-  ]);
+  const sheet = el("div", { class: "mmc-dash-sheet" });
   // The stagger is one order across the whole surface rather than per section,
   // so the cards arrive as one sweep — see the styles for the cap on it.
   let n = 0;

@@ -6,6 +6,26 @@ exactly as it was written, wall of text and all.
 
 ## Unreleased
 
+**The chat's render card turns over, opens in the loupe, sends a still on,
+and can be cancelled.** The corner button turns the plate: the picture on
+one side, on the other the prompt as asked, what the refiner actually sent
+to the sampler, and the facts — what made it, how long the sampler had it,
+length, size off the file itself, seed, what it opened from, when it
+landed. Only the plate turns; the doors under it stay, so a still can be
+sent on while its slate is read. "→ start" and "→ end" put a still on the
+piece under the room through the pre-stage chips' own door, in the same
+words. Two presses on the picture open the loupe. A queued or running
+render has a Cancel. "Open in the editor" is gone: it wrote nothing
+anybody could see. And the node's own files — a start frame attached on
+the canvas, the shelf's references — are told to the model apart from what
+the room made, under a heading that says not to reach for them: listed as
+made things they were being cited unasked, and a shot came back opening on
+a frame nobody in the room had mentioned. While the model writes, the
+ring is the seed pill's own mark walking through the seeds it could be —
+each the next xorshift state after the last, so the cells drift — in the
+accent, beside "Writing · 1,466 tokens": the count written so far, without
+the budget that used to stand beside it dressed as a progress bar.
+
 **The chat room has the node's prompt box, its cast and its shelf, and
 builds a strip in words.** The composer is `PromptBox` now: `@` cites what
 the conversation made or attached, the piece's shelf and its cast, and

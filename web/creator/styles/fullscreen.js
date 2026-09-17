@@ -1474,11 +1474,6 @@ export const css = `
   max-width: 900px; margin: 0 auto; padding: 34px 28px 40px;
   display: flex; flex-direction: column;
 }
-/* What pressing any card does, said once, so no card has to say it. */
-.mmc-dash-lede {
-  margin: 0 0 26px; max-width: 46ch;
-  font-size: calc(13.5px * var(--mmc-type)); line-height: 1.5; color: var(--mmc-dim);
-}
 /* A section's name, and the rule that says how far the section reaches. The
    same eyebrow the desk's columns wear, so the two surfaces of this editor are
    labelled in one voice. */

@@ -210,6 +210,11 @@ export const ICONS = {
   // bigger — the bench that writes a larger file.
   zoomIn: `<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/><path d="M11 8v6"/><path d="M8 11h6"/>`,
   zoomOut: `<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/><path d="M8 11h6"/>`,
+  // Lucide's `triangles-centerline-dashed-vertical`, verbatim: two wedges
+  // either side of a dashed axis, which is a thing seen from both sides. The
+  // chat's render card turns over on it — the picture on one face, what made
+  // the picture on the other.
+  flip: `<path d="M12 14v2"/><path d="M12 20v2"/><path d="M12 2v2"/><path d="M12 8v2"/><path d="M20.288 16.703A1 1 0 0022 16V8a1 1 0 00-1.712-.703l-3.99 3.991a1 1 0 00-.001 1.424z"/><path d="M3.712 16.703A1 1 0 012 16V8a1 1 0 011.712-.703l3.99 3.991a1 1 0 01.001 1.424z"/>`,
   // Lucide's `shuffle`, verbatim — the same deal `brain`, `gear` and `eraser`
   // get. One file leaving as another arrives, which is what swapping the file
   // under a LoRA chip is. `swap` above is the cast's and reads as two things
