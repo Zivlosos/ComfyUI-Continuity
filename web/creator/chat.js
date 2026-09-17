@@ -46,7 +46,7 @@ import { openPicker } from "./picker.js";
 import { outputUrl, upload, uiSetting, patchSettings, primeSettings,
          viewUrl } from "./api.js";
 import { settings as refinerSettings, chosenModel, openSettings, listSkills, refineRequest } from "./refine.js";
-import { FAMILIES, videoFamily, stillFamily } from "./manifest.js";
+import { FAMILIES, STILL_ARCHES, videoFamily, stillFamily } from "./manifest.js";
 import { run, watch as watchQueue, dropQueued } from "./queue.js";
 import { openLoupe } from "./loupe.js";
 import { FirstRun, freshSetup, scanMachine } from "./chatsetup.js";
@@ -1513,9 +1513,13 @@ class Room {
       facts.push(el("dt", { text: key }), dd);
       return dd;
     };
-    const family = card.isClip || card.action?.kind !== "still"
-      ? videoFamily(card.piece?.family)?.label
-      : stillFamily(card.piece?.arch)?.label;
+    // Off the piece the server built, which a card that is still starting
+    // does not have yet — and `stillFamily` throws on an arch it does not
+    // know, which an absent one is.
+    const still = !card.isClip && card.action?.kind === "still";
+    const family = !card.piece ? null
+      : still ? (STILL_ARCHES[card.piece.arch] ? stillFamily(card.piece.arch).label : null)
+      : videoFamily(card.piece.family).label;
     if (family) fact(t("made with"), family);
     if (card.state === "done" && card.took != null) fact(t("took"), took(card.took), "mmc-ch-took");
     else if (card.state === "running" && card.startedAt) {
