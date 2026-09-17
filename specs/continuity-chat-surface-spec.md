@@ -294,7 +294,19 @@ starts fresh. The renders stay, in the output folder.
    pack's own (`web/creator/chatstore.js`), an index plus one file per chat,
    with the sidebar in the room. Titles come from the first message rather
    than the model, since a title is not worth a queue slot on a local GPU.
-5. The cast in chat; then the timeline.
+5. The cast in chat; then the timeline. — *Done 2026-09-17*, both, and
+   neither as a tool: the cast is the piece's, brought in with the node's
+   own `@`/`/` menus — the composer *is* `PromptBox`, over the room's ledger
+   and the piece's shelf and cast — and the model passes `@anna` through
+   for the compiler to expand, as the node's box does. Two fields on the
+   one action for the strip (`after`/`replaces`) and a `:scope` suffix on
+   a handle in `from`. The room holds the strip beside the ledger and
+   sends the piece with every turn; the model reads the shelf as ledger
+   lines and the cast as one more short block. The strip is the piece's
+   own held takes: only the new card is sampled, and the joined file is
+   what the card plays. The room's handles are `pic`/`clip`/`snd`, apart
+   from the node's row (`img`/`vid`/`aud`) and shelf (`ref`). Not captions
+   (1), which every "make the dog bigger" still wants.
 
 ## 7. Sequencing
 

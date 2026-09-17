@@ -6,6 +6,26 @@ exactly as it was written, wall of text and all.
 
 ## Unreleased
 
+**The chat room has the node's prompt box, its cast and its shelf, and
+builds a strip in words.** The composer is `PromptBox` now: `@` cites what
+the conversation made or attached, the piece's shelf and its cast, and
+offers the cast library — pick Vera and she is cast onto the piece under
+the room with her files, as in the node's own box; `/` brings in a look, a
+member or a file. "@anna walks down the street" reaches the model with the
+name in it, the model keeps it, and the compiler expands it into her
+pictures and her definition — the model never casts anybody, and is told
+who is cast off the node's blob. "Now the next shot: she turns away" puts
+a card after the last clip and continues from its last frames, only the
+new card sampled, the earlier shots held on the takes they already are;
+"redo the second shot" replaces it. "In the style of that one" scopes a
+cited picture (`pic-2:style`). The strip and the scope are fields on the
+one action rather than new tools, because a small model chooses well once
+per turn and badly among many. What the strip renders is a timeline blob
+with held takes, so it opens in the editor as one. The room's handles are
+`pic`/`clip`/`snd`, a namespace apart from the node's row, whose `img-N`
+a one-shot piece's cast files land under. `tools/chat_bench.py` carries a
+cast piece and the strip through its script.
+
 **A wrong VAE is refused by name before the render starts.** The picker
 lists every file in `models/vae`, and nothing about `flux2-vae.safetensors`
 says it is not the one Krea 2 decodes with — so the wrong pick sampled the

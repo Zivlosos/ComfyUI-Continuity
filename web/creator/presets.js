@@ -1208,8 +1208,8 @@ export function leadWithStyle(text, phrase) {
  * Everything that casts a look goes through here: the library's Apply and the
  * `/` menu's own rows.
  */
-export function castIntoPiece(stored, timeline) {
-  const cast = addSubjectToPiece(stored, timeline);
+export function castIntoPiece(stored, timeline, options = {}) {
+  const cast = addSubjectToPiece(stored, timeline, options);
   if (cast?.takes !== "style") return cast;
   for (const other of [...(timeline.subjects ?? [])]) {
     if (other !== cast && other.takes === "style") dropStyle(other, timeline);
@@ -1379,15 +1379,20 @@ function freeSubjectHandle(wanted, timeline) {
  * A file already attached is *used* rather than attached twice — the same
  * picture under two handles is two references to the model and half a wasted
  * budget.
+ *
+ * `pool` forces the shelf on a one-shot piece. The chat room casts this way:
+ * its render replaces the shot's row with the conversation's card, so a file
+ * on the row would be gone by the time the name is cited, and its own
+ * handles (`img-N`) are minted by the room's ledger rather than the row.
  */
-export function addSubjectToPiece(stored, timeline) {
+export function addSubjectToPiece(stored, timeline, { pool = false } = {}) {
   if (!stored) return null;
   if (!Array.isArray(timeline.assets)) timeline.assets = [];
   if (!Array.isArray(timeline.subjects)) timeline.subjects = [];
   // No segments at all is the pre-stage's H3 still — a lone generation whose
   // assets *are* the shot's row — so it takes the one-shot treatment with the
   // piece as its own host.
-  const single = (timeline.segments ?? []).length <= 1;
+  const single = !pool && (timeline.segments ?? []).length <= 1;
   const host = single ? (timeline.segments?.[0] ?? timeline) : timeline;
   if (!Array.isArray(host.assets)) host.assets = [];
   const slots = { from: [], motion: [], replaces: [] };

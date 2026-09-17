@@ -8,8 +8,8 @@ before it reaches the compiler. `routes/chat.py` is the door, and it does the
 joining — disk, settings, the queue; this module is ordinary data and is tested
 as such, the same bargain `families/refine.py` and `compile.py` keep.
 
-**One action with seven flat fields, and at most one per turn.** Not because
-seven is elegant but because the refiner is whatever the user already pointed
+**One action with nine flat fields, and at most one per turn.** Not because
+nine is elegant but because the refiner is whatever the user already pointed
 the pack at, and on a 4B model tool selection falls apart as the catalogue
 grows and multi-turn tool use falls apart outright (the spec's §3 collects the
 numbers). So every turn is a fresh single decision: the harness carries the
@@ -40,7 +40,10 @@ import json
 import os
 import re
 
-from .families import refine
+from . import canvas
+from .compile import TAKES
+from .families import refine, registry
+from .families.h3 import subjects
 
 
 # ---- the system prompt ------------------------------------------------------
@@ -81,7 +84,29 @@ KIND_STILL, KIND_VIDEO = "still", "video"
 
 # Every field the schema has. Written down so the contract, the validator and
 # the system prompt's worked examples can be held against one list.
-FIELDS = ("act", "kind", "prompt", "from", "seconds", "aspect", "say")
+FIELDS = ("act", "kind", "prompt", "from", "seconds", "aspect", "say",
+          "after", "replaces")
+
+# What of a cited file the reference is, written after the handle as
+# `img-2:style`. One token and no nesting, because a nested object is where a
+# small model's JSON goes wrong; the vocabulary is the compiler's own `TAKES`
+# per kind of file, minus `full`, which is what no suffix means.
+SCOPE_RE = re.compile(r"^@?([A-Za-z]+-\d+)(?::([a-z]+))?$")
+
+# Anything written after an `@` in a prompt: a file's handle or a member's name,
+# told apart by the hyphen — `subjects.HANDLE_RE` forbids a member the hyphen
+# every file handle has. `compile.HANDLE_RE` matches only the first shape and
+# `subjects.citation_re` only the declared names, so the check that every `@`
+# means something is this module's — it runs before either of them. The cast
+# is the piece's: somebody the person brought in with the node's own `@` menu,
+# never somebody the model invents.
+CITE_RE = re.compile(r"@([A-Za-z][A-Za-z0-9_-]*)")
+
+# What kind of file a ledger entry describes, by the word the room writes in
+# its `kind` — the room's three, and the prefix as the fallback for an entry
+# written before the word was read.
+LEDGER_KINDS = {"still": "image", "clip": "video", "sound": "audio",
+                "image": "image", "video": "video", "audio": "audio"}
 
 # How much of a `say` the bubble is given. A model that answers a question with
 # an essay is not wrong, but the bubble is one line beside a render card and the
@@ -183,21 +208,59 @@ def _handles(raw, known):
             f'"from" must be a list of handles from the ledger, like ["img-1"]; '
             f"yours was {_shown(value)}.")
 
-    out = []
+    known = known if isinstance(known, dict) else {h: None for h in known}
+    out, seen = [], set()
     for item in value:
         if not isinstance(item, str) or not item.strip():
             raise ActionError(
                 f'"from" must hold handles from the ledger, like "img-1"; it '
                 f"holds {_shown(item)}.")
-        handle = item.strip().lstrip("@")
+        match = SCOPE_RE.match(item.strip())
+        if not match:
+            raise ActionError(
+                f'"from" must hold handles from the ledger, like "img-1" or '
+                f'"img-1:style"; it holds {_shown(item)}.')
+        handle, scope = match.group(1), match.group(2)
         if handle not in known:
             where = ", ".join(known) if known else "nothing has been made yet"
             raise ActionError(
                 f'"from" names @{handle}, which is not in the ledger. The '
                 f"handles you may cite are: {where}.")
-        if handle not in out:
-            out.append(handle)
+        if scope:
+            media = known.get(handle) or _media_kind(handle)
+            allowed = [t for t in TAKES.get(media, ()) if t != "full"]
+            if scope not in allowed:
+                raise ActionError(
+                    f'@{handle}:{scope} — what a {media} can be '
+                    f"cited for is {', '.join(allowed)}.")
+        if handle in seen:
+            continue
+        seen.add(handle)
+        out.append(f"{handle}:{scope}" if scope else handle)
     return out
+
+
+def split_handle(item):
+    """`"img-2:style"` -> `("img-2", "style")`; a bare handle -> `(handle, None)`."""
+    handle, _, scope = str(item).partition(":")
+    return handle, (scope or None)
+
+
+def _on_strip(raw, key, strip):
+    """`after` or `replaces` -> a handle on the strip, or None."""
+    value = raw.get(key)
+    if value in (None, "", False):
+        return None
+    if not isinstance(value, str):
+        raise ActionError(f'"{key}" must be the handle of a shot on the strip; '
+                          f"yours was {_shown(value)}.")
+    handle = value.strip().lstrip("@")
+    if handle not in strip:
+        where = " → ".join(strip) if strip else "there is no strip yet"
+        raise ActionError(
+            f'"{key}" names @{handle}, which is not a shot on the strip. The '
+            f"strip is: {where}.")
+    return handle
 
 
 def _seconds(raw):
@@ -225,13 +288,17 @@ def _seconds(raw):
     return seconds
 
 
-def validate(raw, ledger):
+def validate(raw, ledger, strip=(), cast=()):
     """The object -> the action, or an `ActionError` naming the field.
 
     Strict, field by field, and in the order a reader would check them: what
     kind of turn this is, then what it is a turn *about*. The normalised dict
     that comes back always carries every field, so nothing downstream has to ask
     whether a key is there — only whether it is set.
+
+    `strip` is the handles of the shots joined so far, in order, and `cast` the
+    names on the piece's cast: the two things an action may point at beyond
+    the ledger, and both are the room's to send.
     """
     if not isinstance(raw, dict):
         raise ActionError('the action must be a JSON object with an "act" field.')
@@ -248,6 +315,9 @@ def validate(raw, ledger):
             f"to; yours was {_shown(say)}.")
     say = (say or "").strip()[:MAX_SAY]
 
+    known = known_handles(ledger)
+    names = [str(n).lower() for n in cast or ()]
+
     if act == ACT_SAY:
         # On a `say` the field is the whole reply, so an empty one is a turn
         # with nothing in it — the one case where a missing `say` is fatal.
@@ -255,7 +325,8 @@ def validate(raw, ledger):
             raise ActionError('"say" must hold your reply — on a "say" it is the '
                               "whole of what the person reads.")
         return {"act": ACT_SAY, "kind": None, "prompt": "", "from": [],
-                "seconds": None, "aspect": None, "say": say}
+                "seconds": None, "aspect": None, "say": say,
+                "after": None, "replaces": None}
 
     kind = raw.get("kind")
     if kind not in (KIND_STILL, KIND_VIDEO):
@@ -275,17 +346,58 @@ def validate(raw, ledger):
             f'"aspect" must be one of the aspect names, like "16:9"; yours was '
             f"{_shown(aspect)}.")
 
-    known = [str(entry.get("handle")) for entry in ledger or []
-             if isinstance(entry, dict) and entry.get("handle")]
-    return {"act": ACT_RENDER, "kind": kind, "prompt": prompt.strip(),
-            "from": _handles(raw, known), "seconds": _seconds(raw),
-            "aspect": (aspect or None), "say": say}
+    cited = _handles(raw, known)
+    # A scope belongs in "from"; written after a handle in the prose it
+    # would reach the model as text. Read as the citation it is.
+    prompt = re.sub(r"@([A-Za-z]+-\d+):[a-z]+", r"@\1", prompt.strip())
+    # Every `@` in the prompt has to mean something before the compiler reads
+    # it. A file's handle written in the prose and left out of "from" is the
+    # commonest slip and its meaning is not in doubt, so it is added; a name
+    # nobody has cast is a `<Subject N>` standing for nothing, and is refused
+    # with the names that would have worked.
+    listed_handles = {split_handle(item)[0] for item in cited}
+    for word in CITE_RE.findall(prompt):
+        if "-" in word:
+            if word in known and word not in listed_handles:
+                cited.append(word)
+                listed_handles.add(word)
+            elif word not in known:
+                raise ActionError(
+                    f"the prompt cites @{word}, which is not in the ledger.")
+        elif word.lower() not in names:
+            where = ", ".join("@" + n for n in names) if names else "nobody is cast yet"
+            raise ActionError(
+                f"the prompt cites @{word}, who is not in the cast. The cast is: "
+                f"{where}. Write only names the cast block lists, or write the "
+                f"person out in words.")
+
+    after = _on_strip(raw, "after", strip)
+    replaces = _on_strip(raw, "replaces", strip)
+    if after and replaces:
+        raise ActionError('"after" and "replaces" cannot both be set — a shot '
+                          "either follows one or stands in for one.")
+    if (after or replaces) and kind != KIND_VIDEO:
+        raise ActionError('"after" and "replaces" put a clip on the strip; a '
+                          "still is never on it.")
+    return {"act": ACT_RENDER, "kind": kind, "prompt": prompt,
+            "from": cited, "seconds": _seconds(raw),
+            "aspect": (aspect or None), "say": say,
+            "after": after, "replaces": replaces}
 
 
-def read(reply, ledger):
+def known_handles(ledger):
+    """The ledger -> `{handle: media kind}`, the two things a citation needs."""
+    out = {}
+    for entry in ledger or []:
+        if isinstance(entry, dict) and entry.get("handle"):
+            out[str(entry["handle"])] = _entry_kind(entry)
+    return out
+
+
+def read(reply, ledger, strip=(), cast=()):
     """`(plan, action)` off a raw reply, or an `ActionError`."""
     plan, raw = parse(reply)
-    return plan, validate(raw, ledger)
+    return plan, validate(raw, ledger, strip, cast)
 
 
 # ---- the one re-ask ---------------------------------------------------------
@@ -322,7 +434,7 @@ def asks_for_render(text):
     return False
 
 
-def judge(reply, ledger, user_text, second=False):
+def judge(reply, ledger, user_text, second=False, strip=(), cast=()):
     """One model reply -> what the room does with it.
 
     The whole protocol, as a function of the reply alone, so the route next door
@@ -346,7 +458,7 @@ def judge(reply, ledger, user_text, second=False):
     more use than a third round trip or an error where a bubble should be.
     """
     try:
-        plan, action = read(reply, ledger)
+        plan, action = read(reply, ledger, strip, cast)
     except ActionError as problem:
         if second:
             return {"act": ACT_SAY, "say": spoken(reply)}
@@ -770,6 +882,57 @@ def ledger_block(ledger):
     return "\n".join(['WHAT HAS BEEN MADE — cite these by handle in "from"'] + lines)
 
 
+def strip_block(strip):
+    """The clips joined so far, as one line: `vid-1 (5 s) → vid-2 (4 s)`.
+
+    `strip` is `[{handle, seconds}]` in strip order — the room's reading of
+    the piece it has been building, sent with every turn. Nothing when there
+    is no strip: the rule for a first clip is already in the system prompt,
+    and a block that says "nothing" is a block that costs tokens to say it.
+    """
+    shots = [entry for entry in strip or []
+             if isinstance(entry, dict) and entry.get("handle")]
+    if not shots:
+        return ""
+    said = " → ".join(
+        f"{entry['handle']} ({float(entry['seconds']):g} s)" if entry.get("seconds")
+        else str(entry["handle"]) for entry in shots)
+    return ('THE STRIP — these clips are joined, in this order. A next shot '
+            f'goes "after" the last one; a redo "replaces" one.\n{said}')
+
+
+def cast_line(member):
+    """One member: `@anna · person · from img-1, img-3 · "woman, thirties"`."""
+    parts = [f"@{member.get('name')}", str(member.get("takes") or "person")]
+    sources = [str(h) for h in member.get("from") or []]
+    if sources:
+        parts.append("from " + ", ".join(sources))
+    text = " ".join(str(member.get("description") or "").split())
+    if text:
+        if len(text) > LEDGER_TEXT:
+            text = text[:LEDGER_TEXT].rsplit(" ", 1)[0] + "…"
+        parts.append(f'"{text}"')
+    return " · ".join(parts)
+
+
+def cast_block(cast):
+    """Who is on the piece's cast, one per line.
+
+    The members are the piece's — brought in with the node's own `@` menu —
+    and are cited by name in the prompt and never described again: the
+    definition is theirs, and the compiler writes it. So the block says what
+    each is built from and what they look like, which is what the model needs
+    to know to write around them rather than about them.
+    """
+    members = [m for m in cast or [] if isinstance(m, dict) and m.get("name")]
+    if not members:
+        return ""
+    lines = ['THE CAST — cite them by name in "prompt" (@anna), exactly as the '
+             'person does. Never describe them again and never put their own '
+             'pictures in "from".']
+    return "\n".join(lines + [cast_line(m) for m in members])
+
+
 # ---- what the model is told: the conversation -------------------------------
 
 # How much of the conversation rides along. Five exchanges is what "same but at
@@ -818,7 +981,7 @@ def trim(messages, exchanges=MAX_EXCHANGES, chars=MAX_HISTORY_CHARS):
     return messages
 
 
-def context(messages, ledger, card, exchanges=MAX_EXCHANGES):
+def context(messages, ledger, card, exchanges=MAX_EXCHANGES, strip=(), cast=()):
     """The one user message: the machine, the ledger, then the conversation.
 
     Three blocks in a fixed order that ends with the freshest thing, which is
@@ -834,7 +997,7 @@ def context(messages, ledger, card, exchanges=MAX_EXCHANGES):
     one thing the research says it cannot.
     """
     kept = trim(messages, exchanges=exchanges)
-    blocks = [card, ledger_block(ledger)]
+    blocks = [card, ledger_block(ledger), strip_block(strip), cast_block(cast)]
     if kept:
         blocks.append("\n".join(["THE CONVERSATION"] + [_rendered(m) for m in kept]))
     blocks.append("Answer the last line above: one line of plan, then the action "
@@ -871,19 +1034,41 @@ DEFAULT_SECONDS = 6
 DEFAULT_STILL_PICTURES = {"takes": True, "refusal": ""}
 
 
+def _entry_kind(entry):
+    """What kind of file a ledger entry is: its own word, else its prefix.
+
+    The room's own lines say `still`, `clip` or `sound`; a line for one of the
+    piece's shelf references (`ref-2`) says the asset's `image`/`video`/`audio`.
+    The prefix is the fallback, and the refusal for a handle nobody can read.
+    """
+    kind = LEDGER_KINDS.get(str(entry.get("kind") or "").lower())
+    return kind or _media_kind(entry.get("handle"))
+
+
+# The room's own prefixes, and the node's. The room mints `pic`, `clip` and
+# `snd` — a namespace apart from the row's `img`/`vid`/`aud`, which a one-shot
+# piece's cast files land under (`state.collapsePool`), since both lists meet
+# in the model's ledger. The node's are read too, for a shelf line.
+PREFIXES = {"pic": "image", "clip": "video", "snd": "audio",
+            "img": "image", "vid": "video", "aud": "audio"}
+
+
 def _media_kind(handle):
     """What kind of file a handle names — the prefix, as everywhere else here."""
     prefix = str(handle).split("-", 1)[0]
-    kind = {"img": "image", "vid": "video", "aud": "audio"}.get(prefix)
+    kind = PREFIXES.get(prefix)
     if kind is None:
         raise ActionError(
             f"@{handle} is not a handle this room can attach — the ledger's "
-            f"handles are img-N, vid-N and aud-N.")
+            f"handles are pic-N, clip-N and snd-N.")
     return kind
 
 
-def _cited(action, ledger):
-    """`from` resolved against the ledger -> `[(handle, kind, filename)]`.
+def _cited(action, ledger, handles=None):
+    """`from` resolved against the ledger -> `[(handle, kind, filename, scope)]`.
+
+    `handles` stands in for the action's own list where the caller has a list
+    of its own to resolve — a cast member's sources, say.
 
     Raises rather than dropping. A handle with no file behind it is a ledger the
     browser and the server disagree about, and a render that quietly went out
@@ -893,7 +1078,9 @@ def _cited(action, ledger):
     entries = {str(entry.get("handle")): entry for entry in ledger or []
                if isinstance(entry, dict) and entry.get("handle")}
     out = []
-    for handle in action.get("from") or []:
+    items = action.get("from") or [] if handles is None else handles
+    for item in items:
+        handle, scope = split_handle(item)
         entry = entries.get(handle)
         if entry is None:
             raise ActionError(f"@{handle} is not in the ledger.")
@@ -902,8 +1089,16 @@ def _cited(action, ledger):
             raise ActionError(
                 f"@{handle} is in the ledger but has no file behind it yet, so "
                 f"there is nothing to attach.")
-        out.append((handle, _media_kind(handle), filename))
+        out.append((handle, _entry_kind(entry), filename, scope))
     return out
+
+
+def _cited_members(prompt, cast):
+    """The members this prompt names, in cast order. `cast` is the room's
+    reading of the piece's subjects: `{name, takes, from, description}`."""
+    named = {word.lower() for word in CITE_RE.findall(prompt) if "-" not in word}
+    return [m for m in cast or [] if isinstance(m, dict)
+            and str(m.get("name") or "").lower() in named]
 
 
 def _canvas(action, rail, kind):
@@ -943,7 +1138,7 @@ def _canvas(action, rail, kind):
 # the node's row drawn a second time over the same blob.
 
 
-def still_piece(action, ledger, rail, base=None):
+def still_piece(action, ledger, rail, base=None, cast=None):
     """A `render` of a still -> the `prestage_data` the PreStage node runs.
 
     Over `base`, the pre-stage's own blob: everything on it stands — the LoRA
@@ -980,22 +1175,48 @@ def still_piece(action, ledger, rail, base=None):
 
     cited = _cited(action, ledger)
     pictures = {**DEFAULT_STILL_PICTURES, **(rail.get("still_pictures") or {})}
+
+    # A member in a still. The image compilers have no cast: a picture has
+    # one prompt and its references, so `@anna` becomes her first picture
+    # cited where her name stood, with her description after it, or her
+    # description alone where the family reads no picture — and a member with
+    # neither is a name the picture could not draw.
+    prompt = action["prompt"]
+    for member in _cited_members(prompt, cast):
+        files = _cited(None, ledger, member.get("from") or [])
+        picture = next((f for f in files if f[1] == "image"), None)
+        text = member.get("description") or ""
+        if picture and pictures.get("takes"):
+            handle = picture[0]
+            if handle not in {c[0] for c in cited}:
+                cited.append(picture)
+            stood = f"@{handle}" + (f" ({text})" if text else "")
+        elif text:
+            stood = text
+        else:
+            raise ActionError(
+                f"@{member['name']} has no picture a still can be given here "
+                f"and no description — describe them, or cite one of their "
+                f"pictures in words.")
+        prompt = re.sub(rf"@{re.escape(member['name'])}\b", stood, prompt)
+
     if cited and not pictures.get("takes"):
         raise ActionError(pictures.get("refusal") or
                           "this still family cannot be given a picture.")
 
     refs = []
-    for handle, kind, filename in cited:
+    for handle, kind, filename, scope in cited:
         if kind != "image":
             raise ActionError(
                 f"@{handle} is a {kind} and a still can only be given pictures.")
-        refs.append({"handle": handle, "filename": filename})
+        refs.append({"handle": handle, "filename": filename,
+                     **({"takes": scope} if scope else {})})
 
     piece = json.loads(json.dumps(base)) if isinstance(base, dict) else {}
     piece.update({
         "version": piece.get("version") or 1,
         "arch": arch,
-        "prompt": action["prompt"],
+        "prompt": prompt,
         "init": None,
         "refs": refs,
         "loras": piece.get("loras") or [],
@@ -1006,37 +1227,179 @@ def still_piece(action, ledger, rail, base=None):
     return piece
 
 
-def video_piece(action, ledger, rail, base=None):
+def default_feather(family):
+    """The blend a chat seam opens with: the family's medium width, the same
+    third-of-the-grid `state.continuingSegment` picks for a card added on the
+    node. The number is the family's, so it is asked for rather than written."""
+    rules = registry.RULES.get(family)
+    if rules is None:
+        return 1
+    grid = canvas.feather_grid(rules)
+    return grid[2] if len(grid) > 2 else grid[-1]
+
+
+# The key a strip card carries its ledger handle under. The room's own, and
+# kept beside `card_id` and `stamp` on the segment: the compiler reads none of
+# the three, and it is what lets "after vid-2" find the card.
+STRIP_KEY = "chat_handle"
+
+
+def _kept(strip, action):
+    """The cards of the strip that stay in front of this shot, held.
+
+    `after` keeps the strip up to and including that shot; `replaces` keeps
+    what is in front of it; neither keeps nothing, and the clip is a piece of
+    one shot. What is cut is cut: a shot made after the one named was an
+    answer to it, the same rule the transcript's own edit-and-resend keeps.
+    Every kept card plays its take, so a card without one — a render that was
+    cut, or never landed — is refused by name before the compiler refuses it
+    as a held card with nothing to play.
+    """
+    handle = action.get("after") or action.get("replaces")
+    if not handle:
+        return []
+    cards = [c for c in strip or [] if isinstance(c, dict)]
+    at = next((i for i, c in enumerate(cards) if c.get(STRIP_KEY) == handle), None)
+    if at is None:
+        raise ActionError(f"@{handle} is not a shot on the strip.")
+    kept = cards[:at + 1] if action.get("after") else cards[:at]
+    out = []
+    for card in kept:
+        take = card.get("take") if isinstance(card.get("take"), dict) else {}
+        if not str(take.get("filename") or "").strip():
+            raise ActionError(
+                f"@{card.get(STRIP_KEY)} has no finished take to play in front "
+                f"of this shot — it was cut or never landed.")
+        out.append({**json.loads(json.dumps(card)), "hold": True})
+    return out
+
+
+def _shelf(piece):
+    """The piece's reference shelf, with a one-shot piece's own row lifted onto it.
+
+    A piece of one shot keeps its references on that shot's row — the node
+    puts them there, cast members' files included, because a one-shot face
+    draws the row and not the shelf. The room replaces the row with the
+    chat's card, so what was on it moves up to the shelf, where a citation
+    (the member's name, or the handle itself) brings it back into any shot
+    that wants it. Keyframe roles come off on the way: a shelf holds
+    references, and the chat's own `from` says what opens a shot.
+    """
+    pool = [dict(a) for a in piece.get("assets") or [] if isinstance(a, dict) and a.get("handle")]
+    segments = piece.get("segments") or []
+    if len(segments) == 1 and isinstance(segments[0], dict):
+        held = {a["handle"] for a in pool}
+        for asset in segments[0].get("assets") or []:
+            if isinstance(asset, dict) and asset.get("handle") and asset["handle"] not in held:
+                pool.append({**asset, "role": "reference"})
+                held.add(asset["handle"])
+    return pool
+
+
+def shelf_entries(piece):
+    """The shelf as ledger lines, so the model can cite what the piece holds.
+
+    The room sends these beside its own lines: a handle, the asset's kind in
+    the compiler's own word, the file, and the filename as the description —
+    the shelf keeps no words about a file beyond a member's note, and the
+    name is what the person picked it by.
+    """
+    out = []
+    for asset in _shelf(piece or {}):
+        filename = str(asset.get("filename") or "").strip()
+        if not filename:
+            continue
+        out.append({"handle": asset["handle"], "kind": asset.get("kind") or "image",
+                    "filename": filename, "text": filename.rsplit("/", 1)[-1].split(" [")[0]})
+    return out
+
+
+def cast_entries(piece):
+    """The piece's subjects as the room's cast list: `{name, takes, from,
+    description}` — the four things the model is told, off the blob the
+    node wrote. Every file behind them counts as theirs (`from`, motion,
+    voice, the clip they stand in), which is what keeps any of them from
+    being made a keyframe by the model."""
+    out = []
+    for subject in (piece or {}).get("subjects") or []:
+        if not isinstance(subject, dict) or not subject.get("handle"):
+            continue
+        files = list(subject.get("from") or [])
+        for key in ("motion", "replaces"):
+            value = subject.get(key)
+            files += [value] if isinstance(value, str) else list(value or [])
+        if subject.get("voice"):
+            files.append(subject["voice"])
+        out.append({"name": subject["handle"], "takes": subject.get("takes") or "person",
+                    "from": [str(h) for h in files if h],
+                    "description": subject.get("description") or ""})
+    return out
+
+
+def video_piece(action, ledger, rail, base=None, strip=None):
     """A `render` of a clip -> the `creator_data` piece the Creator node runs.
 
-    Over `base`, the piece on the canvas: its family, its cast, its stack, its
-    turbo block, its sampler row and its weights all stand, and the strip is
-    replaced by one card carrying the chat's prompt — a piece of one shot, which
-    is all this iteration makes: no seams, no cuts. The chat's prompt is the
-    segment's prompt as typed — the compiler wraps it the way it wraps anything
-    a person types, and the Refine pass is a switch in the rail rather than a
-    step. Without a base (the tests' bare call), the piece is the family's
-    empty one.
+    Over `base`, the piece on the canvas: its family, its cast, its shelf,
+    its stack, its turbo block, its sampler row and its weights all stand.
+    The strip is the room's: the shots it has joined so far, each held with
+    its take, and this shot on the end of them (`after`) or in one's place
+    (`replaces`) — or, with neither, a piece of one shot. Only the new card
+    is sampled; the kept ones are spliced in as the footage they already are,
+    which is what a held take is for, and the seam in front of the new card
+    opens as a card added on the node would: live on both tracks, with the
+    family's medium blend.
+
+    The cast is the piece's own. `@anna` in the chat's prompt is the same
+    citation it is in the node's box — `compile.cited_pool` brings her files
+    off the shelf into this shot, and the compiler writes her definition —
+    so nothing here builds a subject; it only keeps the shelf whole (see
+    `_shelf`). The chat's prompt is the segment's prompt as typed, and the
+    Refine pass is a switch in the rail rather than a step.
 
     The first still cited becomes the shot's start frame, which is §5.2's rule
-    and the only resolution this does: a second still has nowhere to be a
-    keyframe (a shot opens once) so it rides as a reference, and a clip or a
-    sound is a reference whatever its position.
+    and the only resolution this does — unless it is one of a cited member's
+    own files, which rides as the reference the member is built from, since
+    a keyframe is a fact about one moment and not something somebody is made
+    of. A second still has nowhere to be a keyframe (a shot opens once) so it
+    rides as a reference, and a clip or a sound is a reference whatever its
+    position.
     """
     rail = rail or {}
     family = rail.get("video_family")
     if not family:
         raise ActionError("this room has no video model set up yet.")
 
-    assets, opened = [], False
-    for handle, kind, filename in _cited(action, ledger):
-        role = "reference"
-        if kind == "image" and not opened:
-            role, opened = "first_frame", True
-        assets.append({"handle": handle, "kind": kind, "role": role,
-                       "filename": filename})
-
     piece = json.loads(json.dumps(base)) if isinstance(base, dict) else {}
+    cast = cast_entries(piece)
+    claimed = {h for m in _cited_members(action["prompt"], cast) for h in m["from"]}
+    shelf = {a["handle"]: a for a in _shelf(piece)}
+    assets, opened = [], False
+    for handle, kind, filename, scope in _cited(action, ledger):
+        role = "reference"
+        if kind == "image" and not opened and handle not in claimed:
+            role, opened = "first_frame", True
+        # A shelf reference cited here rides as the shelf holds it — its
+        # size, its cut, its trim — with only the role and the scope the
+        # chat gave it written over; the ledger's line for it knows the file
+        # and nothing else.
+        asset = {**shelf[handle], "role": role} if handle in shelf \
+            else {"handle": handle, "kind": kind, "role": role, "filename": filename}
+        if scope and role == "reference":
+            asset["takes"] = scope
+        assets.append(asset)
+
+    kept = _kept(strip, action)
+    card = {
+        "prompt": action["prompt"],
+        "assets": assets,
+        "loras": [],
+        "duration_s": action.get("seconds") or rail.get("seconds") or DEFAULT_SECONDS,
+        "checkpoint": "auto",
+    }
+    if kept:
+        card.update({"continue": True, "continue_audio": True,
+                     "feather": default_feather(family)})
+
     piece.update({
         "version": piece.get("version") or 2,
         # The piece's standing description is the node's and stays; a bare
@@ -1046,19 +1409,15 @@ def video_piece(action, ledger, rail, base=None):
         "models": piece.get("models") or {},
         "loras": piece.get("loras") or [],
         "turbo": piece.get("turbo") or {"on": False, "lora": None},
+        "subjects": [s for s in piece.get("subjects") or [] if isinstance(s, dict)],
+        "assets": _shelf(piece),
         **_canvas(action, rail, "video"),
-        "segments": [{
-            "prompt": action["prompt"],
-            "assets": assets,
-            "loras": [],
-            "duration_s": action.get("seconds") or rail.get("seconds") or DEFAULT_SECONDS,
-            "checkpoint": "auto",
-        }],
+        "segments": kept + [card],
     })
     return piece
 
 
-def piece_of(action, ledger, rail, base=None):
+def piece_of(action, ledger, rail, base=None, strip=None, cast=None):
     """The blob for whichever kind the action asked for, with its node's name.
 
     `(node id, the blob's widget name, the blob)` — the three things the route
@@ -1066,8 +1425,10 @@ def piece_of(action, ledger, rail, base=None):
     `kind` to node lives in one place rather than in two branches of a route.
     """
     if action.get("kind") == KIND_STILL:
-        return "MiniMaxH3PreStage", "prestage_data", still_piece(action, ledger, rail, base)
-    return "MiniMaxH3Creator", "creator_data", video_piece(action, ledger, rail, base)
+        return ("MiniMaxH3PreStage", "prestage_data",
+                still_piece(action, ledger, rail, base, cast))
+    return ("MiniMaxH3Creator", "creator_data",
+            video_piece(action, ledger, rail, base, strip))
 
 
 def still_turbo_checkpoint(piece):

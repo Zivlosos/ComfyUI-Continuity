@@ -356,6 +356,8 @@ export class PromptBox {
    *   box a keystroke ago and are not in it now. Deleting a chip is how this
    *   redesign takes a reference or a cast member out of a shot, so the host has
    *   to hear about it — see `CreatorEditor.dropCited`.
+   * @param {()=>void} [hooks.onSubmit]  Enter sends rather than breaking the
+   *   line, and Shift+Enter breaks it — the chat composer's contract.
    * @param {(handles:string[])=>void} [hooks.onCited]  chips that are in the box
    *   now and were not a keystroke ago — typed, pasted, undone or picked from
    *   the menu. The other half of `onUncited`: deleting a mention mutes the
@@ -388,7 +390,8 @@ export class PromptBox {
       // "/" with the cast library, the input folder and the style atlas, and
       // nothing on screen said so — a placeholder that named only "@" read as
       // the complete list of what the box does.
-      "data-placeholder": t("Describe your video — @ cites what is attached, / brings in cast, files and looks"),
+      "data-placeholder": hooks.placeholder
+        ?? t("Describe your video — @ cites what is attached, / brings in cast, files and looks"),
       // The same line in two halves for the fullscreen shell's simple view,
       // which draws the ask as the placeholder and the two openings as a
       // helper line under it — see styles/fullscreen.js.
@@ -1316,8 +1319,14 @@ export class PromptBox {
     event.stopPropagation();
 
     if (event.key === "Enter") {
-      // Keep the DOM flat: no <div> wrappers from the browser's own handling.
       event.preventDefault();
+      // A host that sends on Enter — the chat's composer — takes the plain
+      // press; Shift+Enter is the line break there, as on any chat surface.
+      if (this.hooks.onSubmit && !event.shiftKey) {
+        this.hooks.onSubmit();
+        return;
+      }
+      // Keep the DOM flat: no <div> wrappers from the browser's own handling.
       this.insertText("\n");
       this.onEdit();
     }

@@ -245,11 +245,11 @@ it, the progress bar under the card is the real one, and the finished file
 lands in your output folder beside everything else, with the blob that made it
 in its metadata.
 
-Each render gets a handle — `img-1`, `vid-2` — and the handles are how you ask
+Each render gets a handle — `pic-1`, `clip-2` — and the handles are how you ask
 for a change: cite one and the model builds the next request on it. A still
-cited on a clip is that clip's first frame. Press a tile in the rail to drop
-its handle into the box. The paperclip, a paste and a dropped file all upload
-into `input/continuity/chat/` and get a handle of their own.
+cited on a clip is that clip's first frame. Press the handle under a card to
+drop its chip into the box. The paperclip, a paste and a dropped file all
+upload into `input/continuity/chat/` and get a handle of their own.
 
 **The first time, the room asks three questions** before anything else: who
 does the thinking, what does the drawing, and what shape things come out in.
@@ -353,8 +353,50 @@ rather than spinning. A server — LM Studio, Ollama, anything
 OpenAI-compatible — is the better setting on a single card, and the rail says
 that too.
 
-Not in it yet: no timeline (a second shot is a new one-shot piece), no
-`@name` for the cast, and no streaming.
+**The composer is the node's prompt box.** `@` cites what the conversation
+has made or attached, what the piece holds on its shelf, and who is in its
+cast — and offers the cast library, so typing `@ver` and picking Vera casts
+her onto the piece with her files, exactly as it does in the node's box. `/`
+brings in a look from the style atlas, somebody from the cast library, or a
+file from the input folder. A file picked this way is attached to the next
+message with a handle already minted, so the sentence can cite it at once.
+Enter sends; Shift+Enter breaks the line.
+
+**The cast is the piece's.** Somebody cast here lands on the node under the
+room (or on the room's pinned copy) — the same member, the same files, the
+same shelf the node's own cast tab shows — and the model is told who is
+cast and what they are built from. Write *"@anna walks down the street"*
+and the model keeps `@anna` in the prompt exactly as written: the name is
+the whole citation, and the compiler expands it into her pictures and her
+definition, as it does for a shot typed on the node. The model never casts
+anybody itself. A cast member in a still is their first picture cited where
+the name stood, with their description after it.
+
+**Say what a picture is for.** A cited file is the whole picture unless you
+say otherwise — "in the style of that one" makes the model write
+`pic-2:style`, and the reference goes in scoped to its look, the same dial
+the reference card has: `person`, `object`, `scene`, `style`, and on a clip
+`camera` or `continue`. A shelf reference cited by handle rides as the shelf
+holds it, its size and its cut included.
+
+**Shots on a strip.** *"Now the next shot: she turns and walks away"* puts a
+card after the last clip and continues from its last frames — the seam a
+card added on the node would open, live on both tracks with the family's
+medium blend. Only the new card is sampled: the earlier shots are held on
+the takes they already are, the way locked cards are on the timeline, and
+the clip on the card is the whole strip so far. *"Redo the second shot,
+darker"* replaces that shot; a new shot after an earlier one cuts the strip
+there, as edit-and-resend cuts the transcript. A clip asked for with no
+"next" starts a new film of one shot. The strip's seam widths, restore and
+one-pass mode are the timeline's own controls: *Open in the editor* carries
+the strip there.
+
+The room's handles are `pic-N`, `clip-N` and `snd-N` — a namespace apart
+from the node's `img`/`vid`/`aud` and the shelf's `ref-N`, so a picture the
+conversation made and a picture on the node's row never share a name.
+
+Not in it yet: no captions of what a render actually shows, and no
+streaming.
 
 ## Contact sheet
 

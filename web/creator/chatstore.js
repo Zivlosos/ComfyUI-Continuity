@@ -159,7 +159,8 @@ export function pack(state) {
     version: 1,
     messages: (state.messages ?? []).filter((message) => !message.local).map(packMessage),
     ledger: state.ledger ?? [],
-    counts: { img: 0, vid: 0, aud: 0, ...(state.counts ?? {}) },
+    strip: state.strip ?? [],
+    counts: { pic: 0, clip: 0, snd: 0, ...(state.counts ?? {}) },
     turn: state.turn ?? 0,
   };
 }
@@ -171,7 +172,8 @@ export function unpack(body) {
   return {
     messages: messages.map((message) => ({ ...message, card: message.card ? { ...message.card } : undefined })),
     ledger: Array.isArray(body?.ledger) ? body.ledger : [],
-    counts: { img: 0, vid: 0, aud: 0, ...(body?.counts ?? {}) },
+    strip: Array.isArray(body?.strip) ? body.strip : [],
+    counts: { pic: 0, clip: 0, snd: 0, ...(body?.counts ?? {}) },
     turn: Number.isFinite(body?.turn) ? body.turn : 0,
   };
 }

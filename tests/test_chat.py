@@ -162,7 +162,8 @@ check("a handle written with its @ is the same handle",
 check("a valid say carries its whole reply",
       chat.validate({"act": "say", "say": "The seed picks the noise."}, LEDGER),
       {"act": "say", "kind": None, "prompt": "", "from": [], "seconds": None,
-       "aspect": None, "say": "The seed picks the noise."})
+       "aspect": None, "say": "The seed picks the noise.",
+       "after": None, "replaces": None})
 
 
 # ---- the one re-ask ---------------------------------------------------------
@@ -817,6 +818,132 @@ check("and says so", any("wrote nothing" in p for p in said), True)
 refuses("a piece with no shot cannot be refined",
         lambda: chat.refine_into({"segments": []}, RESULT, "m"), "no shot")
 
+# ---- scopes, the cast and the strip ----------------------------------------
+#
+# The three things an action may point at beyond a bare handle, each carried
+# as flat fields on the same one action — a nested tool is where a small
+# model's JSON goes wrong, and one decision per turn is the whole design. The
+# cast is the piece's own: the person brings somebody in with the node's `@`
+# menu, and the model passes the name through for the compiler to expand.
+
+ROOM = [{"handle": "img-1", "kind": "still", "filename": "a.png", "text": "anna's face"},
+        {"handle": "img-2", "kind": "still", "filename": "b.png", "text": "a street"},
+        {"handle": "vid-1", "kind": "clip", "filename": "c.mp4 [output]", "text": "shot one"},
+        {"handle": "ref-1", "kind": "image", "filename": "shelf.png", "text": "shelf.png"}]
+
+scoped = chat.validate({"act": "render", "kind": "video", "prompt": "a fox",
+                        "from": ["img-2:style", "vid-1:camera"]}, ROOM)
+check("a scope rides on the handle as a suffix", scoped["from"], ["img-2:style", "vid-1:camera"])
+refuses("a scope a picture cannot be cited for is refused by name",
+        lambda: chat.validate({"act": "render", "kind": "video", "prompt": "a fox",
+                               "from": ["img-2:camera"]}, ROOM), "img-2:camera", "person")
+check("a shelf line's kind is its own word, not its prefix",
+      chat.known_handles(ROOM)["ref-1"], "image")
+check("a handle cited in the prompt and left out of from is added",
+      chat.validate({"act": "render", "kind": "video", "prompt": "@img-2 at dusk"}, ROOM)["from"],
+      ["img-2"])
+refuses("a name nobody has cast is refused with the cast",
+        lambda: chat.validate({"act": "render", "kind": "video", "prompt": "@anna walks"},
+                              ROOM, cast=["ben"]), "@anna", "@ben")
+check("a name on the piece's cast passes through as written",
+      chat.validate({"act": "render", "kind": "video", "prompt": "@anna waves"},
+                    ROOM, cast=["anna"])["prompt"], "@anna waves")
+check("the action has no cast field: the model casts nobody", "cast" in chat.FIELDS, False)
+
+refuses("after names a shot on the strip, with the strip quoted back",
+        lambda: chat.validate({"act": "render", "kind": "video", "prompt": "next",
+                               "after": "vid-9"}, ROOM, strip=["vid-1"]), "vid-9", "vid-1")
+refuses("a still is never on the strip",
+        lambda: chat.validate({"act": "render", "kind": "still", "prompt": "x",
+                               "after": "vid-1"}, ROOM, strip=["vid-1"]), "still")
+following = chat.validate({"act": "render", "kind": "video", "prompt": "next",
+                           "after": "@vid-1"}, ROOM, strip=["vid-1"])
+check("after is read with or without its @", following["after"], "vid-1")
+
+# What the model is told. Nothing when there is nothing: a block that says
+# "no cast" is tokens spent on every turn of every room without one.
+check("no strip and no cast add nothing to the context",
+      chat.context([], ROOM, "CARD").count("THE "), 0)
+told = chat.context([], ROOM, "CARD",
+                    strip=[{"handle": "vid-1", "seconds": 5}],
+                    cast=[{"name": "anna", "takes": "person", "from": ["img-1"], "description": "red coat"}])
+check("the strip is one line in order", "vid-1 (5 s)" in told, True)
+check("a member is one line", '@anna · person · from img-1 · "red coat"' in told, True)
+
+# The blob. The piece's cast and shelf stand; a one-shot piece's own row is
+# lifted onto the shelf, since the chat's card replaces the row; a shot named
+# "after" keeps the strip in front of it, held on its takes, and opens the
+# seam the node would open.
+RAIL = {"video_family": "h3", "still_arch": "krea2", "aspect": "16:9"}
+NODE = {"family": "h3", "subjects": [{"handle": "anna", "takes": "person", "from": ["ref-1"],
+                                      "description": "red coat"}],
+        "assets": [{"handle": "ref-1", "kind": "image", "role": "reference", "filename": "shelf.png",
+                    "ref_size": "max"}],
+        "segments": [{"prompt": "old", "assets": [{"handle": "img-1", "kind": "image",
+                                                   "role": "first_frame", "filename": "a.png"}]}]}
+check("the room reads the piece's cast off the blob, every file of theirs counted",
+      chat.cast_entries({"subjects": [{"handle": "b", "from": ["ref-1"], "motion": "vid-1",
+                                       "voice": "aud-1", "description": "x"}]}),
+      [{"name": "b", "takes": "person", "from": ["ref-1", "vid-1", "aud-1"], "description": "x"}])
+check("and the shelf as ledger lines, the one-shot row lifted onto it",
+      [(e["handle"], e["kind"], e["text"]) for e in chat.shelf_entries(NODE)],
+      [("ref-1", "image", "shelf.png"), ("img-1", "image", "a.png")])
+walk = chat.video_piece(chat.validate({"act": "render", "kind": "video",
+                                       "prompt": "@anna walks past @img-2", "from": ["img-2"]},
+                                      ROOM, cast=["anna"]), ROOM, RAIL, base=NODE)
+check("the piece's cast stands", walk["subjects"], NODE["subjects"])
+check("the shelf holds the old row's file as a reference, beside its own",
+      [(a["handle"], a["role"]) for a in walk["assets"]], [("ref-1", "reference"), ("img-1", "reference")])
+check("a still cited beside the member is the start frame as ever",
+      walk["segments"][0]["assets"][0]["role"], "first_frame")
+own = chat.video_piece(chat.validate({"act": "render", "kind": "video",
+                                      "prompt": "@anna waves", "from": ["ref-1"]},
+                                     ROOM, cast=["anna"]), ROOM, RAIL, base=NODE)
+check("a member's own picture cited outright is a reference, as the shelf holds it",
+      own["segments"][0]["assets"][0], {**NODE["assets"][0], "role": "reference"})
+
+STRIP = [{"chat_handle": "vid-1", "prompt": "shot one", "assets": [], "duration_s": 5,
+          "hold": True, "take": {"filename": "takes/one.mp4 [output]", "duration_s": 5}}]
+after = chat.video_piece(chat.validate({"act": "render", "kind": "video", "prompt": "next",
+                                        "after": "vid-1"}, ROOM, strip=["vid-1"]),
+                         ROOM, RAIL, strip=STRIP)
+check("after keeps the strip in front, held on its take",
+      [c.get("hold") for c in after["segments"]], [True, None])
+check("and the new card follows it live on both tracks, with the family's medium blend",
+      {k: after["segments"][1].get(k) for k in ("continue", "continue_audio", "feather")},
+      {"continue": True, "continue_audio": True, "feather": chat.default_feather("h3")})
+check("the family's medium blend is the third width of its grid", chat.default_feather("h3"), 22)
+replaced = chat.video_piece(chat.validate({"act": "render", "kind": "video", "prompt": "again",
+                                           "replaces": "vid-1"}, ROOM, strip=["vid-1"]),
+                            ROOM, RAIL, strip=STRIP)
+check("replaces stands in the shot's place, and a first card has no seam",
+      (len(replaced["segments"]), replaced["segments"][0].get("continue")), (1, None))
+alone = chat.video_piece(chat.validate({"act": "render", "kind": "video", "prompt": "new"},
+                                       ROOM, strip=["vid-1"]), ROOM, RAIL, strip=STRIP)
+check("neither is a new film of one shot", len(alone["segments"]), 1)
+refuses("a kept shot with no take is refused by name",
+        lambda: chat.video_piece(
+            chat.validate({"act": "render", "kind": "video", "prompt": "x", "after": "vid-1"},
+                          ROOM, strip=["vid-1"]),
+            ROOM, RAIL, strip=[{"chat_handle": "vid-1", "prompt": "one"}]),
+        "@vid-1", "no finished take")
+
+# A still has no cast: a member cited in one is their picture where the name
+# stood, or their description where the family reads no picture.
+ANNA = [{"name": "anna", "takes": "person", "from": ["img-1"], "description": "red coat"}]
+STILL_RAIL = {"still_arch": "krea2", "aspect": "16:9", "still_pictures": {"takes": True}}
+portrait = chat.still_piece(chat.validate({"act": "render", "kind": "still", "prompt": "@anna at dusk"},
+                                          ROOM, cast=["anna"]), ROOM, STILL_RAIL, cast=ANNA)
+check("in a still a member is their first picture, described",
+      (portrait["prompt"], portrait["refs"]),
+      ("@img-1 (red coat) at dusk", [{"handle": "img-1", "filename": "a.png"}]))
+words = chat.still_piece(chat.validate({"act": "render", "kind": "still", "prompt": "@anna at dusk"},
+                                       ROOM, cast=["anna"]), ROOM,
+                         {**STILL_RAIL, "still_pictures": {"takes": False, "refusal": "no"}}, cast=ANNA)
+check("and their description alone where the family takes no picture",
+      (words["prompt"], words["refs"]), ("red coat at dusk", []))
+
+
 # ---- the system prompt ------------------------------------------------------
 #
 # Read off the file rather than described in prose here: it is the one part of
@@ -829,10 +956,10 @@ for field in chat.FIELDS:
         FAILURES.append(f"the system prompt never mentions the {field!r} field")
 check("it asks for one line of plan then a fence",
       "one short line of plan" in SYSTEM and "``` fence" in SYSTEM, True)
-check("it carries the three worked exchanges the spec asks for",
-      SYSTEM.count("Person:"), 3)
+check("it carries the worked exchanges: a still, a clip, a member cited, a next shot, a say",
+      SYSTEM.count("Person:"), 5)
 check("and teaches the prompt box's own three marks",
-      all(mark in SYSTEM for mark in ("@img-1", "{a|b}", "quoted words")), True)
+      all(mark in SYSTEM for mark in ("@pic-1", "{a|b}", "quoted words")), True)
 
 with_skill = chat.system_prompt("Write everything in the present tense.")
 check("a skill set to add lands after the contract, never over it",

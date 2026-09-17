@@ -28,7 +28,7 @@ const out = {};
 // -- titles -----------------------------------------------------------------
 out.titles = {
   short: store.titleFor("a fox in a snowy wood at dusk"),
-  attached: store.titleFor("this coat, but red\\n(attached: @img-1)"),
+  attached: store.titleFor("this coat, but red\\n(attached: @pic-1)"),
   long: store.titleFor("a very long opening line that goes on well past the width of any sidebar row anyone would draw"),
   spaces: store.titleFor("  two   words  "),
   empty: store.titleFor(""),
@@ -40,7 +40,7 @@ const done = {
   state: "done", progress: 1, promptId: "p1", frameUrl: "blob:gone", stop: () => {},
   saved: { filename: "Krea2_00001_.png", subfolder: "continuity/stills/krea2", type: "output" },
   isClip: false, piece: { version: 1 }, refined: null,
-  entry: { handle: "img-1", kind: "still", aspect: "16:9", turn: 1,
+  entry: { handle: "pic-1", kind: "still", aspect: "16:9", turn: 1,
            filename: "continuity/stills/krea2/Krea2_00001_.png [output]", text: "a fox" },
 };
 const left = { action: { act: "render", kind: "video", prompt: "she looks up" },
@@ -53,7 +53,7 @@ const state = {
     { role: "user", text: "now a clip", attached: [], turn: 2 },
     { role: "assistant", say: "Five seconds.", action: left.action, card: left },
   ],
-  ledger: [done.entry], counts: { img: 1, vid: 0, aud: 0 }, turn: 2,
+  ledger: [done.entry], counts: { pic: 1, clip: 0, snd: 0 }, turn: 2,
 };
 const packed = store.pack(state);
 out.packed = {
@@ -121,17 +121,17 @@ packed = out["packed"]
 check("the room's own bubbles are not saved", bool(packed["messages"] == 4 and packed["localDropped"]), True)
 card = packed["doneCard"]
 check(f"a finished card keeps what draws it: {card}", bool(card["state"] == "done" and card["saved"]["filename"] == "Krea2_00001_.png"
-      and card["entry"]["handle"] == "img-1" and card["isClip"] is False), True)
+      and card["entry"]["handle"] == "pic-1" and card["isClip"] is False), True)
 check("the moment's fields — preview frame, listener, progress — are not saved", bool("frameUrl" not in card and "stop" not in card and "progress" not in card), True)
 check(f"a card mid-render is saved as left, with its prompt id: {packed['leftCard']}", bool(packed["leftCard"]["state"] == "left" and packed["leftCard"]["promptId"] == "p2"
       and "home" not in packed["leftCard"]), True)
 check("the packed conversation is small", bool(packed["json"]), True)
 
 back = out["back"]
-check(f"turn, counters and ledger round-trip: {back}", bool(back["turn"] == 2 and back["counts"] == {"img": 1, "vid": 0, "aud": 0} and back["ledger"] == 1), True)
+check(f"turn, counters and ledger round-trip: {back}", bool(back["turn"] == 2 and back["counts"] == {"pic": 1, "clip": 0, "snd": 0} and back["ledger"] == 1), True)
 check("a user message keeps the turn it was said on, so the chat can be cut back to it",
       back["turns"], [1, 2])
-check(f"cards come back whole: {back}", bool(back["saved"]["subfolder"] == "continuity/stills/krea2" and back["entry"] == "img-1"
+check(f"cards come back whole: {back}", bool(back["saved"]["subfolder"] == "continuity/stills/krea2" and back["entry"] == "pic-1"
       and back["leftState"] == "left"), True)
 check(f"the cover is the last render: {out['cover']}", bool(out["cover"] == {"cover": "continuity/stills/krea2/Krea2_00001_.png [output]", "coverKind": "still"}), True)
 

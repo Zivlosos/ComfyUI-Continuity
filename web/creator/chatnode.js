@@ -97,6 +97,32 @@ export class Sides {
     return this.picture().body;
   }
 
+  /**
+   * The piece the room writes on: the pinned copy, or the node's own timeline.
+   *
+   * Live, not serialized — the `@` menu casts into it and reads its cast and
+   * shelf back on the next keystroke, and the two have to be the same object.
+   * `commitPiece` is the other half: what a change to it has to do to be kept.
+   */
+  piece() {
+    return this.copy("video") ?? this.clip().piece;
+  }
+
+  /** Keep a change made to `piece()`: the copy back onto the rail, or the
+   *  node's blob written and its face redrawn, as its own commit does. */
+  commitPiece() {
+    if (this.copy("video")) return this.save("video");
+    this.clip().body?.commit?.();
+  }
+
+  /** What the preset library lands on when opened from the room: the node's
+   *  own target while the room follows it. A pinned copy has no node to be
+   *  a target for, and the library's doors close with it. */
+  presetTarget() {
+    if (this.copy("video")) return null;
+    return this.clip().body?.presetTarget?.() ?? null;
+  }
+
   // ---- pinning ------------------------------------------------------------------
 
   pinned(kind) {

@@ -141,4 +141,39 @@ else:
           blob["models"]["fl2va"], "h3_fl2va.safetensors")
     check("and the piece handed back is the one queued", built["piece"], blob)
 
+# A shot on the strip, with somebody on the piece's cast: the room's strip
+# goes with the request, the cast is the node's own, and the dry run takes the
+# piece they make — the kept shot held on its take, the new card continuing
+# from it, the member and their shelf picture standing.
+LEDGER = [{"handle": "ref-1", "kind": "image", "filename": "anna.png", "text": "anna.png"},
+          {"handle": "vid-1", "kind": "clip", "filename": "one.mp4 [output]", "text": "one"}]
+CAST_PIECE = {**PIECE,
+              "subjects": [{"handle": "anna", "takes": "person", "from": ["ref-1"],
+                            "description": "a red coat"}],
+              "assets": [{"handle": "ref-1", "kind": "image", "role": "reference",
+                          "filename": "anna.png"}]}
+STRIP = [{"chat_handle": "vid-1", "prompt": "one", "assets": [], "loras": [], "duration_s": 4,
+          "checkpoint": "auto", "hold": True,
+          "take": {"filename": "one.mp4 [output]", "duration_s": 4, "width": 1280, "height": 720,
+                   "has_audio": True}}]
+CAST = chat.cast_entries(CAST_PIECE)
+core_models.available = lambda: {"by_folder": FILES, "files": {}, "installed": {}}
+try:
+    action = chat.validate({"act": "render", "kind": "video", "prompt": "@anna turns away",
+                            "after": "vid-1", "seconds": 4}, LEDGER, strip=["vid-1"], cast=["anna"])
+    built = route._build(action, LEDGER, rail, STORED, (CAST_PIECE, {"seed": 1}), STRIP, CAST)
+finally:
+    core_models.available = _real_available
+if "problem" in built:
+    FAILURES.append(f"the strip build was refused: {built['problem']}")
+else:
+    blob = built["piece"]
+    check("the kept shot is in front, held on its take, and the new card follows it",
+          [(c.get("chat_handle"), c.get("hold"), c.get("continue")) for c in blob["segments"]],
+          [("vid-1", True, None), (None, None, True)])
+    check("the piece's cast stands",
+          [(s["handle"], s["from"]) for s in blob["subjects"]], [("anna", ["ref-1"])])
+    check("and her picture is on the piece's shelf",
+          [a["handle"] for a in blob["assets"]], ["ref-1"])
+
 passed("the chat render route builds over the node on the canvas")

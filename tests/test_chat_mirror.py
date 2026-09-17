@@ -61,7 +61,7 @@ for media, prefix in sorted(room_prefixes.items()):
     check(f"{prefix}-N is a {media} on both sides", got, media)
 
 check("the room mints a handle for every kind the server accepts",
-      sorted(room_prefixes.values()), ["aud", "img", "vid"])
+      sorted(room_prefixes.values()), ["clip", "pic", "snd"])
 
 
 # ---- the ledger entry ---------------------------------------------------------
@@ -86,7 +86,7 @@ check("an entry the room would write reads back as the spec's line",
       'img-3 · still · 16:9 · turn 4 · "a fox on a snowy ridge at dusk"')
 check("and the file behind it is the one the room uploaded",
       chat._cited({"from": ["img-3"]}, [entry]),
-      [("img-3", "image", "continuity/chat/img-3.png [output]")])
+      [("img-3", "image", "continuity/chat/img-3.png [output]", None)])
 
 # A field spelled wrong is exactly the silent failure above: the line still
 # draws, and the citation still refuses.

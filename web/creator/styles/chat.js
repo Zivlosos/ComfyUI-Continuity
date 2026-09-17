@@ -209,14 +209,16 @@ export const css = `
   box-shadow: 0 6px 24px var(--mmc-shadow-soft);
 }
 .mmc-ch-compose:focus-within { border-color: var(--mmc-line-2); }
-.mmc-ch-box {
-  width: 100%; min-width: 0; resize: none; font-family: inherit;
-  font-size: calc(14px * var(--mmc-type)); line-height: 1.5;
-  padding: 4px 6px; max-height: 200px;
-  background: none; color: var(--mmc-text); border: 0; outline: none;
+/* The node's own prompt box, sized for a composer: one line to start, a few
+   lines at most, then it scrolls. The chips, the menus and the placeholder
+   are the box's (styles/editor.js); only its footprint is the room's. */
+.mmc-ch-compose .mmc-prompt.mmc-ch-box {
+  flex: none; width: 100%; min-width: 0; min-height: calc(24px * var(--mmc-type));
+  max-height: 200px; font-size: calc(14px * var(--mmc-type)); line-height: 1.5;
+  padding: 4px 6px;
 }
-.mmc-ch-box::placeholder { color: var(--mmc-faint); }
-.mmc-ch-box:disabled { opacity: .55; }
+.mmc-ch-compose .mmc-prompt.mmc-ch-box:empty::before { color: var(--mmc-faint); }
+.mmc-ch-compose .mmc-prompt.mmc-ch-off { opacity: .55; }
 .mmc-ch-foot { display: flex; align-items: center; gap: 6px; }
 .mmc-ch-tool, .mmc-ch-send {
   flex: none; display: inline-flex; align-items: center; justify-content: center;

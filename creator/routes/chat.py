@@ -283,7 +283,7 @@ def _nodes():
             "MiniMaxH3Creator": creator_node.MiniMaxH3Creator}
 
 
-def _build(action, ledger, rail, stored, base):
+def _build(action, ledger, rail, stored, base, strip=None, cast=None):
     """The blocking half of a render: patch, fill, dry run, build the prompt.
 
     -> `{"piece": blob, "prompt": one-node prompt}`, or `{"problem": sentence}`.
@@ -293,7 +293,11 @@ def _build(action, ledger, rail, stored, base):
     sentence is what lets it say so and try again.
 
     `base` is `(piece, widgets)` — the node on the canvas, as the room read it
-    and `_base` parsed it, with the rail already naming its family. The
+    and `_base` parsed it, with the rail already naming its family. `strip`
+    is the shots the room has joined so far, each with its take — the room's
+    state, sent the way the ledger is. `cast` is the piece's subjects as the
+    room read them, for a still: a picture has no cast, and a member cited
+    in one becomes their picture (`chat.still_piece`). The
     render is that node asked for this prompt in this shape: its stack,
     its turbo switch, its sampler row and its weights are the ones on the
     canvas, and nothing here re-derives any of them. The room's gear is the
@@ -326,7 +330,7 @@ def _build(action, ledger, rail, stored, base):
     # families read both.
     if still:
         rail = {**rail, "still_pictures": chat.still_pictures(family, manifest.catalog())}
-    node_id, field, piece = chat.piece_of(action, ledger, rail, piece_in)
+    node_id, field, piece = chat.piece_of(action, ledger, rail, piece_in, strip, cast)
 
     if still:
         # Per-arch sub-blocks with one shared precision, which is the shape
@@ -504,9 +508,16 @@ async def chat_render(request):
     except ValueError:
         return web.json_response({"error": "the request body was not JSON"}, status=400)
 
-    ledger = body.get("ledger") or []
+    strip = [c for c in body.get("strip") or [] if isinstance(c, dict)]
+    # The piece's shelf and cast, off the blob the room sends beside the
+    # base: the handles and the names an action may cite beyond the ledger.
+    # For a clip the piece itself is the authority and the base carries the
+    # same blob; for a still they are what `still_piece` expands.
+    ledger, cast = _with_piece(body)
     try:
-        action = chat.validate(body.get("action"), ledger)
+        action = chat.validate(body.get("action"), ledger,
+                               strip=[c.get(chat.STRIP_KEY) for c in strip],
+                               cast=[m.get("name") for m in cast])
         if action["act"] != chat.ACT_RENDER:
             raise chat.ActionError("that action says nothing to render")
         # The node under the room, and the rail naming its family — the render
@@ -532,7 +543,8 @@ async def chat_render(request):
     try:
         built = await loop.run_in_executor(
             None, lambda: _build(action, ledger, rail,
-                                 settings.load().get("weights") or {}, base))
+                                 settings.load().get("weights") or {}, base,
+                                 strip, cast))
     except chat.ActionError as problem:
         return web.json_response({"error": str(problem)}, status=400)
     except Exception as problem:  # noqa: BLE001
@@ -628,6 +640,25 @@ def _ask(block, system, message):
     )
 
 
+def _with_piece(body):
+    """The ledger with the piece's shelf on it, and the piece's cast.
+
+    `body["piece"]` is the video piece under the room — the node's blob or
+    the pinned copy — as a dict or as the widget's JSON string. Both routes
+    read it the same way, so what the model was told a handle means and
+    what the render attaches under it cannot disagree.
+    """
+    piece = body.get("piece")
+    if isinstance(piece, str):
+        try:
+            piece = json.loads(piece)
+        except ValueError:
+            piece = None
+    piece = piece if isinstance(piece, dict) else {}
+    ledger = list(body.get("ledger") or []) + chat.shelf_entries(piece)
+    return ledger, chat.cast_entries(piece)
+
+
 def _last_user(messages):
     """The message this turn is answering — the newest user turn, or ""."""
     for message in reversed(messages or []):
@@ -644,9 +675,17 @@ def _run(body):
     can show what happened rather than only what survived.
     """
     block = body.get("settings") or {}
-    ledger = body.get("ledger") or []
     messages = body.get("messages") or []
     rail = _rail(block)
+    # The room's strip and the piece's shelf and cast, as the model is told
+    # them: the shots joined so far as `{handle, seconds}`, the shelf's files
+    # as ledger lines beside the room's own, and the members off the node's
+    # blob. The validator is given the same handles and names, so an "after"
+    # or an "@anna" is judged against exactly what was shown.
+    strip = [c for c in body.get("strip") or [] if isinstance(c, dict) and c.get("handle")]
+    ledger, cast = _with_piece(body)
+    on_strip = [c["handle"] for c in strip]
+    names = [m["name"] for m in cast]
 
     # Whether the pre-stage's switch loads the Turbo checkpoint — read off its
     # blob by the room and sent as one flag, since the card only needs to know
@@ -655,16 +694,16 @@ def _run(body):
                         settings.load().get("weights") or {},
                         turbo=bool(block.get("still_turbo_checkpoint")))
     system = chat.system_prompt(_skill(block))
-    message = chat.context(messages, ledger, card)
+    message = chat.context(messages, ledger, card, strip=strip, cast=cast)
     asked = _last_user(messages)
 
     raw = _ask(block, system, message)
-    verdict = chat.judge(raw, ledger, asked)
+    verdict = chat.judge(raw, ledger, asked, strip=on_strip, cast=names)
     quoted = None
     if verdict["act"] == "reask":
         quoted = verdict["sentence"]
         raw = _ask(block, system, chat.reask(message, raw, quoted))
-        verdict = chat.judge(raw, ledger, asked, second=True)
+        verdict = chat.judge(raw, ledger, asked, second=True, strip=on_strip, cast=names)
 
     out = {"say": verdict.get("say") or "", "raw": raw}
     if quoted:

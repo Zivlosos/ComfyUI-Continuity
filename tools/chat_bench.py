@@ -12,7 +12,10 @@ scripted conversation, and prints what the model said at every step.
     python3 tools/chat_bench.py --url http://localhost:1234/v1 --dump
 
 `SCRIPT` below is the conversation: a still, a clip made from that still, a
-change to it, and a question that is only an answer. **Editing it is the point
+change to it, a next shot on the strip with a cast member in it, and a
+question that is only an answer. The member is `PIECE`'s — the room's cast is
+the node's, brought in with its `@` menu, and the model only passes the name
+through. **Editing it is the point
 of this file** — the system prompt at `creator/prompts/chat/system.txt` is tuned
 per small model here rather than in the room, because BFCL's format sensitivity
 is real and a wording change has to be judged over a whole conversation rather
@@ -50,8 +53,19 @@ SCRIPT = [
     "a fox in a snowy wood at dusk",
     "now a clip of it, she looks up",
     "bluer",
+    "next shot: @ferris trots off between the trees",
     "what does the seed actually change?",
 ]
+
+# The piece under the room, as far as the model is concerned: somebody cast
+# on it, built from a picture on its shelf. What `routes/chat._with_piece`
+# reads off the node's blob, invented here.
+PIECE = {"family": "h3",
+         "subjects": [{"handle": "ferris", "takes": "object", "from": ["ref-1"],
+                       "description": "a red fox with a white chest"}],
+         "assets": [{"handle": "ref-1", "kind": "image", "role": "reference",
+                     "filename": "fox.png"}],
+         "segments": [{"prompt": ""}]}
 
 # Every picture and clip this pretends to have made is this size. The canvas
 # follows a keyframe's aspect, so the number has to be a real one; nothing here
@@ -108,27 +122,29 @@ def _catalog(pkg):
                          for name in pkg.registry.still_families()]}
 
 
-def _dry_run(pkg, action, ledger, rail):
-    """The blob this action patches, compiled. -> the prompt, or the refusal."""
+def _dry_run(pkg, action, ledger, rail, strip, cast):
+    """The blob this action patches, compiled. -> `(the prompt or the refusal,
+    the blob)`. On a strip only the new card — the last — is compiled; the
+    kept ones are footage."""
     chat, compiler = pkg.chat, getattr(pkg, "compile")
     size = lambda filename: SIZE  # noqa: E731 — nothing here opens a file
 
-    _node, _field, blob = chat.piece_of(action, ledger, rail)
+    _node, _field, blob = chat.piece_of(action, ledger, rail, PIECE, strip, cast)
     try:
         if action["kind"] == chat.KIND_STILL:
             family = pkg.registry.still(blob["arch"])
             payload = family.compile_still(blob, size)
-            return f"{payload.width}x{payload.height}\n{payload.prompt}"
-        payload = compiler.timeline_payloads(blob, size)[0]
-        return compiler.compile_segment(payload, size).prompt
+            return f"{payload.width}x{payload.height}\n{payload.prompt}", blob
+        payload = compiler.timeline_payloads(compiler.rendered_piece(blob), size)[-1]
+        return compiler.compile_segment(payload, size).prompt, blob
     except compiler.CompileError as refusal:
-        return f"REFUSED: {refusal}"
+        return f"REFUSED: {refusal}", blob
 
 
 def _remembered(action, ledger, turn):
     """The ledger line a finished render would have left behind."""
     kind = "still" if action["kind"] == "still" else "clip"
-    prefix = "img" if kind == "still" else "vid"
+    prefix = "pic" if kind == "still" else "clip"
     number = sum(1 for entry in ledger if entry["handle"].startswith(prefix)) + 1
     handle = f"{prefix}-{number}"
     return {"handle": handle, "kind": kind, "aspect": action["aspect"] or "16:9",
@@ -179,10 +195,16 @@ def main():
     if args.dump:
         print(f"===== SYSTEM =====\n{system}\n")
 
-    messages, ledger = [], []
+    messages, ledger, strip = [], [], []
+    cast = chat.cast_entries(PIECE)
+    names = [m["name"] for m in cast]
     for turn, said in enumerate(SCRIPT, start=1):
         messages.append({"role": "user", "text": said})
-        message = chat.context(messages, ledger, card)
+        # The strip and the piece as the room sends them: the shots joined so
+        # far by handle and length, the shelf as ledger lines, the cast.
+        shots = [{"handle": c[chat.STRIP_KEY], "seconds": c["duration_s"]} for c in strip]
+        told = ledger + chat.shelf_entries(PIECE)
+        message = chat.context(messages, told, card, strip=shots, cast=cast)
         if args.dump:
             print(f"===== MESSAGE {turn} =====\n{message}\n===== END =====")
 
@@ -190,12 +212,14 @@ def main():
         started = time.time()
         try:
             reply = ask(message)
-            verdict = chat.judge(reply, ledger, said)
+            on_strip = [c[chat.STRIP_KEY] for c in strip]
+            verdict = chat.judge(reply, told, said, strip=on_strip, cast=names)
             if verdict["act"] == "reask":
                 print(f"PLAN:   {chat.plan_of(reply)}")
                 print(f"REASK:  {verdict['sentence']}")
                 reply = ask(chat.reask(message, reply, verdict["sentence"]))
-                verdict = chat.judge(reply, ledger, said, second=True)
+                verdict = chat.judge(reply, told, said, second=True,
+                                     strip=on_strip, cast=names)
         except Exception as exc:  # noqa: BLE001 — the message is the result
             print(f"FAILED after {time.time() - started:.0f}s: "
                   f"{type(exc).__name__}: {exc}")
@@ -212,12 +236,23 @@ def main():
         print(f"ACTION: {json.dumps(action, ensure_ascii=False)}")
         print(f"SAY:    {verdict['say']}")
         try:
-            print("COMPILED:\n" + _dry_run(pkg, action, ledger, rail))
+            compiled, blob = _dry_run(pkg, action, told, rail, strip, cast)
+            print("COMPILED:\n" + compiled)
         except chat.ActionError as problem:
             print(f"REFUSED: {problem}")
             continue
         messages.append({"role": "assistant", "action": action})
-        ledger.append(_remembered(action, ledger, turn))
+        entry = _remembered(action, ledger, turn)
+        ledger.append(entry)
+        if action["kind"] == chat.KIND_VIDEO and not compiled.startswith("REFUSED"):
+            # What the room does when the shot lands: the piece's cards become
+            # the strip, the new one held on an invented take.
+            strip = blob["segments"]
+            strip[-1].update({chat.STRIP_KEY: entry["handle"], "hold": True,
+                              "take": {"filename": entry["filename"],
+                                       "duration_s": strip[-1]["duration_s"],
+                                       "width": SIZE[0], "height": SIZE[1]}})
+            print("STRIP:  " + " → ".join(c[chat.STRIP_KEY] for c in strip))
 
     print("\n########## the ledger this conversation left")
     for entry in ledger:

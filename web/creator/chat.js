@@ -50,6 +50,9 @@ import { FAMILIES } from "./manifest.js";
 import { run, watch as watchQueue } from "./queue.js";
 import { FirstRun, freshSetup, scanMachine } from "./chatsetup.js";
 import { Sides } from "./chatnode.js";
+import { castIntoPiece } from "./presets.js";
+import { openPresetLibrary, styleCastMember } from "./presetlib.js";
+import { PromptBox } from "./prompt.js";
 import { listChats, loadChat, saveChat, renameChat, deleteChat, newId, pack, groupByDay,
          coverOf } from "./chatstore.js";
 import { t } from "./i18n.js";
@@ -108,9 +111,13 @@ const SAVE_AFTER = 600;
 const state = {
   messages: [],
   ledger: [],
-  // Next handle per kind. Handles are never reused: `img-2` means one picture
+  // The clips joined so far: the piece's segments as the last strip render
+  // built them, each held on its take and wearing its ledger handle under
+  // `chat_handle`. A clip rendered without "after" starts a new strip.
+  strip: [],
+  // Next handle per kind. Handles are never reused: `pic-2` means one picture
   // for the life of the page even after it scrolls out of the ledger block.
-  counts: { img: 0, vid: 0, aud: 0 },
+  counts: { pic: 0, clip: 0, snd: 0 },
   turn: 0,
   rail: null,
   railTouched: false,
@@ -146,7 +153,7 @@ const state = {
  *  that asked for it. The arrays are the live ones, not copies: `newChat` and
  *  `openSaved` replace them on `state` rather than emptying them, so a home
  *  taken here stays whole. */
-const home = () => ({ messages: state.messages, ledger: state.ledger,
+const home = () => ({ messages: state.messages, ledger: state.ledger, strip: state.strip,
                       counts: state.counts, chat: state.chat });
 
 /** Whether the sidebar starts open: what was chosen last, else the width. */
@@ -235,7 +242,7 @@ function newChat() {
   saveNow().catch(report);
   reset();
   open?.paint();
-  open?.box.focus();
+  open?.box.root.focus();
 }
 
 /** The room on the question again, writing nothing. */
@@ -243,7 +250,8 @@ function reset() {
   clearTimeout(saveTimer);
   state.messages = [];
   state.ledger = [];
-  state.counts = { img: 0, vid: 0, aud: 0 };
+  state.strip = [];
+  state.counts = { pic: 0, clip: 0, snd: 0 };
   state.turn = 0;
   state.chat = null;
   state.error = null;
@@ -278,6 +286,7 @@ async function openSaved(id) {
   }
   state.messages = body.messages;
   state.ledger = body.ledger;
+  state.strip = body.strip;
   state.counts = body.counts;
   state.turn = body.turn;
   state.chat = { id, title: line?.title ?? "", created: line?.created ?? Date.now() };
@@ -291,7 +300,7 @@ async function openSaved(id) {
   if (open) {
     open.paint();
     open.log.scrollTop = open.log.scrollHeight;
-    open.box.focus();
+    open.box.root.focus();
   }
 }
 
@@ -315,6 +324,7 @@ async function settle(card, where) {
   const status = record.status?.status_str;
   const output = Object.values(record.outputs ?? {}).find((node) => node.mmc_video || node.mmc_image);
   if (output) {
+    card.takes = Object.values(record.outputs ?? {}).flatMap((node) => node.mmc_takes ?? []);
     card.isClip = Boolean(output.mmc_video);
     card.saved = (output.mmc_video ?? output.mmc_image)[0];
     card.state = "done";
@@ -395,8 +405,12 @@ const railFor = (sides) => ({ ...rail(), video_edge: clipEdge(sides) });
 // ---- the ledger -------------------------------------------------------------
 
 /** What a file's handle looks like, by what kind of file it is. The prefixes
- *  are `chat._media_kind`'s and the server reads them back the same way. */
-const PREFIX = { image: "img", video: "vid", audio: "aud" };
+ *  are `chat._media_kind`'s and the server reads them back the same way.
+ *  Not the node's `img`/`vid`/`aud`: a one-shot piece keeps its references
+ *  on the shot's row under those, cast members' pictures included
+ *  (`state.collapsePool`), and the row and the room's ledger meet in the
+ *  model's context — so the room's handles are a namespace of their own. */
+const PREFIX = { image: "pic", video: "clip", audio: "snd" };
 
 function nextHandle(media, where = home()) {
   const prefix = PREFIX[media] ?? PREFIX.image;
@@ -545,6 +559,10 @@ function watchRender(card) {
       }
       case "executed": {
         if (detail.prompt_id !== card.promptId) return;
+        // The takes land before the reel does — each pass is written the
+        // moment it exists (`ContinuityTake`) — and the strip's line for
+        // this shot is its take, not the joined piece.
+        if (detail.output?.mmc_takes) card.takes = [...(card.takes ?? []), ...detail.output.mmc_takes];
         const saved = detail.output?.mmc_video?.[0] ?? detail.output?.mmc_image?.[0];
         if (!saved) return;
         card.isClip = Boolean(detail.output?.mmc_video);
@@ -613,16 +631,66 @@ function land(card) {
   // queued, so a chat reopened later still numbers the render on the turn
   // that made it.
   const where = card.home ?? home();
+  // A clip is a shot on the strip. The piece the server built has the kept
+  // shots in front and this one last; its take is the file the ledger cites
+  // and the next shot continues from, and the joined piece is what the card
+  // plays. A shot with no take reported keeps the joined file, and the next
+  // "after" it is refused by name rather than continued from the wrong tail.
+  const segments = card.isClip ? (card.piece?.segments ?? []) : [];
+  const last = segments.length - 1;
+  const take = card.isClip
+    ? (card.takes ?? []).find((report) => Number(report.segment) === last + 1) : null;
+  const shot = take ? `${[take.subfolder, take.filename].filter(Boolean).join("/")} [output]` : null;
   card.entry = remember({
     media: card.isClip ? "video" : "image",
     kind: card.isClip ? "clip" : "still",
     aspect: card.action.aspect || card.piece?.aspect || rail().aspect,
-    filename: `${path} [${saved.type ?? "output"}]`,
+    filename: shot ?? `${path} [${saved.type ?? "output"}]`,
     text: card.action.prompt,
     turn: card.turn ?? state.turn,
   }, where);
+  if (card.isClip && last >= 0) {
+    where.strip.length = 0;
+    where.strip.push(...segments.map((segment, index) => index !== last ? segment : {
+      ...segment, chat_handle: card.entry.handle,
+      ...(take ? { hold: true, take: {
+        filename: shot, duration_s: Number(take.duration_s) || 0,
+        ...(take.width && take.height ? { width: Number(take.width), height: Number(take.height) } : {}),
+        has_audio: take.has_audio !== false,
+      } } : {}),
+    }));
+  }
   if (where.messages !== state.messages) saveNow(where).catch(report);
   notify();
+}
+
+/** The ledger as the box's "attached" list: what `@` offers first. */
+function ledgerAssets() {
+  const media = { still: "image", clip: "video", sound: "audio" };
+  return state.ledger.map((entry) => ({
+    handle: entry.handle, filename: entry.filename, kind: media[entry.kind] ?? "image",
+  }));
+}
+
+/** The piece's shelf, a one-shot piece's own row included — mirrors
+ *  `chat._shelf`, which is what the render puts on the shelf. */
+function shelfOf(piece) {
+  if (!piece) return [];
+  const pool = [...(piece.assets ?? [])];
+  const held = new Set(pool.map((asset) => asset.handle));
+  if ((piece.segments ?? []).length === 1) {
+    for (const asset of piece.segments[0].assets ?? []) {
+      if (asset?.handle && !held.has(asset.handle)) pool.push(asset);
+    }
+  }
+  return pool;
+}
+
+/** The strip as the model is told it: each shot's handle and length. */
+function stripSummary() {
+  return state.strip.filter((segment) => segment.chat_handle).map((segment) => ({
+    handle: segment.chat_handle, seconds: Number(segment.take?.duration_s ?? segment.duration_s) || 0,
+  }));
 }
 
 // ---- the room ---------------------------------------------------------------
@@ -674,17 +742,35 @@ class Room {
 
   mount() {
     this.log = keepScroll(el("div", { class: "mmc-ch-log" }));
-    this.box = el("textarea", {
-      class: "mmc-ch-box", rows: "1",
+    // The node's own prompt box, over the room's things: `@` cites what the
+    // conversation has made or attached and what the piece holds on its
+    // shelf and in its cast, `/` brings in a look, somebody from the cast
+    // library or a file. A member cast here lands on the piece — the node's,
+    // or the room's pinned copy — exactly as one cast in the node's box does,
+    // and the model reads the name back as the citation it is.
+    this.box = new PromptBox({
       placeholder: t("Ask for a picture or a shot…"),
-      onkeydown: (event) => {
-        if (event.key !== "Enter" || event.shiftKey) return;
-        event.preventDefault();
-        this.send();
+      getState: () => ({ assets: ledgerAssets() }),
+      onInput: () => this.paintSend(),
+      onSubmit: () => this.send(),
+      // A file out of the input folder, named in the `@` menu: staged as the
+      // paperclip stages one, with its handle minted now so the chip resolves.
+      onAttach: (row) => this.stage(row)?.entry?.handle ?? null,
+      attachBlocked: () => null,
+      getPool: () => shelfOf(this.sides.piece()),
+      getCast: () => this.sides.piece()?.subjects ?? [],
+      castFromLibrary: (member) => this.castOntoPiece(member),
+      castStyle: (row) => this.castOntoPiece(styleCastMember(row, 0)),
+      castVoice: (member) => this.castOntoPiece(member),
+      openLibrary: (scope) => {
+        const target = this.sides.presetTarget();
+        if (!target) return;
+        openPresetLibrary({ target, scope }).then(() => this.paintComposer());
       },
-      oninput: () => this.grow(),
-      onpaste: (event) => this.pasted(event),
+      onBrowse: () => this.browse(),
     });
+    this.box.root.classList.add("mmc-ch-box");
+    this.box.root.addEventListener("paste", (event) => this.pasted(event), true);
     this.attachButton = el("button", {
       class: "mmc-ch-tool", title: t("Add a picture, a clip or a sound"),
       onclick: () => this.browse(),
@@ -702,7 +788,7 @@ class Room {
     // hosts that repaint on their own.
     this.composer = el("div", { class: "mmc-ch-compose" }, [
       this.chips,
-      this.box,
+      this.box.root,
       el("div", { class: "mmc-ch-foot" }, [
         this.attachButton, this.pills, el("span", { class: "mmc-bn-gap" }), this.sendButton,
       ]),
@@ -834,7 +920,7 @@ class Room {
     this.unfollow = this.sides.follow(() => { if (this.overlay.isConnected) this.paintPills(); });
 
     this.paint();
-    this.box.focus();
+    this.box.root.focus();
   }
 
   /** Whether the sidebar is a drawer over the transcript rather than beside
@@ -1110,7 +1196,7 @@ class Room {
     ];
     return el("div", { class: "mmc-ch-tries" }, tries.map((line) => el("button", {
       class: "mmc-ch-try", text: line,
-      onclick: () => { this.box.value = line; this.box.focus(); this.grow(); },
+      onclick: () => { this.box.setValue(line); this.box.root.focus(); },
     })));
   }
 
@@ -1155,7 +1241,7 @@ class Room {
     state.setup = null;
     state.messages = state.messages.filter((message) => !message.local);
     this.paint();
-    this.box.focus();
+    this.box.root.focus();
   }
 
 
@@ -1241,6 +1327,10 @@ class Room {
         }),
       ]));
     }
+    if (card.entry && card.isClip && (card.piece?.segments?.length ?? 0) > 1) {
+      body.push(el("div", { class: "mmc-ch-note", text: t("Shot {n} of the strip — the clip plays all {n}.", {
+        n: card.piece.segments.length }) }));
+    }
     if (card.entry) {
       body.push(el("div", { class: "mmc-ch-doors" }, [
         el("button", {
@@ -1293,9 +1383,10 @@ class Room {
     // Closed while the first run is being answered: a message sent before the
     // room has a model to think with is a message answered with a refusal.
     const asking = Boolean(state.setup);
-    this.box.disabled = state.busy || asking;
-    this.box.placeholder = asking ? t("Answer above first") : t("Ask for a picture or a shot…");
-    this.sendButton.disabled = state.busy || asking || (!this.box.value.trim() && !this.pending.length);
+    this.box.root.contentEditable = state.busy || asking ? "false" : "true";
+    this.box.root.classList.toggle("mmc-ch-off", state.busy || asking);
+    this.box.root.dataset.placeholder = asking ? t("Answer above first") : t("Ask for a picture or a shot…");
+    this.paintSend();
     this.chips.hidden = !this.pending.length;
     this.chips.replaceChildren(...this.pending.map((asset) => this.chip(asset)));
     if (asking) {
@@ -1307,30 +1398,44 @@ class Room {
     this.paintPills();
   }
 
-  /** A file waiting in the composer. Its own picture and a way to change your
-   *  mind, and nothing else: it has no handle yet, because it is not in the
-   *  ledger until it is sent. */
+  /** A file waiting in the composer: its picture, the handle it already has
+   *  — minted when it was staged, so the sentence can cite it — and a way to
+   *  change your mind, which takes the handle back out of the ledger. */
   chip(asset) {
     const shown = asset.kind === "audio" ? null : asset.path;
-    return el("div", { class: "mmc-ch-chip", title: asset.name || asset.path }, [
+    return el("div", { class: "mmc-ch-chip", title: `@${asset.entry.handle} · ${asset.name || asset.path}` }, [
       shown
         ? el("img", { src: viewUrl(shown, { preview: true }), alt: "", draggable: false })
         : el("span", { class: "mmc-ch-sound" }, [icon("audio", 18)]),
       el("button", {
         class: "mmc-ch-unchip", title: t("Remove"),
-        onclick: () => {
-          this.pending = this.pending.filter((other) => other !== asset);
-          this.paintComposer();
-        },
+        onclick: () => this.unstage(asset),
       }, [icon("close", 11)]),
     ]);
   }
 
-  /** The text box grows with what is in it, to a few lines, then scrolls. */
-  grow() {
-    this.box.style.height = "auto";
-    this.box.style.height = `${Math.min(200, this.box.scrollHeight)}px`;
-    this.sendButton.disabled = state.busy || (!this.box.value.trim() && !this.pending.length);
+  /** Whether there is anything to send. */
+  paintSend() {
+    const asking = Boolean(state.setup);
+    this.sendButton.disabled = state.busy || asking
+      || (!this.box.getValue().trim() && !this.pending.length);
+  }
+
+  /**
+   * Somebody — or a look, or a voice — cast onto the piece from the box's
+   * menus. Onto the shelf rather than the shot's row, whatever shape the
+   * piece is in: the room's render replaces the row with the conversation's
+   * card, and the row's own handles are the ledger's to mint. The piece is
+   * committed — written to the node, or saved as the room's copy — so the
+   * member is there for the render and there on the node's own shelf.
+   */
+  castOntoPiece(member) {
+    const piece = this.sides.piece();
+    if (!piece) return null;
+    const subject = castIntoPiece(member, piece, { pool: true });
+    if (!subject) return null;
+    this.sides.commitPiece();
+    return subject.handle;
   }
 
   // ---- the choices ------------------------------------------------------------
@@ -1550,10 +1655,8 @@ class Room {
   /** Put a handle in the box. Citing is how an edit is asked for, and the
    *  handle on a thumbnail is what there is to press. */
   cite(entry) {
-    const text = this.box.value;
-    this.box.value = `${text}${text && !text.endsWith(" ") ? " " : ""}@${entry.handle} `;
-    this.box.focus();
-    this.grow();
+    this.box.root.focus();
+    this.box.insertChip(entry.handle);
   }
 
   // ---- the turn ---------------------------------------------------------------
@@ -1569,18 +1672,21 @@ class Room {
    * turn.
    */
   async send() {
-    const text = this.box.value.trim();
-    if ((!text && !this.pending.length) || state.busy) return;
-    this.box.value = "";
-    this.grow();
+    const text = this.box.getValue().trim();
+    if ((!text && !this.pending.length) || state.busy || state.setup) return;
+    this.box.setValue("");
     state.turn += 1;
     state.error = null;
-    const attached = this.pending.map((asset) => remember({
-      media: asset.kind || "image",
-      kind: asset.kind === "video" ? "clip" : asset.kind === "audio" ? "sound" : "still",
-      filename: asset.path,
-      text: text || asset.name || asset.path,
-    }));
+    // The attachments were remembered when they were staged, under the turn
+    // this message was going to be; they are that turn's now, and the words
+    // they went with are their description where they had none of their own.
+    const attached = this.pending.map((asset) => {
+      const entry = asset.entry;
+      entry.turn = state.turn;
+      if (!entry.text || entry.text === (asset.name || asset.path)) entry.text = text || entry.text;
+      if (!state.ledger.includes(entry)) state.ledger.push(entry);
+      return entry;
+    });
     this.pending = [];
     state.messages.push({ role: "user", text, attached, turn: state.turn });
     if (!text) return this.paint();
@@ -1599,6 +1705,12 @@ class Room {
       turn = await run("/continuity/chat/turn", {
         messages: forServer(),
         ledger: state.ledger,
+        strip: stripSummary(),
+        // The piece, for its cast and its shelf: the names and the handles
+        // the person can write with the `@` menu, which the model has to be
+        // told and the validator has to accept. The server reads both off
+        // the blob (`chat.cast_entries`, `chat.shelf_entries`).
+        piece: this.sides.base("video")?.piece ?? null,
         settings: requestBlock(this.sides),
       }, {
         // The token counter the refine button already shows. Only the queued
@@ -1658,6 +1770,8 @@ class Room {
     if (turns.length) {
       const first = Math.min(...turns);
       state.ledger = state.ledger.filter((entry) => entry.turn < first);
+      const kept = new Set(state.ledger.map((entry) => entry.handle));
+      state.strip = state.strip.filter((segment) => kept.has(segment.chat_handle));
       state.turn = first - 1;
     }
     state.error = null;
@@ -1669,15 +1783,18 @@ class Room {
     if (!this.cuttable(index)) return;
     const message = state.messages[index];
     this.truncate(index);
-    this.box.value = message.text ?? "";
+    // The attachments come back under the handles they had — the sentence
+    // cites them by those — and into the ledger, so the chips resolve; the
+    // turn is the message's again when it is sent.
     const media = Object.fromEntries(Object.entries(PREFIX).map(([kind, prefix]) => [prefix, kind]));
-    this.pending = (message.attached ?? []).map((entry) => ({
-      path: entry.filename, name: entry.filename.split("/").pop(),
-      kind: media[entry.handle.split("-")[0]] ?? "image",
-    }));
+    this.pending = (message.attached ?? []).map((entry) => {
+      if (!state.ledger.includes(entry)) state.ledger.push(entry);
+      return { path: entry.filename, name: entry.filename.split("/").pop(),
+               kind: media[entry.handle.split("-")[0]] ?? "image", entry };
+    });
+    this.box.setValue(message.text ?? "");
     this.paint();
-    this.box.focus();
-    this.grow();
+    this.box.root.focus();
   }
 
   /** Ask again from the reply at `index`: it and everything after it go, and
@@ -1751,7 +1868,8 @@ class Room {
     let answer;
     try {
       answer = await run("/continuity/chat/render", {
-        action, ledger: state.ledger, rail: bar, base,
+        action, ledger: state.ledger, strip: state.strip, rail: bar, base,
+        piece: this.sides.base("video")?.piece ?? null,
         ...(refining ? { refine: refineRequest() } : {}),
       }, {
         onProgress: (_fraction, value, max) => {
@@ -1817,7 +1935,7 @@ class Room {
     });
     if (!chosen?.length) return;
     for (const asset of chosen) this.stage(asset);
-    this.box.focus();
+    this.box.root.focus();
   }
 
   pasted(event) {
@@ -1838,10 +1956,34 @@ class Room {
     }
   }
 
-  /** Into the composer, not the ledger: it goes with the next message. */
+  /**
+   * Into the composer, and into the ledger under the turn the next message
+   * will be — its handle is minted now so the sentence can cite it, and the
+   * `@` menu lists it with everything else that is here. -> the staged
+   * asset, or the one already waiting under that path.
+   */
   stage(asset) {
-    if (this.pending.some((other) => other.path === asset.path)) return;
-    this.pending.push(asset);
+    const waiting = this.pending.find((other) => other.path === asset.path);
+    if (waiting) return waiting;
+    const staged = { ...asset, entry: remember({
+      media: asset.kind || "image",
+      kind: asset.kind === "video" ? "clip" : asset.kind === "audio" ? "sound" : "still",
+      filename: asset.path,
+      text: asset.name || asset.path,
+      turn: state.turn + 1,
+    }) };
+    this.pending.push(staged);
     this.paintComposer();
+    return staged;
+  }
+
+  /** Out of the composer and out of the ledger: a handle nobody sent is a
+   *  handle nobody made. The chip in the sentence, if any, is left to the
+   *  person — it reads as text once the handle is gone. */
+  unstage(asset) {
+    this.pending = this.pending.filter((other) => other !== asset);
+    state.ledger = state.ledger.filter((entry) => entry !== asset.entry);
+    this.paintComposer();
+    this.box.refresh?.();
   }
 }
