@@ -38,7 +38,6 @@ beside this one.
 
 import json
 import os
-import random
 import re
 
 from .families import refine
@@ -371,7 +370,7 @@ def judge(reply, ledger, user_text, second=False):
 # that pill is thrown, which is why `required_slots` is asked rather than told:
 # `state.missingPreStageModels` requires whichever DiT the pill actually
 # selects, `compile_prestage` resolves the same field, and a card that left the
-# Turbo checkpoint out while the rail's switch was on would pass the dry run and
+# Turbo checkpoint out while the pre-stage's switch was on would pass the dry run and
 # then be refused by `render_image.check` on the queue — the one thing the card
 # and the dry run exist between them to prevent.
 TURBO_SLOT = "turbo_model"
@@ -385,7 +384,7 @@ def required_slots(family, turbo=False):
     optional (`required`, absent meaning required, which is what every manifest
     written before that key existed needs) — that is `state.alwaysRequired`.
 
-    `turbo` is whether the rail's turbo switch is on for this family, and it
+    `turbo` is whether the pre-stage's turbo switch loads the checkpoint, and it
     moves exactly one slot: the turbo checkpoint is what the render will load
     instead of the ordinary one, so with the switch thrown it is required and
     with it off it is a file nobody needs. A family whose turbo pill is a LoRA
@@ -414,8 +413,8 @@ def missing_weights(family, picked, available, turbo=False):
     `models.available()`. Both are asked, not just the first: a pick is a
     filename somebody chose once, and a file deleted since is a render that
     fails at the loader with the node's own message instead of here, where the
-    model could have said so before spending the turn. `turbo` is the rail's
-    switch — see `required_slots`.
+    model could have said so before spending the turn. `turbo` is the
+    pre-stage's switch — see `required_slots`.
     """
     listings = (available or {}).get("by_folder") or {}
 
@@ -634,8 +633,9 @@ def machine_card(still_family, video_family, catalog, available, weights,
     Pure, and given everything it reads, so a suite can feed it a machine with
     no weights on it and read the sentence a user would actually be told. The
     route does the joining and holds the result until the picks change. `turbo`
-    is the rail's switch and reaches the still family alone, which is the only
-    side of the room it is wired to — see `video_piece`.
+    is the pre-stage's switch, read off its blob (`still_turbo_checkpoint`),
+    and reaches the still family alone: a video family's turbo is a LoRA in
+    the stack, never a file the card has to count.
 
     The aspect table is printed once where both families agree on it, which on
     this pack's families they always do — eleven names twice is a fifth of the
@@ -864,40 +864,11 @@ def reask(message, reply, sentence):
 # never touched the duration pill would have rendered on.
 DEFAULT_SECONDS = 6
 
-SEED_FIXED, SEED_RANDOM = "fixed", "random"
-
-# What the rail's seed control may be set to. Written down because three places
-# read it — the pill, this module's `render_seed`, and `settings.clean_chat`,
-# which refuses a rail holding anything else — and a fourth spelling of "random"
-# would be a policy that silently meant "fixed".
-SEED_POLICIES = (SEED_FIXED, SEED_RANDOM)
-
 # What the route stamps onto the rail about the still family's references, and
 # what a rail that says nothing means. `takes` is `takes_refs` of that family and
 # `refusal` is `refs_refusal` of it with the alternatives already named — both
 # are the catalog's answers, and the catalog is the route's.
 DEFAULT_STILL_PICTURES = {"takes": True, "refusal": ""}
-
-
-def render_seed(rail):
-    """The number this render samples on.
-
-    A widget on the node, never a field in the blob: `control_after_generate` is
-    the frontend's own linked control and there is nothing for a JSON field to
-    be — `sampling.py` says so at length, and putting the seed in the blob here
-    would make the chat the one caller that disagrees with every other.
-
-    The rail's policy is the room's version of that control: `fixed` keeps the
-    number so "again, bluer" is the same noise with a different prompt, and
-    `random` rolls one so Retake is a different take.
-    """
-    rail = rail or {}
-    if rail.get("seed_policy") == SEED_RANDOM:
-        return random.randrange(0, 0xffffffffffffffff)
-    try:
-        return max(0, int(rail.get("seed") or 0))
-    except (TypeError, ValueError):
-        return 0
 
 
 def _media_kind(handle):
@@ -961,155 +932,34 @@ def _canvas(action, rail, kind):
     return canvas
 
 
-# ---- the turbo switch ---------------------------------------------------------
-
-# One switch per side of the room, because "turbo" is not one thing: Krea 2's
-# is a distilled checkpoint or an SVD extraction of it as a LoRA over RAW, Flux
-# 2 Klein publishes the checkpoint alone, Ideogram 4 the LoRA alone, and H3's
-# is a distillation LoRA in the piece's own stack (or nothing at all, on a
-# checkpoint that ships with the distillation merged). The rail carries a
-# `<side>_turbo` flag, the `<side>_turbo_lora` file — empty meaning the
-# checkpoint — and a `<side>_turbo_quality` stop, and each family's
-# `capabilities.turbo` says what its switch may be set to.
-TURBO_SIDES = ("still", "video")
+# ---- the pieces --------------------------------------------------------------
+#
+# A chat render is the node on the canvas, asked for this prompt in this shape.
+# The room sends the node's own blob as the `base` — its sampler row, its turbo
+# switch and stack, its weights, its passes — and the two builders below put
+# one shot on it. Nothing about *how* the piece samples is decided here: the
+# room has no settings of its own beyond the shape and the two sizes, so what
+# the node would render is what the room renders, and the gear in the room is
+# the node's row drawn a second time over the same blob.
 
 
-def turbo_of(rail, side):
-    """The rail's turbo switch for one side -> `{on, lora, quality}`.
-
-    A rail written before the switch was split carried one `turbo` flag, and
-    it was the still side's: that is what it still reads as.
-    """
-    rail = rail or {}
-    on = rail.get(f"{side}_turbo")
-    if on is None and side == "still":
-        on = rail.get("turbo")
-    lora = rail.get(f"{side}_turbo_lora")
-    return {"on": bool(on),
-            "lora": lora.strip() if isinstance(lora, str) else "",
-            "quality": str(rail.get(f"{side}_turbo_quality") or "")}
-
-
-def turbo_spec(family):
-    """A family's turbo declaration, or None where it has no switch."""
-    spec = ((family or {}).get("capabilities") or {}).get("turbo")
-    return spec if isinstance(spec, dict) else None
-
-
-def _turbo_preset(spec, lora):
-    """The declaration's preset for a file, matched on its name. Only the video
-    families declare any; a still family's switch has one row for every file."""
-    for preset in spec.get("presets") or []:
-        try:
-            if re.search(preset.get("match", ""), lora or "", re.IGNORECASE):
-                return preset
-        except re.error:
-            continue
-    return {}
-
-
-def turbo_wants_checkpoint(family, block):
-    """Whether this switch, as set, loads the family's Turbo checkpoint — which
-    is when `required_slots` has to count that slot."""
-    return bool(block.get("on")) and not block.get("lora")
-
-
-def turbo_problem(family, block, lora_names):
-    """Why the switch cannot be thrown as it is set, as the assistant's line, or None.
-
-    Three refusals, all about a switch set to something the family does not
-    have: a LoRA on a family whose distillation is only a checkpoint, the
-    checkpoint on a family whose distillation is only a LoRA, and a LoRA that
-    is not in the models folder any more. `lora_names` is `models/loras`.
-    """
-    if not block.get("on"):
-        return None
-    spec = turbo_spec(family)
-    label = family.get("label", family.get("id"))
-    if spec is None:
-        return f"{label} has no turbo mode. Turn turbo off for it and ask again."
-    lora = block.get("lora")
-    if lora:
-        if spec.get("lora") is False:
-            return (f"{label}'s turbo is a checkpoint, not a LoRA. Set its turbo "
-                    f"to the checkpoint and ask again.")
-        if lora_names is not None and lora not in lora_names:
-            return (f"The turbo LoRA {lora} is not in the models folder any more. "
-                    f"Pick another one and ask again.")
-        return None
-    if spec.get("checkpoint") is False:
-        return (f"{label}'s turbo is a LoRA, not a checkpoint. Pick the turbo "
-                f"LoRA and ask again.")
-    return None
-
-
-def turbo_strength(family, block):
-    """What the switch engages the LoRA at — the file's preset, or the family's."""
-    spec = turbo_spec(family) or {}
-    preset = _turbo_preset(spec, block.get("lora"))
-    strength = preset.get("strength", spec.get("default_strength", 1.0))
-    try:
-        return float(strength)
-    except (TypeError, ValueError):
-        return 1.0
-
-
-def turbo_row(family, block):
-    """The widget values the switch sets on the node -> `{widget: value}`.
-
-    The chat's prompt carries the node's whole widget row at the family's
-    defaults (`routes/chat._node_widgets`), and a distilled checkpoint sampled
-    on RAW's forty steps at cfg 3.5 is a fried picture — which is what the room
-    made before this existed. So the switch writes the same row the pre-stage's
-    `throwTurbo` and the timeline's `turbo.js` write: the step count of the
-    picked quality, the sampler row the distillation was tuned against, and
-    on the video side the flow shifts the file's preset names. Empty with the
-    switch off, so the family's own row stands.
-    """
-    if not block.get("on"):
-        return {}
-    spec = turbo_spec(family)
-    if spec is None:
-        return {}
-    preset = _turbo_preset(spec, block.get("lora"))
-    steps = preset.get("steps") or spec.get("steps") or {}
-    quality = block.get("quality") or spec.get("default_quality") or ""
-    row = dict(preset.get("row") or spec.get("row") or {})
-    if quality in steps:
-        row["steps"] = int(steps[quality])
-    elif steps:
-        row["steps"] = int(steps.get(spec.get("default_quality")) or next(iter(steps.values())))
-    reset = spec.get("reset") or {}
-    for key in ("shift_video", "shift_audio"):
-        if key in preset:
-            row[key] = preset[key]
-        elif key in reset:
-            row[key] = reset[key]
-    return row
-
-
-def turbo_lora_entry(family, block):
-    """The stack entry the switch adds — the same entry the manager would
-    hold, so the compiler patches it like any other."""
-    return {"name": block["lora"], "strength": turbo_strength(family, block),
-            "enabled": True}
-
-
-def still_piece(action, ledger, rail):
+def still_piece(action, ledger, rail, base=None):
     """A `render` of a still -> the `prestage_data` the PreStage node runs.
 
-    The shared image shape — `compile_image.compile_prestage`'s — which is what
-    the families that draw a picture outright read. H3's still branch is a video
-    generation with one latent frame decoded, and its blob is the Creator's own
-    request under a `minimax` block instead; the route offers the image families
-    for exactly that reason and says so.
+    Over `base`, the pre-stage's own blob: everything on it stands — the LoRA
+    stack (the turbo LoRA included), the turbo block, the sampler row, the
+    weights — and the room's turn writes the prompt, the references and the
+    shape over it. Without a base (the tests' bare call), the shared image
+    shape `compile_image.compile_prestage` reads, at its defaults.
 
     Every cited handle becomes a reference, in the order it was cited, which is
     the order the encoder labels them in — so under an edit family (Qwen Image
     Edit, Flux 2 Klein) the first one is the picture being edited and this does
     nothing special to make that true. `compile_image.compile_prestage` promotes
     a first reference to the init at denoise 1 on exactly those families, which
-    is where that rule belongs and where it already is.
+    is where that rule belongs and where it already is. The init the node held
+    is cleared for the same reason: the room's picture is the citation, not
+    whatever the node was last painting over.
 
     A family that cannot be handed a picture refuses one here, in the room's own
     words, before the compiler refuses it in words about the node's LoRA stack.
@@ -1117,18 +967,16 @@ def still_piece(action, ledger, rail):
     it is the catalog's answer and the route is the half with the catalog — see
     `takes_refs` and `refs_refusal`.
 
-    `models` is left empty and the route fills it from `settings["weights"]`:
-    which files are on this disk is the machine's business and this module has
-    no disk. The rail's arch is the pre-stage pill's name for a family — see
-    `registry.STILL_ARCHES` — and the route stamps it on, because the mapping
-    is the registry's and the rail arrives naming families.
+    `models` is left to the route: which files are on this disk is the
+    machine's business and this module has no disk. The rail's arch is the
+    pre-stage pill's name for a family — see `registry.STILL_ARCHES` — and the
+    route stamps it on, because the mapping is the registry's and the rail
+    arrives naming families.
     """
     rail = rail or {}
     arch = rail.get("still_arch")
     if not arch:
         raise ActionError("this room has no still model set up yet.")
-    family = rail.get("still_spec") or {}
-    turbo = turbo_of(rail, "still")
 
     cited = _cited(action, ledger)
     pictures = {**DEFAULT_STILL_PICTURES, **(rail.get("still_pictures") or {})}
@@ -1143,52 +991,42 @@ def still_piece(action, ledger, rail):
                 f"@{handle} is a {kind} and a still can only be given pictures.")
         refs.append({"handle": handle, "filename": filename})
 
-    return {
-        "version": 1,
+    piece = json.loads(json.dumps(base)) if isinstance(base, dict) else {}
+    piece.update({
+        "version": piece.get("version") or 1,
         "arch": arch,
         "prompt": action["prompt"],
         "init": None,
         "refs": refs,
-        # The turbo LoRA is an entry in the stack like the pre-stage's — the
-        # switch is a shortcut into the stack, not a second stack.
-        "loras": [turbo_lora_entry(family, turbo)] if turbo["on"] and turbo["lora"] else [],
+        "loras": piece.get("loras") or [],
+        "turbo": piece.get("turbo") or {},
+        "models": piece.get("models") or {},
         **_canvas(action, rail, "still"),
-        # Per-arch, the way the pre-stage's own block is: the pill does not mean
-        # the same thing on both sides, and a flat block would carry one
-        # family's file onto another the moment the arch moved. `lora` empty
-        # is the checkpoint, which is how `krea2.still` reads it.
-        "turbo": {arch: {"on": turbo["on"], "lora": turbo["lora"] or None,
-                         "quality": turbo["quality"] or None}},
-        "models": {},
-    }
+    })
+    return piece
 
 
-def video_piece(action, ledger, rail):
+def video_piece(action, ledger, rail, base=None):
     """A `render` of a clip -> the `creator_data` piece the Creator node runs.
 
-    A piece of one shot, which is all this iteration makes: no strip, no seams,
-    no cast. The chat's prompt is the segment's prompt as typed — the compiler
-    wraps it the way it wraps anything a person types, and the Refine pass is a
-    switch in the rail rather than a step.
+    Over `base`, the piece on the canvas: its family, its cast, its stack, its
+    turbo block, its sampler row and its weights all stand, and the strip is
+    replaced by one card carrying the chat's prompt — a piece of one shot, which
+    is all this iteration makes: no seams, no cuts. The chat's prompt is the
+    segment's prompt as typed — the compiler wraps it the way it wraps anything
+    a person types, and the Refine pass is a switch in the rail rather than a
+    step. Without a base (the tests' bare call), the piece is the family's
+    empty one.
 
     The first still cited becomes the shot's start frame, which is §5.2's rule
     and the only resolution this does: a second still has nowhere to be a
     keyframe (a shot opens once) so it rides as a reference, and a clip or a
     sound is a reference whatever its position.
-
-    The rail's video turbo switch is the piece's `turbo` block and one entry
-    in its stack — exactly what `turbo.js` writes when the timeline's switch
-    is thrown: `render.LeadIn` reads the block, `compile.active_loras` patches
-    the entry, and the sampler row goes on the node's widgets (`turbo_row`).
-    With no file the block alone drops the steps, which is the merged-
-    checkpoint case the manager's "no LoRA" choice covers.
     """
     rail = rail or {}
     family = rail.get("video_family")
     if not family:
         raise ActionError("this room has no video model set up yet.")
-    spec = rail.get("video_spec") or {}
-    turbo = turbo_of(rail, "video")
 
     assets, opened = [], False
     for handle, kind, filename in _cited(action, ledger):
@@ -1198,15 +1036,16 @@ def video_piece(action, ledger, rail):
         assets.append({"handle": handle, "kind": kind, "role": role,
                        "filename": filename})
 
-    return {
-        "version": 2,
-        # The piece's standing description, which a piece of one shot has
-        # nothing to put in: everything written is written on the card.
-        "prompt": "",
+    piece = json.loads(json.dumps(base)) if isinstance(base, dict) else {}
+    piece.update({
+        "version": piece.get("version") or 2,
+        # The piece's standing description is the node's and stays; a bare
+        # piece has nothing to put in it, since everything written is on the card.
+        "prompt": piece.get("prompt") or "",
         "family": family,
-        "models": {},
-        "loras": [turbo_lora_entry(spec, turbo)] if turbo["on"] and turbo["lora"] else [],
-        "turbo": {"on": turbo["on"], "lora": turbo["lora"]},
+        "models": piece.get("models") or {},
+        "loras": piece.get("loras") or [],
+        "turbo": piece.get("turbo") or {"on": False, "lora": None},
         **_canvas(action, rail, "video"),
         "segments": [{
             "prompt": action["prompt"],
@@ -1215,10 +1054,11 @@ def video_piece(action, ledger, rail):
             "duration_s": action.get("seconds") or rail.get("seconds") or DEFAULT_SECONDS,
             "checkpoint": "auto",
         }],
-    }
+    })
+    return piece
 
 
-def piece_of(action, ledger, rail):
+def piece_of(action, ledger, rail, base=None):
     """The blob for whichever kind the action asked for, with its node's name.
 
     `(node id, the blob's widget name, the blob)` — the three things the route
@@ -1226,8 +1066,19 @@ def piece_of(action, ledger, rail):
     `kind` to node lives in one place rather than in two branches of a route.
     """
     if action.get("kind") == KIND_STILL:
-        return "MiniMaxH3PreStage", "prestage_data", still_piece(action, ledger, rail)
-    return "MiniMaxH3Creator", "creator_data", video_piece(action, ledger, rail)
+        return "MiniMaxH3PreStage", "prestage_data", still_piece(action, ledger, rail, base)
+    return "MiniMaxH3Creator", "creator_data", video_piece(action, ledger, rail, base)
+
+
+def still_turbo_checkpoint(piece):
+    """Whether a pre-stage blob's turbo switch loads the family's Turbo
+    checkpoint — thrown, with no LoRA under it — which is when `required_slots`
+    has to count that slot. `piece["turbo"]` is per arch, as the pre-stage
+    writes it; a block with `on` at the top is one written before that."""
+    piece = piece or {}
+    turbo = piece.get("turbo") or {}
+    block = turbo if isinstance(turbo.get("on"), bool) else turbo.get(piece.get("arch")) or {}
+    return bool(block.get("on")) and not block.get("lora")
 
 
 # ---- the Refine switch --------------------------------------------------------

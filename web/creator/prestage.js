@@ -114,6 +114,8 @@ export class PreStageEditor {
     this.samplingWidgets = samplingWidgets;
     this.onWidgetChange = onWidgetChange;
     this.nodeId = nodeId;
+    // The turbo switch and the weights pill, over this editor's state.
+    this.row = new PreStageRow(this);
     // Both supplied by `PreStageBody`, which outlives this editor: it rebuilds
     // the body when the architecture changes, and the stage was floated beside
     // the node once. The arch pill is the control that does the rebuilding, so
@@ -657,17 +659,20 @@ export class PreStageEditor {
       ...this.widgetIO(),
       set: (name, value) => { this.widgetIO().set(name, value); this.render(); },
       perSegment: false,
-      turbo: this.renderTurbo(),
+      turbo: this.row.renderTurbo(),
       trailing: [
         // The DLSS 5 refiner over the still, with the processing scale a still
         // can afford and a clip cannot.
         neuralPill({ target: this.state, commit: () => this.commit(), still: true,
                      geometry: () => S.resolvedPreStage(this.state, this.sourceSize()),
                      picture: () => stageSource(this.stage?.result) }),
-        this.renderWeightsPill(),
+        this.row.renderWeightsPill(),
       ],
     })] : []));
     this.sheetEditor?.render();
+    // Whoever else draws this row off the same blob — the chat room's gear —
+    // and has to follow it. See `CreatorEditor.render`.
+    this.onRender?.();
   }
 
   /** The way into the window, always there and lit once the text no longer
@@ -1106,6 +1111,93 @@ export class PreStageEditor {
     return el("div", { class: "mmc-pills" }, pills);
   }
 
+  openResolution(anchor) {
+    const body = edgeSlider({
+      min: S.PRESTAGE_MIN_EDGE, max: S.PRESTAGE_MAX_EDGE, step: S.PRESTAGE_CANVAS_MULTIPLE,
+      value: this.state.short_edge,
+      mark: S.PRESTAGE_DEFAULT_EDGE, markLabel: t("default"),
+      apply: (edge) => { this.state.short_edge = edge; },
+      describe: () => {
+        const geometry = S.resolvedPreStage(this.state, this.sourceSize());
+        return {
+          size: `${geometry.width} × ${geometry.height}`,
+          note: this.state.short_edge >= S.PRESTAGE_MAX_EDGE
+            ? t("The models' 2048 ceiling — wide ratios trade the short edge down to hold the area.")
+            : t("{speed} {edge} is the comfortable default on every image model here.", {
+                speed: t(this.state.short_edge < S.PRESTAGE_DEFAULT_EDGE ? "Faster, softer." : "Sharper, slower."),
+                edge: S.PRESTAGE_DEFAULT_EDGE,
+              }),
+        };
+      },
+      commit: () => this.commit(),
+    });
+    const pop = el("div", { class: "mmc-pop mmc-slider" }, [body]);
+    document.body.appendChild(pop);
+    placeNear(pop, anchor);
+    dismissable(pop);
+  }
+}
+
+
+/**
+ * The pre-stage's turbo switch and weights pill, over any pre-stage blob.
+ *
+ * Both the editor and the chat room draw them: the editor over the node's own
+ * state, the room over the node's (following) or over a copy it keeps
+ * (pinned). Everything here reads and writes through the host's three doors —
+ * `state`, `widgetIO()`, `commit()` — and nothing else, which is what lets one
+ * implementation serve a blob with no node under it.
+ *
+ * @param {object} host  `{state, widgetIO(), commit()}` — the editor, the body,
+ *   or the room's stand-in for a pinned copy
+ */
+export class PreStageRow {
+  constructor(host) {
+    this.host = host;
+  }
+
+  get state() { return this.host.state; }
+
+  widgetIO() { return this.host.widgetIO(); }
+
+  commit() { this.host.commit(); }
+
+  /** Move the blob onto another arch: release the leaving arch's turbo and
+   *  write the arriving arch's own row — the numbers these models run at have
+   *  nothing to do with each other, and carrying the row across would be
+   *  wrong on arrival. The prompt and the remount are the body's. */
+  setArch(arch) {
+    const io = this.widgetIO();
+    // The switch is per arch, so leaving one does not throw the other's — but
+    // the row on the way out is this node's one row, and it belongs to whoever
+    // is arriving. Released here rather than carried across.
+    const leaving = this.state.turbo[this.state.arch];
+    if (leaving?.on && leaving.lora) S.removeLora(this.state, leaving.lora);
+    if (leaving) { leaving.on = false; leaving.saved = null; }
+    this.state.arch = arch;
+
+    if (arch === "ideogram4") {
+      io.set("steps", S.PRESTAGE_IDEOGRAM_STEPS[this.state.quality]);
+      io.set("cfg", S.PRESTAGE_IDEOGRAM_ROW.cfg);
+      io.set("sampler_name", S.PRESTAGE_IDEOGRAM_ROW.sampler_name);
+    } else if (S.PRESTAGE_BASE_ROW[arch]) {
+      const row = S.PRESTAGE_BASE_ROW[arch];
+      io.set("steps", row.steps);
+      io.set("cfg", row.cfg);
+      io.set("sampler_name", row.sampler_name);
+      // A family without a scheduler control (Klein's schedule is the model's
+      // own) declares none, and the widget is left where it was rather than
+      // written undefined.
+      if (row.scheduler !== undefined) io.set("scheduler", row.scheduler);
+    } else {
+      const row = S.PRESTAGE_STILL_ROW;
+      io.set("steps", row.steps);
+      io.set("cfg", row.cfg);
+      io.set("sampler_name", row.sampler_name);
+      io.set("scheduler", row.scheduler);
+    }
+  }
+
   // ---- turbo -----------------------------------------------------------------
 
   /** The turbo pill, under the H3 contract: save the sampler row once per
@@ -1406,32 +1498,6 @@ export class PreStageEditor {
     placeNear(pop, anchor);
     const close = dismissable(pop);
   }
-
-  openResolution(anchor) {
-    const body = edgeSlider({
-      min: S.PRESTAGE_MIN_EDGE, max: S.PRESTAGE_MAX_EDGE, step: S.PRESTAGE_CANVAS_MULTIPLE,
-      value: this.state.short_edge,
-      mark: S.PRESTAGE_DEFAULT_EDGE, markLabel: t("default"),
-      apply: (edge) => { this.state.short_edge = edge; },
-      describe: () => {
-        const geometry = S.resolvedPreStage(this.state, this.sourceSize());
-        return {
-          size: `${geometry.width} × ${geometry.height}`,
-          note: this.state.short_edge >= S.PRESTAGE_MAX_EDGE
-            ? t("The models' 2048 ceiling — wide ratios trade the short edge down to hold the area.")
-            : t("{speed} {edge} is the comfortable default on every image model here.", {
-                speed: t(this.state.short_edge < S.PRESTAGE_DEFAULT_EDGE ? "Faster, softer." : "Sharper, slower."),
-                edge: S.PRESTAGE_DEFAULT_EDGE,
-              }),
-        };
-      },
-      commit: () => this.commit(),
-    });
-    const pop = el("div", { class: "mmc-pop mmc-slider" }, [body]);
-    document.body.appendChild(pop);
-    placeNear(pop, anchor);
-    dismissable(pop);
-  }
 }
 
 /**
@@ -1659,37 +1725,10 @@ export class PreStageBody {
    *  other and carrying the row across would be wrong on arrival. */
   setArch(arch) {
     if (arch === this.state.arch) return;
-    const io = this.widgetIO();
     const from = this.promptOf();
-
-    // The switch is per arch, so leaving one does not throw the other's — but
-    // the row on the way out is this node's one row, and it belongs to whoever
-    // is arriving. Released here rather than carried across.
-    const leaving = this.state.turbo[this.state.arch];
-    if (leaving?.on && leaving.lora) S.removeLora(this.state, leaving.lora);
-    if (leaving) { leaving.on = false; leaving.saved = null; }
-    this.state.arch = arch;
-
-    if (arch === "ideogram4") {
-      io.set("steps", S.PRESTAGE_IDEOGRAM_STEPS[this.state.quality]);
-      io.set("cfg", S.PRESTAGE_IDEOGRAM_ROW.cfg);
-      io.set("sampler_name", S.PRESTAGE_IDEOGRAM_ROW.sampler_name);
-    } else if (S.PRESTAGE_BASE_ROW[arch]) {
-      const row = S.PRESTAGE_BASE_ROW[arch];
-      io.set("steps", row.steps);
-      io.set("cfg", row.cfg);
-      io.set("sampler_name", row.sampler_name);
-      // A family without a scheduler control (Klein's schedule is the model's
-      // own) declares none, and the widget is left where it was rather than
-      // written undefined.
-      if (row.scheduler !== undefined) io.set("scheduler", row.scheduler);
-    } else {
-      const row = S.PRESTAGE_STILL_ROW;
-      io.set("steps", row.steps);
-      io.set("cfg", row.cfg);
-      io.set("sampler_name", row.sampler_name);
-      io.set("scheduler", row.scheduler);
-    }
+    // The row is the arch's — see `PreStageRow.setArch`, which the chat
+    // room's pinned copy moves through as well.
+    new PreStageRow(this).setArch(arch);
 
     if (from && !this.promptOf()) this.setPrompt(from);
     this.onCommit?.();

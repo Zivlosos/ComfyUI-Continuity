@@ -69,8 +69,7 @@ LEDGER = [
 ]
 
 RAIL = {"still_family": "krea2", "still_arch": "krea2", "video_family": "h3",
-        "aspect": "16:9", "still_edge": 1024, "video_edge": 768, "turbo": False,
-        "seed": 7, "seed_policy": "fixed"}
+        "aspect": "16:9", "still_edge": 1024, "video_edge": 768}
 
 
 # ---- the parse forgives transport -------------------------------------------
@@ -587,113 +586,65 @@ check("and no init, so the compile's own promotion is what decides",
       edit["init"], None)
 check("the weights are left for the route, which is the half with a disk",
       still["models"], {})
-# Per-arch, the way the pre-stage's own block is: a flat one would carry one
-# family's file onto another the moment the arch pill moved.
-check("the turbo pill is written under the architecture it belongs to",
-      still["turbo"], {"krea2": {"on": False, "lora": None, "quality": None}})
-check("and with the switch off there is nothing in the stack", still["loras"], [])
+check("a bare still has an empty turbo block and an empty stack",
+      (still["turbo"], still["loras"]), ({}, []))
 
-# ---- the turbo switch, per side ---------------------------------------------
+# ---- the node on the canvas is the base ---------------------------------------
 #
-# What the switch may be set to is the family's declaration: Krea takes the
-# checkpoint or a LoRA, Klein the checkpoint alone, Ideogram the LoRA alone,
-# H3 a LoRA in the stack or nothing (a merged checkpoint). And whatever it is
-# set to, the sampler row follows it — the fried lighthouse keeper was the
-# Turbo checkpoint sampled on RAW's forty steps.
+# The room renders with the node: its blob is the base, and the turn writes the
+# prompt, the citations and the shape over it. Everything else on the blob —
+# the LoRA stack with the turbo LoRA in it, the turbo block, the sampler row,
+# the weights, the passes — is the node's and stands, which is what makes the
+# room's gear the node's row rather than a second one.
 
-KREA_TURBO = {**KREA2, "capabilities": {"turbo": {
-    "steps": {"draft": 4, "medium": 6, "good": 8}, "default_quality": "good",
-    "row": {"cfg": 1.0, "sampler_name": "euler", "scheduler": "simple"},
-    "lora": True, "checkpoint": True, "default_strength": 1.0}}}
-KLEIN_TURBO = {"id": "flux2klein", "label": "Flux 2 Klein", "capabilities": {"turbo": {
-    "steps": {"draft": 2, "medium": 4, "good": 4}, "default_quality": "good",
-    "row": {"cfg": 1.0}, "lora": False, "checkpoint": True}}}
-IDEO_TURBO = {"id": "ideogram4", "label": "Ideogram 4", "capabilities": {"turbo": {
-    "steps": {"turbo": 12}, "default_quality": "turbo", "row": {},
-    "lora": True, "checkpoint": False}}}
-H3_TURBO = {"id": "h3", "label": "MiniMax H3", "capabilities": {"turbo": {
-    "steps": {"draft": 4, "medium": 6, "good": 8}, "default_quality": "medium",
-    "row": {"sampler_name": "euler", "scheduler": "beta"},
-    "reset": {"steps": 20, "sampler_name": "res_multistep", "scheduler": "simple",
-              "shift_video": 12, "shift_audio": 5},
-    "presets": [{"match": "lightx2v", "strength": 0.6, "shift_video": 6, "shift_audio": 3},
-                {"match": r"pdd|acc[-_]?8step", "strength": 1.0,
-                 "shift_video": 12, "shift_audio": 5,
-                 "row": {"sampler_name": "euler", "scheduler": "simple"},
-                 "steps": {"draft": 4, "medium": 8, "good": 8}}],
-    "default_strength": 1.0}}}
+PRE = {"version": 1, "arch": "krea2", "prompt": "an old prompt", "init": {"filename": "x.png"},
+       "refs": [{"handle": "old", "filename": "old.png"}],
+       "loras": [{"name": "krea2_turbo_lora.safetensors", "strength": 1.0, "enabled": True}],
+       "turbo": {"krea2": {"on": True, "lora": "krea2_turbo_lora.safetensors", "quality": "draft"}},
+       "sampling": {"steps": 4, "cfg": 1.0}, "aspect": "4:3", "short_edge": 1536,
+       "models": {"krea2": {"model": "krea2.safetensors"}, "dtype": "fp8_e4m3fn"},
+       "neural": {"on": True}}
+over = chat.still_piece(
+    chat.validate({"act": "render", "kind": "still", "prompt": "the fox, bluer",
+                   "from": ["img-1"], "aspect": "1:1"}, LEDGER), LEDGER, RAIL, PRE)
+check("a still over the pre-stage keeps its stack, switch, row, weights and passes",
+      (over["loras"], over["turbo"], over["sampling"], over["models"], over["neural"]),
+      (PRE["loras"], PRE["turbo"], PRE["sampling"], PRE["models"], PRE["neural"]))
+check("and takes the turn's prompt, citation and shape over the node's",
+      (over["prompt"], over["refs"], over["init"], over["aspect"], over["short_edge"]),
+      ("the fox, bluer", [{"handle": "img-1", "filename": "continuity/chat/fox.png"}],
+       None, "1:1", 1024))
+check("the base is copied, not written on",
+      (PRE["prompt"], PRE["refs"][0]["handle"]), ("an old prompt", "old"))
+check("the pre-stage's switch on the checkpoint is the file the card counts",
+      (chat.still_turbo_checkpoint({"arch": "krea2", "turbo": {"krea2": {"on": True, "lora": ""}}}),
+       chat.still_turbo_checkpoint(PRE),
+       chat.still_turbo_checkpoint({"arch": "krea2", "turbo": {"on": True}}),
+       chat.still_turbo_checkpoint({})),
+      (True, False, True, False))
 
-check("an old rail's one flag is the still side's",
-      chat.turbo_of({"turbo": True}, "still"), {"on": True, "lora": "", "quality": ""})
-check("and says nothing about the clip side",
-      chat.turbo_of({"turbo": True}, "video")["on"], False)
-check("the split flags win over the old one",
-      chat.turbo_of({"turbo": True, "still_turbo": False}, "still")["on"], False)
-check("a side's file and stop travel with it",
-      chat.turbo_of({"video_turbo": True, "video_turbo_lora": "h3_turbo.safetensors",
-                     "video_turbo_quality": "good"}, "video"),
-      {"on": True, "lora": "h3_turbo.safetensors", "quality": "good"})
-
-check("the Turbo checkpoint is needed when the switch is on with no LoRA",
-      chat.turbo_wants_checkpoint(KREA_TURBO, {"on": True, "lora": ""}), True)
-check("and not when a LoRA is doing the distilling",
-      chat.turbo_wants_checkpoint(KREA_TURBO, {"on": True, "lora": "x.safetensors"}), False)
-
-check("off, nothing to refuse", chat.turbo_problem(KLEIN_TURBO, {"on": False, "lora": "x"}, []), None)
-check("a LoRA on a checkpoint-only family is refused",
-      "checkpoint, not a LoRA" in chat.turbo_problem(KLEIN_TURBO, {"on": True, "lora": "x"}, ["x"]), True)
-check("the checkpoint on a LoRA-only family is refused",
-      "LoRA, not a checkpoint" in chat.turbo_problem(IDEO_TURBO, {"on": True, "lora": ""}, []), True)
-check("a LoRA that left the folder is refused by name",
-      "gone.safetensors" in chat.turbo_problem(KREA_TURBO, {"on": True, "lora": "gone.safetensors"}, ["x"]), True)
-check("a family with no switch at all says so",
-      "no turbo mode" in chat.turbo_problem(KREA2, {"on": True, "lora": ""}, []), True)
-check("a LoRA the folder has, on a family that takes one, is fine",
-      chat.turbo_problem(H3_TURBO, {"on": True, "lora": "h3_turbo.safetensors"}, ["h3_turbo.safetensors"]), None)
-check("H3 with no file is the merged-checkpoint case, not a refusal",
-      chat.turbo_problem(H3_TURBO, {"on": True, "lora": ""}, []), None)
-
-check("off, the family's own row stands", chat.turbo_row(KREA_TURBO, {"on": False}), {})
-check("Krea's checkpoint samples on the distilled row at the picked stop",
-      chat.turbo_row(KREA_TURBO, {"on": True, "lora": "", "quality": "medium"}),
-      {"cfg": 1.0, "sampler_name": "euler", "scheduler": "simple", "steps": 6})
-check("an unknown stop falls back to the family's default",
-      chat.turbo_row(KREA_TURBO, {"on": True, "lora": "", "quality": "ultra"})["steps"], 8)
-check("H3's row carries the reset shifts when the file has no preset",
-      chat.turbo_row(H3_TURBO, {"on": True, "lora": "some_turbo.safetensors", "quality": ""}),
-      {"sampler_name": "euler", "scheduler": "beta", "steps": 6,
-       "shift_video": 12, "shift_audio": 5})
-check("and the file's own shifts when it has one",
-      chat.turbo_row(H3_TURBO, {"on": True, "lora": "h3_lightx2v_turbo.safetensors", "quality": "good"}),
-      {"sampler_name": "euler", "scheduler": "beta", "steps": 8,
-       "shift_video": 6, "shift_audio": 3})
-check("a preset that owns the row and the counts sets what the file needs",
-      chat.turbo_row(H3_TURBO, {"on": True, "lora": "pdd_acc.safetensors", "quality": "medium"}),
-      {"sampler_name": "euler", "scheduler": "simple", "steps": 8,
-       "shift_video": 12, "shift_audio": 5})
-check("the strength is the file's preset or the family's",
-      (chat.turbo_strength(H3_TURBO, {"lora": "h3_lightx2v.safetensors"}),
-       chat.turbo_strength(H3_TURBO, {"lora": "other.safetensors"})), (0.6, 1.0))
-
-fast = chat.still_piece(
-    chat.validate({"act": "render", "kind": "still", "prompt": "a fox"}, LEDGER), LEDGER,
-    {**RAIL, "still_turbo": True, "still_turbo_lora": "krea2_turbo_lora.safetensors",
-     "still_turbo_quality": "draft", "still_spec": KREA_TURBO})
-check("a still's turbo LoRA is an entry in the stack",
-      fast["loras"], [{"name": "krea2_turbo_lora.safetensors", "strength": 1.0, "enabled": True}])
-check("and the block under the arch names it",
-      fast["turbo"], {"krea2": {"on": True, "lora": "krea2_turbo_lora.safetensors", "quality": "draft"}})
+PIECE = {"version": 2, "prompt": "a film about a fox", "family": "h3",
+         "models": {"model": "h3.safetensors", "route": "fl2va"},
+         "loras": [{"name": "h3_lightx2v.safetensors", "strength": 0.6, "enabled": True}],
+         "turbo": {"on": True, "lora": "h3_lightx2v.safetensors"},
+         "sampling": {"steps": 6, "sampler_name": "euler", "scheduler": "beta"},
+         "face": {"on": True}, "cast": [{"handle": "anna"}], "aspect": "9:16", "short_edge": 512,
+         "segments": [{"prompt": "one"}, {"prompt": "two"}]}
 quick = chat.video_piece(
-    chat.validate({"act": "render", "kind": "video", "prompt": "the fox looks up"}, LEDGER), LEDGER,
-    {**RAIL, "video_turbo": True, "video_turbo_lora": "h3_lightx2v.safetensors", "video_spec": H3_TURBO})
-check("a clip's turbo is the piece's block, as turbo.js writes it",
-      quick["turbo"], {"on": True, "lora": "h3_lightx2v.safetensors"})
-check("with the file in the stack at its preset's strength",
-      quick["loras"], [{"name": "h3_lightx2v.safetensors", "strength": 0.6, "enabled": True}])
+    chat.validate({"act": "render", "kind": "video", "prompt": "the fox looks up"}, LEDGER),
+    LEDGER, RAIL, PIECE)
+check("a clip over the piece keeps its stack, switch, row, weights, passes and cast",
+      (quick["loras"], quick["turbo"], quick["sampling"], quick["models"], quick["face"], quick["cast"]),
+      (PIECE["loras"], PIECE["turbo"], PIECE["sampling"], PIECE["models"], PIECE["face"], PIECE["cast"]))
+check("and its standing description", quick["prompt"], "a film about a fox")
+check("the strip becomes one card carrying the turn's prompt",
+      [card["prompt"] for card in quick["segments"]], ["the fox looks up"])
+check("in the room's shape, not the node's", (quick["aspect"], quick["short_edge"]), ("16:9", 768))
+check("the piece is copied, not written on", len(PIECE["segments"]), 2)
 plain = chat.video_piece(
     chat.validate({"act": "render", "kind": "video", "prompt": "the fox looks up"}, LEDGER), LEDGER, RAIL)
-check("and off, the clip's stack is empty and the block says off",
-      (plain["loras"], plain["turbo"]), ([], {"on": False, "lora": ""}))
+check("a bare clip has an empty stack and the switch off",
+      (plain["loras"], plain["turbo"]), ([], {"on": False, "lora": None}))
 
 # A family whose references arrive through an adapter cannot be given one here:
 # the adapter is an entry in the pre-stage's LoRA stack, and this room has no
@@ -785,14 +736,9 @@ check("which node runs which kind is answered in one place",
        ("MiniMaxH3Creator", "creator_data")))
 
 # The seed is a widget on the node and never a field in the blob — see
-# `sampling.py`, which says why — so the rail's policy is what decides it and
+# `sampling.py`, which says why — so it rides in the base's widgets and
 # nothing in either blob mentions it.
-check("a fixed seed is the rail's number", chat.render_seed(RAIL), 7)
-check("and is nowhere in the blob", "seed" in json.dumps(clip), False)
-rolled = chat.render_seed({**RAIL, "seed_policy": "random"})
-check("a rolled one is a seed a sampler can take", 0 <= rolled <= 0xffffffffffffffff, True)
-check("junk in the rail is seed zero rather than a crash",
-      chat.render_seed({"seed": "soon"}), 0)
+check("the seed is nowhere in the blob", "seed" in json.dumps(clip), False)
 
 
 # ---- the Refine switch --------------------------------------------------------

@@ -48,9 +48,9 @@ const left = { action: { act: "render", kind: "video", prompt: "she looks up" },
 const state = {
   messages: [
     { role: "assistant", say: "Which family?", local: true },
-    { role: "user", text: "a fox", attached: [] },
+    { role: "user", text: "a fox", attached: [], turn: 1 },
     { role: "assistant", say: "Making it now.", action: done.action, card: done },
-    { role: "user", text: "now a clip", attached: [] },
+    { role: "user", text: "now a clip", attached: [], turn: 2 },
     { role: "assistant", say: "Five seconds.", action: left.action, card: left },
   ],
   ledger: [done.entry], counts: { img: 1, vid: 0, aud: 0 }, turn: 2,
@@ -65,6 +65,7 @@ out.packed = {
 };
 const back = store.unpack(JSON.parse(JSON.stringify(packed)));
 out.back = { turn: back.turn, counts: back.counts, ledger: back.ledger.length,
+             turns: back.messages.filter((m) => m.role === "user").map((m) => m.turn),
              saved: back.messages[1].card.saved, entry: back.messages[1].card.entry.handle,
              leftState: back.messages[3].card.state };
 out.cover = store.coverOf(state);
@@ -128,6 +129,8 @@ check("the packed conversation is small", bool(packed["json"]), True)
 
 back = out["back"]
 check(f"turn, counters and ledger round-trip: {back}", bool(back["turn"] == 2 and back["counts"] == {"img": 1, "vid": 0, "aud": 0} and back["ledger"] == 1), True)
+check("a user message keeps the turn it was said on, so the chat can be cut back to it",
+      back["turns"], [1, 2])
 check(f"cards come back whole: {back}", bool(back["saved"]["subfolder"] == "continuity/stills/krea2" and back["entry"] == "img-1"
       and back["leftState"] == "left"), True)
 check(f"the cover is the last render: {out['cover']}", bool(out["cover"] == {"cover": "continuity/stills/krea2/Krea2_00001_.png [output]", "coverKind": "still"}), True)

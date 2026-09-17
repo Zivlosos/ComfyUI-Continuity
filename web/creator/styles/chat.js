@@ -61,8 +61,28 @@ export const css = `
   padding: 28px 22px 12px;
   display: flex; flex-direction: column; gap: 18px;
 }
-.mmc-ch-msg { width: var(--mmc-ch-column); margin: 0 auto; display: flex; }
+.mmc-ch-msg { width: var(--mmc-ch-column); margin: 0 auto; display: flex; position: relative; }
 .mmc-ch-user { justify-content: flex-end; }
+/* The verbs a message can be taken back with — edit and send again, ask
+   again from here — under the pointer only, in the margin the bubble leaves,
+   so the transcript reads as a transcript until a hand is on it. Disabled
+   rather than gone while the transcript cannot be cut there. */
+.mmc-ch-acts {
+  position: absolute; bottom: -19px; display: flex; gap: 2px;
+  opacity: 0; transition: opacity .12s ease;
+}
+.mmc-ch-user .mmc-ch-acts { right: 0; }
+.mmc-ch-bot .mmc-ch-acts { left: 0; }
+.mmc-ch-msg:hover .mmc-ch-acts, .mmc-ch-acts:focus-within { opacity: 1; }
+.mmc-ch-act {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 18px; border-radius: 5px; border: 0; cursor: pointer;
+  background: none; color: var(--mmc-dim);
+}
+.mmc-ch-act svg { stroke: currentColor; fill: none; stroke-width: 1.8; }
+.mmc-ch-act:hover:not(:disabled) { background: var(--mmc-surface-2); color: var(--mmc-text); }
+.mmc-ch-act:disabled { opacity: .35; cursor: default; }
+.mmc-ch-act:focus-visible { outline: 2px solid var(--mmc-accent); outline-offset: 1px; }
 .mmc-ch-turn { max-width: 78%; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
 .mmc-ch-user .mmc-ch-said {
   padding: 10px 15px; border-radius: 18px 18px 6px 18px;
@@ -75,6 +95,9 @@ export const css = `
 }
 .mmc-ch-bad .mmc-ch-said, .mmc-ch-note.mmc-ch-bad { color: var(--mmc-bad); }
 .mmc-ch-thinking { display: flex; align-items: center; gap: 8px; color: var(--mmc-faint); }
+/* A turn that failed before there was a reply: what went wrong, and the way
+   to try it again beside it — a failure is a moment for direction. */
+.mmc-ch-fail { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
 
 /* What went with a message: the pictures, each wearing the handle the model
    knows it by. A button, because the handle is the thing you type next. */
@@ -111,10 +134,10 @@ export const css = `
   letter-spacing: -.015em; color: var(--mmc-strong);
 }
 .mmc-ch-empty p { margin: 0 0 26px; font-size: calc(14px * var(--mmc-type)); color: var(--mmc-faint); }
-.mmc-ch-tries { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.mmc-ch-tries { width: 100%; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
 .mmc-ch-try {
-  padding: 8px 14px; border-radius: 16px; cursor: pointer; font-family: inherit;
-  font-size: calc(13px * var(--mmc-type)); color: var(--mmc-dim);
+  max-width: 100%; padding: 8px 14px; border-radius: 16px; cursor: pointer; font-family: inherit;
+  font-size: calc(13px * var(--mmc-type)); color: var(--mmc-dim); text-align: left;
   background: none; border: 1px solid var(--mmc-line-3);
 }
 .mmc-ch-try:hover { background: var(--mmc-surface); color: var(--mmc-text); }
@@ -224,6 +247,11 @@ export const css = `
 .mmc-ch-pill:hover { background: var(--mmc-surface-2); color: var(--mmc-text); }
 .mmc-ch-pill svg { flex: none; stroke: currentColor; fill: none; stroke-width: 1.7; }
 .mmc-ch-pill span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The room's seed, as the simple view draws it: the die and the mark, in the
+   foot beside the shape. Its stylesheet folds it away wherever the full seed
+   group is a line below; here there is no line below. */
+.mmc-ch-pills .mmc-seed-pill { display: flex; padding: 0; height: 30px; margin-left: 4px; }
+.mmc-ch-pills .mmc-seed-cell { width: 30px; }
 
 /* Files waiting to go. Square, small, with an × in the corner; they get their
    handle when they are sent, not before. */
@@ -328,29 +356,30 @@ export const css = `
 .mmc-ch-setupnote { padding: 0 8px; font-size: calc(12.5px * var(--mmc-type)); color: var(--mmc-faint); }
 
 /* --- the gear's popover -------------------------------------------------------- */
-.mmc-ch-more { width: 340px; max-width: calc(100vw - 24px); max-height: calc(100vh - 80px); overflow-y: auto; padding: 10px 12px 12px; }
+.mmc-ch-more { width: 420px; max-width: calc(100vw - 24px); max-height: calc(100vh - 80px); overflow-y: auto; padding: 10px 12px 12px; }
 .mmc-ch-more .mmc-pop-title { padding: 2px 0 10px; }
-/* Its two tabs. The Room tab is the rows the gear always had; Models is
-   every file each family loads and its turbo, the first run's own form. */
-.mmc-ch-tabs { display: flex; gap: 2px; margin: 0 0 8px; border-bottom: 1px solid var(--mmc-line); }
-.mmc-ch-tab {
-  padding: 4px 10px 7px; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px;
-  background: none; color: var(--mmc-dim); font: inherit; font-size: calc(12.5px * var(--mmc-type)); cursor: pointer;
+/* One head per node: what it is, and the room's own size for it at the right.
+   Under each, the node's sampler row exactly as its face draws it — the same
+   pills, the same values — so the gear reads as the two nodes and not as a
+   form about them. */
+.mmc-ch-gearhead {
+  display: flex; align-items: center; gap: 8px; min-height: var(--mmc-pill-h);
+  padding: 6px 0 4px; font-size: calc(12.5px * var(--mmc-type)); color: var(--mmc-dim);
 }
-.mmc-ch-tab:hover { color: var(--mmc-text); }
-.mmc-ch-tab.on { color: var(--mmc-text); border-bottom-color: var(--mmc-accent); }
-.mmc-ch-models .mmc-ch-askhead { padding-top: 4px; }
-.mmc-ch-models .mmc-ch-slotlist { margin: 0 0 8px; }
-.mmc-ch-models .mmc-ch-note { padding: 0 0 8px; }
+.mmc-ch-gearhead:first-child { padding-top: 0; }
+/* The pin beside a side's size: lit while the room keeps its own copy of
+   that node's setup, plain while it follows the node. */
+.mmc-ch-pin { padding: 0 9px; }
+.mmc-ch-pin svg { stroke: currentColor; fill: none; stroke-width: 1.7; }
+.mmc-ch-more .mmc-pills { gap: 6px; padding: 2px 0 8px; }
+.mmc-ch-more > .mmc-ch-ask { margin: 2px 0 8px; }
 .mmc-ch-dim { color: var(--mmc-dim); font-size: calc(12.5px * var(--mmc-type)); }
 .mmc-ch-row { display: flex; align-items: center; gap: 8px; min-height: var(--mmc-pill-h); padding: 2px 0; }
 .mmc-ch-label { flex: 1; min-width: 0; font-size: calc(12.5px * var(--mmc-type)); }
 .mmc-ch-value { max-width: 62%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mmc-ch-rule { height: 1px; margin: 8px 0; background: var(--mmc-line); }
-/* The simple view's seed pill, in a row of the gear. Its stylesheet folds it
-   away everywhere the full seed group is a line below; nothing is below this. */
-.mmc-ch-seed { display: flex; gap: 6px; }
-.mmc-ch-seed .mmc-seed-pill { display: flex; padding: 0; }
+/* The composer's Pictures pill on a pre-stage the room cannot draw through. */
+.mmc-ch-pill-off { color: var(--mmc-warn); }
 
 /* --- the shelf --------------------------------------------------------------
    Every conversation, beside the column. Type on the ground, no cards: a row

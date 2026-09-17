@@ -441,8 +441,12 @@ app.registerExtension({
         let body;
         body = new PreStageBody({
           state,
+          // `body` is not assigned until the constructor returns, and the
+          // editor's first render can commit before that — the family's pins
+          // go onto a fresh stack on the way in. Until then the body's state
+          // is the one just parsed.
           onCommit: () => {
-            widget.value = S.serializePreStage(body.state);
+            widget.value = S.serializePreStage(body?.state ?? state);
             node.graph?.setDirtyCanvas(true, true);
           },
           samplingWidgets: collectSampling(node),

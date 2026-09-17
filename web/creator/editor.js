@@ -1711,6 +1711,9 @@ export class CreatorEditor {
     // The window over the same state, if one is open. Render, never commit —
     // this is the end of the chain, not another link in it.
     this.sheetEditor?.render();
+    // Whoever else draws this row off the same blob — the chat room's gear —
+    // and has to follow it. A hook like the body's, for the same reason.
+    this.onRender?.();
   }
 
   /**

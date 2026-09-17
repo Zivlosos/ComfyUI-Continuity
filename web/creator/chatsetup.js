@@ -17,8 +17,9 @@
 // **What it writes is what the node reads.** The refiner's choice goes to
 // `settings.refiner` (`refine.saveSettings`), the files per family to
 // `settings.weights` — the same block `models.adoptWeights` and the pre-stage
-// fill an empty row from — and the shape to the rail. Nothing here has a
-// store of its own: leave the room, drop a node, and it opens set up.
+// fill an empty row from — the families onto the nodes under the room
+// (`chatnode.Sides`), and the shape to the rail. Nothing here has a store of
+// its own: leave the room, drop a node, and it opens set up.
 //
 // The room owns the state and the paint; this module owns the questions. It
 // is handed a `host` with the few doors it needs rather than importing
@@ -29,9 +30,9 @@ import { openChoicePopover, aspectGrid } from "./pills.js";
 import { rulesFor } from "./canvas.js";
 import { saveSettings as saveRefiner, saveRemote, listRemoteModels, chosenModel,
          settings as refinerSettings, PROVIDERS } from "./refine.js";
-import { rememberedWeights } from "./models.js";
-import { loadLoraNames, loraNames } from "./turbo.js";
-import { family as familyOf } from "./manifest.js";
+import { rememberedWeights, adoptWeights } from "./models.js";
+import { STILL_ARCHES } from "./manifest.js";
+import * as S from "./state.js";
 import { patchSettings } from "./api.js";
 import { t } from "./i18n.js";
 import { api } from "../../../scripts/api.js";
@@ -62,7 +63,7 @@ export async function scanMachine() {
   return body;
 }
 
-// ---- pieces shared with the gear ------------------------------------------------
+// ---- pieces -------------------------------------------------------------------
 
 function row(label, control, title) {
   return el("div", { class: "mmc-ch-row", title }, [
@@ -104,143 +105,6 @@ export function rememberPicks(familyId, picks) {
   patchSettings({ weights: { [familyId]: { ...(rememberedWeights()[familyId] ?? {}), ...picks } } });
 }
 
-// ---- the turbo switch ------------------------------------------------------------
-//
-// One per side, because "turbo" is a different file on each: Krea 2's is a
-// distilled checkpoint or an SVD extraction of it as a LoRA, Flux 2 Klein
-// publishes the checkpoint alone, Ideogram 4 the LoRA alone, and H3's is a
-// distillation LoRA in the piece's stack — or nothing, on a checkpoint that
-// ships with the distillation merged. The family's `capabilities.turbo` says
-// which of those its switch may be set to, and `chat.turbo_row` on the server
-// sets the sampler row to match whatever was picked.
-
-const SHOW_ALL = "— show all —";
-const looksTurbo = (name) => /turbo|distill/i.test(name);
-const shortLora = (name) => name.split("/").pop().replace(/\.[^.]+$/, "");
-
-/** A family's turbo declaration, or null where it has no switch. */
-export const turboSpec = (familyId) => familyOf(familyId)?.capabilities?.turbo ?? null;
-
-/** What one side's switch says on its pill. */
-export function turboSaid(bar, side) {
-  if (!bar[`${side}_turbo`]) return t("off");
-  const lora = bar[`${side}_turbo_lora`];
-  return lora ? shortLora(lora) : t("checkpoint");
-}
-
-/**
- * The rows for one side's switch: what it runs on, and the step stop while it
- * is on. `entry` is the scan's family (whether the Turbo checkpoint is among
- * the picks), null before a scan; `change(patch)` writes the rail.
- */
-export function turboRows({ side, familyId, entry, bar, change }) {
-  const label = side === "still" ? t("Picture turbo") : t("Clip turbo");
-  const spec = turboSpec(familyId);
-  const name = t(familyOf(familyId)?.label ?? familyId);
-  if (!spec) {
-    return [row(label, el("span", { class: "mmc-ch-value mmc-ch-dim", text: t("none") }),
-                t("{family} has no turbo mode.", { family: name }))];
-  }
-  const on = Boolean(bar[`${side}_turbo`]);
-  const lora = bar[`${side}_turbo_lora`] || "";
-  const offersCheckpoint = spec.checkpoint !== false;
-  const offersLora = spec.lora !== false;
-  const checkpointPicked = entry ? Boolean(entry.turbo) : true;
-
-  const open = (anchor, all = false) => {
-    const names = loraNames();
-    const matched = all ? names : names.filter(looksTurbo);
-    const options = [
-      "off",
-      ...(offersCheckpoint ? ["checkpoint"] : []),
-      ...(offersLora ? matched.map((file) => `lora:${file}`) : []),
-      ...(offersLora && !all && matched.length < names.length ? [SHOW_ALL] : []),
-    ];
-    openChoicePopover(anchor, {
-      title: label,
-      options,
-      value: !on ? "off" : lora ? `lora:${lora}` : "checkpoint",
-      find: options.length > 8,
-      label: (option) => option === "off" ? t("off")
-        : option === "checkpoint" ? (side === "video" ? t("no LoRA — merged checkpoint") : t("the Turbo checkpoint"))
-        : option === SHOW_ALL ? t(SHOW_ALL)
-        : shortLora(option.slice(5)),
-      sub: (option) => option === "checkpoint" && side === "still" && !checkpointPicked
-        ? t("not picked yet — choose it under Models") : null,
-      onPick: (option) => {
-        if (option === SHOW_ALL) { open(anchor, true); return; }
-        if (option === "off") { change({ [`${side}_turbo`]: false }); return; }
-        change({ [`${side}_turbo`]: true,
-                 [`${side}_turbo_lora`]: option === "checkpoint" ? "" : option.slice(5) });
-      },
-    });
-  };
-
-  const rows = [row(label, el("button", {
-    class: `mmc-pill mmc-ch-value${on ? " accel-on" : ""}`,
-    text: turboSaid(bar, side),
-    onclick: (event) => {
-      const anchor = event.currentTarget;
-      if (offersLora) loadLoraNames(() => { if (anchor.isConnected) open(anchor); });
-      else open(anchor);
-    },
-  }), offersLora && offersCheckpoint
-    ? t("Sample on {family}'s distilled checkpoint, or on a distillation LoRA over the ordinary one. Rougher, several times faster.", { family: name })
-    : offersLora
-      ? t("A distillation LoRA on the run. Rougher, several times faster; the step count and sampler follow the file.", { family: name })
-      : t("Sample on {family}'s distilled checkpoint. Rougher, several times faster.", { family: name }))];
-
-  if (on && spec.steps && Object.keys(spec.steps).length > 1) {
-    const stops = Object.keys(spec.steps);
-    const quality = stops.includes(bar[`${side}_turbo_quality`]) ? bar[`${side}_turbo_quality`] : spec.default_quality;
-    const said = (stop) => t("{stop} · {steps}", { stop: t(stop), steps: spec.steps[stop] });
-    rows.push(row(t("Turbo steps"), choice(said(quality), {
-      title: t("Turbo steps"), options: stops, value: quality, label: said, find: false,
-      onPick: (stop) => change({ [`${side}_turbo_quality`]: stop }),
-    }), t("How many steps the distilled run takes. More is closer to the native render.")));
-  }
-  if (on && !lora && side === "still" && !checkpointPicked) {
-    rows.push(el("div", { class: "mmc-ch-note mmc-ch-bad",
-                          text: t("The Turbo checkpoint is not picked for {family}; the room will say so when asked for a picture.", { family: name }) }));
-  }
-  return rows;
-}
-
-/**
- * The gear's Models tab: each side's family, every one of its files, and its
- * turbo switch — the whole answer to "what does this room render with", in
- * one place. `scan` is `scanMachine()`'s report; a pick is written straight
- * to `settings.weights` and shown back off the same block.
- */
-export function modelsPanel({ scan, bar, change }) {
-  const sides = [["still", bar.still_family, t("Pictures")], ["video", bar.video_family, t("Clips")]];
-  const body = [];
-  for (const [side, familyId, heading] of sides) {
-    const entry = scan?.families?.find((item) => item.id === familyId) ?? null;
-    body.push(el("div", { class: "mmc-ch-askhead",
-                          text: `${heading} — ${t(entry?.label ?? familyOf(familyId)?.label ?? familyId)}` }));
-    if (!entry) {
-      body.push(el("div", { class: "mmc-ch-note", text: scan ? t("This family is not in the catalog.") : t("Looking at the models folder…") }));
-    } else {
-      // The folder's guess under what this machine remembers *now* — the
-      // memory may have moved since the scan, on a node or in another tab —
-      // and a pick writes the family whole, guesses included, so what the
-      // tab shows is exactly what the render loads.
-      const picks = { ...entry.picks, ...Object.fromEntries(
-        Object.entries(rememberedWeights()[familyId] ?? {}).filter(([, name]) => typeof name === "string")) };
-      body.push(slotList(entry, picks, () => {
-        rememberPicks(familyId, picks);
-        entry.picks = { ...picks };
-        entry.turbo = Boolean(picks.turbo_model);
-        entry.missing = entry.slots.filter((item) => item.required && !picks[item.id]).map((item) => item.title);
-        change({});
-      }));
-    }
-    body.push(...turboRows({ side, familyId, entry, bar, change }));
-  }
-  return el("div", { class: "mmc-ch-models" }, body);
-}
-
 // ---- reading the scan --------------------------------------------------------
 
 const families = (scan, kind) =>
@@ -277,10 +141,10 @@ export function refinerName() {
  *
  * @param {object} host  the room's doors:
  *   `setup()` the run's state; `rail()` / `setRail(patch)` the room's rail;
- *   `said(key, ask, answer)` records a question and its answer as two
- *   bubbles; `finish()` closes the run; `repaint()` redraws; `openEdge(anchor,
- *   kind, onChange)` the room's own size slider; `familyLabel(id)` a name off
- *   the served catalog.
+ *   `sides` the nodes under the room (`chatnode.Sides`); `said(key, ask,
+ *   answer)` records a question and its answer as two bubbles; `finish()`
+ *   closes the run; `repaint()` redraws; `openEdge(anchor, kind, onChange)`
+ *   the room's own size slider; `familyLabel(id)` a name off the served catalog.
  */
 export class FirstRun {
   constructor(host) {
@@ -362,10 +226,10 @@ export class FirstRun {
   /** The one-press answer to everything: what was found, as it was found.
    *  The other two questions are answered here rather than asked, so the
    *  press that chose this is the run's last bubble and the card follows it. */
-  acceptAll() {
+  async acceptAll() {
     const scan = this.state.scan;
     saveRefiner({ backend: "local", model: scan.refiner.local.model });
-    this.pickFamilies(proposed(scan, "still"), proposed(scan, "video"));
+    await this.pickFamilies(proposed(scan, "still"), proposed(scan, "video"));
     this.state.answers.families = this.familiesSaid();
     this.state.answers.shape = this.shapeSaid();
   }
@@ -509,23 +373,36 @@ export class FirstRun {
   }
 
   familiesSaid() {
-    const bar = this.host.rail();
+    const sides = this.host.sides;
     return t("{still} for pictures, {video} for clips",
-             { still: this.familyLabel(bar.still_family), video: this.familyLabel(bar.video_family) });
+             { still: this.familyLabel(sides.stillFamily() ?? STILL_ARCHES[sides.stillArch()]),
+               video: this.familyLabel(sides.videoFamily()) });
   }
 
-  /** Write two families' picks as this machine's, and put them on the rail. */
-  pickFamilies(still, video, picks = null) {
+  /** Write two families' picks as this machine's, and put the families on
+   *  the nodes: the video family onto the piece, the way its own pill does,
+   *  and the still family onto the pre-stage — spawned for it if there is
+   *  none, since a picture is a pre-stage's to make. */
+  async pickFamilies(still, video, picks = null) {
     const weights = {};
     for (const family of [still, video]) {
       if (!family) continue;
       weights[family.id] = { ...(rememberedWeights()[family.id] ?? {}), ...(picks?.[family.id] ?? family.picks) };
     }
     patchSettings({ weights });
-    this.host.setRail({
-      ...(still ? { still_family: still.id } : {}),
-      ...(video ? { video_family: video.id } : {}),
-    });
+    const sides = this.host.sides;
+    if (video) {
+      const { body, piece } = sides.clip();
+      if (piece && S.pieceFamily(piece) !== video.id && S.setFamily(piece, video.id, rememberedWeights())) {
+        adoptWeights(piece);
+        body.commit();
+      }
+    }
+    if (still) {
+      const arch = Object.keys(STILL_ARCHES).find((key) => STILL_ARCHES[key] === still.id);
+      const body = arch ? await sides.pictureBody() : null;
+      if (body && body.state.arch !== arch) body.setArch(arch);
+    }
   }
 
   families() {
@@ -621,10 +498,9 @@ export class FirstRun {
 
   shapeSaid() {
     const bar = this.host.rail();
-    const said = t("{aspect}, pictures at {still}p, clips at {video}p",
-                   { aspect: bar.aspect, still: bar.still_edge, video: bar.video_edge });
-    const fast = [bar.still_turbo ? t("pictures") : null, bar.video_turbo ? t("clips") : null].filter(Boolean);
-    return fast.length ? t("{said}, turbo for {what}", { said, what: fast.join(` ${t("and")} `) }) : said;
+    const video = bar.video_edge || rulesFor(this.host.sides.videoFamily()).nativeShortEdge;
+    return t("{aspect}, pictures at {still}p, clips at {video}p",
+             { aspect: bar.aspect, still: bar.still_edge, video });
   }
 
   shape() {
@@ -640,34 +516,23 @@ export class FirstRun {
     };
   }
 
-  /** The gear's rows, under the bubble: the shape as the simple view's own
-   *  grid, the two sizes, each side's turbo switch, the seed. Written to
-   *  the rail as they are moved, which is what the gear does too. */
+  /** The room's own three, under the bubble: the shape as the simple view's
+   *  own grid, and the two sizes. Written to the rail as they are moved,
+   *  which is what the gear does too. Everything else about a render — the
+   *  turbo switch, the seed, the row — is the nodes' and is on them. */
   shapeDetail() {
     const bar = this.host.rail();
-    const scan = this.state.scan;
-    const entryOf = (id) => scan?.families?.find((entry) => entry.id === id) ?? null;
-    const change = (patch) => this.host.setRail(patch);
-    const presets = rulesFor(bar.video_family).aspects;
+    const rules = rulesFor(this.host.sides.videoFamily());
     const sizePill = (kind) => el("button", {
-      class: "mmc-pill mmc-ch-value", text: `${bar[`${kind}_edge`]}p`,
+      class: "mmc-pill mmc-ch-value",
+      text: `${kind === "still" ? bar.still_edge : bar.video_edge || rules.nativeShortEdge}p`,
       onclick: (event) => this.host.openEdge(event.currentTarget, kind,
                                              (edge) => this.host.setRail({ [`${kind}_edge`]: edge })),
     });
-    const toggle = (on, onChange) => el("button", {
-      class: `mmc-pill mmc-ch-value${on ? " accel-on" : ""}`,
-      "aria-checked": Boolean(on), text: on ? t("on") : t("off"),
-      onclick: () => onChange(!on),
-    });
     return el("div", { class: "mmc-ch-inline mmc-ch-wide" }, [
-      aspectGrid(presets, bar.aspect, bar.aspect, (label) => this.host.setRail({ aspect: label })),
+      aspectGrid(rules.aspects, bar.aspect, bar.aspect, (label) => this.host.setRail({ aspect: label })),
       this.row(t("Picture size"), sizePill("still"), t("The short edge a picture is drawn at. Bigger is slower.")),
       this.row(t("Clip size"), sizePill("video"), t("The short edge a clip is sampled at.")),
-      ...turboRows({ side: "still", familyId: bar.still_family, entry: entryOf(bar.still_family), bar, change }),
-      ...turboRows({ side: "video", familyId: bar.video_family, entry: entryOf(bar.video_family), bar, change }),
-      this.row(t("Same seed each time"), toggle(bar.seed_policy === "fixed",
-               (on) => this.host.setRail({ seed_policy: on ? "fixed" : "random" })),
-               t("Off means every render is a fresh roll of the seed.")),
       this.useThis(t("Use these"), false, { answer: () => this.shapeSaid(), apply: () => {} }),
     ]);
   }

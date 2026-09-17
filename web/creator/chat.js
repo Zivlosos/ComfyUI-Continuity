@@ -11,10 +11,13 @@
 // the action the model may answer with, the machine card, the ledger line and
 // the two blob patches; `routes/chat.py` joins them to the disk and the queue.
 // So this module has exactly three jobs: keep the conversation, show what came
-// back, and hold the few standing choices a turn is made against — in the
-// composer's foot and behind the gear, with the node's own pills. It
-// has no opinion about families, weights or durations, and it must not grow
-// one — everything it knows about a family it reads off the served catalog.
+// back, and hold the few choices that are the room's own — the shape and the
+// two sizes, in the composer's foot and behind the gear. Everything else a
+// render is made with is the nodes' under the room (`chatnode.js`): the
+// family, the files, the stack, the turbo switch, the sampler row, the seed.
+// A chat render is those nodes asked for this prompt in this shape, and the
+// gear draws their own rows over their own blobs. This module has no opinion
+// about families, weights or durations, and it must not grow one.
 //
 // **The state is the page's, not the room's — and the conversation is a
 // file.** Leaving the room keeps the conversation; so does reloading, since
@@ -40,13 +43,13 @@ import { rulesFor, resolveCanvas } from "./canvas.js";
 import { resolvedPreStage, PRESTAGE_CANVAS_MULTIPLE, PRESTAGE_MIN_EDGE, PRESTAGE_MAX_EDGE,
          PRESTAGE_DEFAULT_EDGE } from "./state.js";
 import { openPicker } from "./picker.js";
-import { outputUrl, upload, uiSetting, patchSettings, primeSettings, loadSettings, noteSettings,
+import { outputUrl, upload, uiSetting, patchSettings, primeSettings,
          viewUrl } from "./api.js";
 import { settings as refinerSettings, chosenModel, openSettings, listSkills, refineRequest } from "./refine.js";
-import { FAMILIES, VIDEO_FAMILIES, DEFAULT_VIDEO_FAMILY, STILL_ARCHES,
-         DEFAULT_STILL_ARCH, family as familyOf } from "./manifest.js";
+import { FAMILIES } from "./manifest.js";
 import { run, watch as watchQueue } from "./queue.js";
-import { FirstRun, freshSetup, scanMachine, turboRows, modelsPanel } from "./chatsetup.js";
+import { FirstRun, freshSetup, scanMachine } from "./chatsetup.js";
+import { Sides } from "./chatnode.js";
 import { listChats, loadChat, saveChat, renameChat, deleteChat, newId, pack, groupByDay,
          coverOf } from "./chatstore.js";
 import { t } from "./i18n.js";
@@ -56,9 +59,9 @@ import { api } from "../../../scripts/api.js";
  *  so a picture brought into a conversation is findable afterwards as one. */
 const UPLOADS = "continuity/chat";
 
-/** The rail's choices, per machine. Everything on the rail is a property of
- *  this install rather than of any piece — which family, which shape, which
- *  policy — so it goes where the pack's other per-machine answers go. */
+/** The rail's choices, per machine: the shape, the two sizes, the Refine
+ *  switch and a skill. Properties of this install rather than of any piece,
+ *  so they go where the pack's other per-machine answers go. */
 const SETTING = "chat";
 
 /** How many exchanges ride with a turn. `chat.MAX_EXCHANGES` trims again on the
@@ -123,9 +126,6 @@ const state = {
   // walk of the model folders.
   setup: null,
   scan: null,
-  scanning: false,
-  // Which of the gear's two tabs was open last, for the page.
-  gearTab: "room",
   // The conversation on the shelf this one is: `{id, title, created}`, or null
   // until the first message gives it a reason to exist. The title is the
   // index's; the room shows it in the bar and the sidebar edits it.
@@ -334,58 +334,27 @@ function fail(card, message) {
 
 // ---- the rail ---------------------------------------------------------------
 
-/** Every family that makes nothing but stills, which is the set the room can
- *  draw a picture with. A video family's still branch is a video generation
- *  under a blob of its own, and `routes/chat.py` offers the same set for the
- *  same reason. */
-const stillFamilies = () =>
-  FAMILIES.filter((entry) => (entry.produces ?? []).length === 1
-                          && (entry.produces ?? [])[0] === "still");
-
-const videoFamilies = () => VIDEO_FAMILIES.map(familyOf);
-
-/** Whether a family can be handed the pictures cited in an action, and why not.
- *  The manifest's two keys, read exactly as `chat.takes_refs` reads them — the
- *  machine card already tells the model, and this is what tells the person. */
-function takesPictures(entry) {
-  if ((entry.capabilities?.refs ?? {}).needs_lora) return false;
-  return Number(entry.prompt?.max_refs ?? 0) > 0;
-}
-
-/** The families this machine has picked weights for. What the rail opens on,
- *  because a family with files on the disk is the one that can actually
- *  render — the same seed `settings.weights` gives a freshly dropped node. */
-const picked = () => Object.keys(uiSetting("weights", {}) ?? {});
-
+/** What the room keeps of its own. Everything a render is otherwise made with
+ *  is the nodes' — see `chatnode.js` — unless a side is pinned, in which case
+ *  the copy is here too. */
 function defaultRail() {
-  const ready = picked();
-  const still = stillFamilies();
-  const video = videoFamilies();
-  const shape = (video[0] ?? still[0])?.canvas ?? {};
   return {
-    still_family: (still.find((entry) => ready.includes(entry.id))
-                   ?? familyOf(STILL_ARCHES[DEFAULT_STILL_ARCH]) ?? still[0])?.id ?? "",
-    video_family: (video.find((entry) => ready.includes(entry.id))
-                   ?? familyOf(DEFAULT_VIDEO_FAMILY))?.id ?? "",
-    aspect: shape.default_aspect ?? Object.keys(shape.aspects ?? {})[0] ?? "",
+    aspect: "",
+    // The seed is the room's, not the node's: a conversation rolls or keeps
+    // its own number, drawn as the simple view's die-and-mark pill. `fixed`
+    // keeps it so "again, bluer" is the same noise with a different prompt;
+    // `random` rolls a new one after every render.
+    seed: Math.floor(Math.random() * 0xffffffff),
+    seed_policy: "fixed",
+    // A side's pinned copy, serialized as the node's widget holds it — empty
+    // while the side follows the node. See `chatnode.Sides.pin`.
+    pinned_still: "",
+    pinned_video: "",
     // One short edge per kind, because they are not one number: a still is
     // drawn past 1024 on every family that draws one, and a clip at the video
     // family's trained edge. Each is the family's own default until touched.
     still_edge: PRESTAGE_DEFAULT_EDGE,
-    video_edge: shape.native_short_edge ?? 768,
-    // One turbo switch per side, because "turbo" is a different file on each:
-    // the flag, the LoRA it reaches for (empty is the family's distilled
-    // checkpoint) and the step stop off the family's own table. What each
-    // family's switch may be set to is its `capabilities.turbo` — see
-    // `chatsetup.turboRows`.
-    still_turbo: false,
-    still_turbo_lora: "",
-    still_turbo_quality: "",
-    video_turbo: false,
-    video_turbo_lora: "",
-    video_turbo_quality: "",
-    seed: 0,
-    seed_policy: "fixed",
+    video_edge: 0,
     // The spec's §5.1: the chat's prompt goes through the family's own
     // prompting before queueing. The route answers a sentence while it is on,
     // and the switch is here so that sentence is reachable rather than hidden.
@@ -405,10 +374,6 @@ function rail() {
     // A rail saved before the edge was split carried one number for both
     // kinds. It was the clip's — the still's default is its family's own.
     if (saved.short_edge && !saved.video_edge) state.rail.video_edge = saved.short_edge;
-    // And one turbo flag, which was the still side's.
-    if (saved.turbo !== undefined && saved.still_turbo === undefined) {
-      state.rail.still_turbo = Boolean(saved.turbo);
-    }
   }
   return state.rail;
 }
@@ -419,6 +384,13 @@ function setRail(patch) {
   patchSettings({ [SETTING]: state.rail });
   notify();
 }
+
+/** The clip's short edge: the rail's, or the node's family's trained edge
+ *  while nobody has moved it — which is the node's own default too. */
+const clipEdge = (sides) => Number(rail().video_edge) || rulesFor(sides.videoFamily()).nativeShortEdge;
+
+/** The rail as a render reads it, the clip's edge resolved. */
+const railFor = (sides) => ({ ...rail(), video_edge: clipEdge(sides) });
 
 // ---- the ledger -------------------------------------------------------------
 
@@ -481,10 +453,10 @@ function forServer() {
 }
 
 /** The block `chat/turn` takes as `settings`: the refiner's half of the request,
- *  assembled the way `refine.refine` assembles it, plus the rail's standing
- *  choices. One object, because the server reads the families and the turbo
- *  switch off the same block it reads the backend off — see `routes/chat._rail`. */
-function requestBlock() {
+ *  assembled the way `refine.refine` assembles it, plus what the nodes under
+ *  the room say. One object, because the server reads the families off the
+ *  same block it reads the backend off — see `routes/chat._rail`. */
+function requestBlock(sides) {
   const current = refinerSettings();
   const bar = rail();
   return {
@@ -498,9 +470,7 @@ function requestBlock() {
     // Always appended. The room offers no replace, so it says so rather than
     // letting a package's own declared mode decide and be refused.
     skill_mode: bar.skill ? "add" : "",
-    still_family: bar.still_family,
-    video_family: bar.video_family,
-    ...turboFields(bar),
+    ...sides.families(),
   };
 }
 
@@ -510,14 +480,6 @@ function aspectOf(label) {
   const match = /^(\d+(?:\.\d+)?)\s*[:x\/]\s*(\d+(?:\.\d+)?)$/.exec(String(label ?? ""));
   return match ? `${match[1]} / ${match[2]}` : "16 / 9";
 }
-
-/** The six turbo fields as the server reads them (`chat.turbo_of`). */
-const turboFields = (bar) => Object.fromEntries(
-  ["still", "video"].flatMap((side) => [
-    [`${side}_turbo`, Boolean(bar[`${side}_turbo`])],
-    [`${side}_turbo_lora`, bar[`${side}_turbo_lora`] || ""],
-    [`${side}_turbo_quality`, bar[`${side}_turbo_quality`] || ""],
-  ]));
 
 // ---- watching one render ----------------------------------------------------
 
@@ -654,7 +616,7 @@ function land(card) {
   card.entry = remember({
     media: card.isClip ? "video" : "image",
     kind: card.isClip ? "clip" : "still",
-    aspect: card.action.aspect || rail().aspect,
+    aspect: card.action.aspect || card.piece?.aspect || rail().aspect,
     filename: `${path} [${saved.type ?? "output"}]`,
     text: card.action.prompt,
     turn: card.turn ?? state.turn,
@@ -674,6 +636,9 @@ function land(card) {
  * @param {Function} [options.openRender]  `async ({path, kind}) => void` — put a
  *   finished render's own setup onto the piece's node and go to it. Absent
  *   disables that door rather than half-wiring it.
+ * @param {Function} options.node  the piece's node under the room;
+ *   `options.preStage` the pre-stage beside it or null, `options.spawnPreStage`
+ *   puts one there — see `chatnode.Sides`.
  * @returns {Promise<void>}  resolves when the room is closed
  */
 export function openChat(options = {}) {
@@ -689,6 +654,7 @@ class Room {
     this.resolve = resolve;
     this.back = options.back ?? null;
     this.openRender = options.openRender ?? null;
+    this.sides = new Sides({ ...options, rail, setRail });
     this.queue = { remaining: 0, running: false };
     this.skills = [];
     // Files picked or pasted but not yet sent. They ride the next message the
@@ -697,7 +663,7 @@ class Room {
     this.pending = [];
     this.firstRun = new FirstRun({
       setup: () => state.setup,
-      rail, setRail,
+      rail, setRail, sides: this.sides,
       said: (key, ask, answer) => this.setupSaid(ask, answer),
       finish: () => this.finishSetup(),
       repaint: () => this.paint(),
@@ -863,6 +829,9 @@ class Room {
       if (this.overlay.isConnected) this.paint();
     });
     if (!state.indexRead) readIndex();
+    // The composer's family pills read the nodes, and a family moved under the
+    // gear — or on the canvas, in another tab of the shell — has to show.
+    this.unfollow = this.sides.follow(() => { if (this.overlay.isConnected) this.paintPills(); });
 
     this.paint();
     this.box.focus();
@@ -876,6 +845,7 @@ class Room {
 
   close() {
     if (open === this) open = null;
+    this.unfollow?.();
     this.unwatchQueue?.();
     this.unmount?.();
     this.resolve?.();
@@ -1030,11 +1000,12 @@ class Room {
     if (!state.messages.length && !state.setup) rows.push(this.emptyRoom());
     this.rows ??= new Map();
     const seen = new Set();
-    for (const message of state.messages) {
+    const flight = this.lastInFlight();
+    state.messages.forEach((message, index) => {
       seen.add(message);
-      const key = this.rowKey(message);
+      const key = this.rowKey(message, index, flight);
       const kept = this.rows.get(message);
-      if (kept && kept.key === key) { rows.push(...kept.nodes); continue; }
+      if (kept && kept.key === key) { rows.push(...kept.nodes); return; }
       const nodes = [];
       if (message.role === "user") {
         nodes.push(el("div", { class: "mmc-ch-msg mmc-ch-user" }, [
@@ -1044,17 +1015,28 @@ class Room {
               : null,
             message.text ? el("div", { class: "mmc-ch-said", text: message.text }) : null,
           ].filter(Boolean)),
-        ]));
+          message.local ? null : this.acts([
+            ["pen", t("Edit and send again"), () => this.edit(index)],
+          ], index, flight),
+        ].filter(Boolean)));
       } else {
         if (message.say) {
-          nodes.push(el("div", { class: `mmc-ch-msg mmc-ch-bot${message.bad ? " mmc-ch-bad" : ""}` },
-                        [el("div", { class: "mmc-ch-said", text: message.say })]));
+          nodes.push(el("div", { class: `mmc-ch-msg mmc-ch-bot${message.bad ? " mmc-ch-bad" : ""}` }, [
+            el("div", { class: "mmc-ch-said", text: message.say }),
+            message.local ? null : this.acts([
+              // A reply that refused its own render is asked to render again,
+              // not to think again: the model's answer stood, the machine did not.
+              ...(message.bad && message.action
+                ? [["rewind", t("Try the render again"), () => this.retry(message)]] : []),
+              ["turnLeft", t("Ask again from here"), () => this.again(index)],
+            ], index, flight),
+          ].filter(Boolean)));
         }
-        if (message.card) nodes.push(this.renderCard(message.card));
+        if (message.card) nodes.push(this.renderCard(message.card, message));
       }
       this.rows.set(message, { key, nodes });
       rows.push(...nodes);
-    }
+    });
     for (const message of this.rows.keys()) if (!seen.has(message)) this.rows.delete(message);
     if (state.setup) rows.push(this.firstRun.render());
     if (state.busy) {
@@ -1063,21 +1045,44 @@ class Room {
                        [spinner(), el("span", { text: this.thinking() })])]));
     }
     if (state.error) {
-      rows.push(el("div", { class: "mmc-ch-msg mmc-ch-bot mmc-ch-bad" },
-                   [el("div", { class: "mmc-ch-said", text: state.error })]));
+      // The turn failed before there was a reply: the last message is the
+      // person's, and asking again is asking it again.
+      const last = state.messages.length - 1;
+      const askable = last >= 0 && state.messages[last].role === "user" && !state.messages[last].local;
+      rows.push(el("div", { class: "mmc-ch-msg mmc-ch-bot mmc-ch-bad" }, [
+        el("div", { class: "mmc-ch-fail" }, [
+          el("div", { class: "mmc-ch-said", text: state.error }),
+          askable ? el("button", {
+            class: "mmc-ch-door", text: t("Ask again"),
+            title: t("Send the same message again."),
+            onclick: () => this.again(last + 1),
+          }) : null,
+        ].filter(Boolean)),
+      ]));
     }
     this.log.replaceChildren(...rows);
     if (bottom) this.log.scrollTop = this.log.scrollHeight;
   }
 
+  /** The verbs under a message, shown under the pointer. Disabled rather
+   *  than hidden while the transcript cannot be cut there — a verb that
+   *  comes and goes is one you cannot find. */
+  acts(verbs, index, flight) {
+    const can = this.cuttable(index, flight);
+    return el("div", { class: "mmc-ch-acts" }, verbs.map(([glyph, title, run]) => el("button", {
+      class: "mmc-ch-act", title, disabled: can ? null : true, onclick: run,
+    }, [icon(glyph, 14)])));
+  }
+
   /** Everything a message's rows show, as one string: equal means the rows
-   *  standing are still right. A user turn never changes; an assistant turn
-   *  changes with its line and with every step of its card. */
-  rowKey(message) {
-    if (message.role === "user") return "user";
+   *  standing are still right. A user turn changes only in whether it can be
+   *  taken back; an assistant turn with its line and with every step of its card. */
+  rowKey(message, index, flight) {
+    const can = this.cuttable(index, flight);
+    if (message.role === "user") return `user:${can}`;
     const card = message.card;
     return JSON.stringify([
-      message.say, message.bad, message.action?.kind,
+      message.say, message.bad, message.action?.kind, can,
       card && [card.state, card.progress, card.frameUrl, card.frameIsClip, card.tokens?.value,
                card.saved, card.refined, card.error, card.entry?.handle, card.isClip,
                card.state === "queued" ? this.queue.remaining : 0, Boolean(this.openRender)],
@@ -1168,7 +1173,7 @@ class Room {
   }
 
   /** One render, from the moment it is queued to the file it becomes. */
-  renderCard(card) {
+  renderCard(card, message) {
     const body = [];
     // The box has the render's shape before there is a render: the picture
     // arrives into the space it was always going to take, and a step frame of
@@ -1224,6 +1229,17 @@ class Room {
       body.push(el("div", { class: "mmc-ch-bar" },
                    [el("span", { class: "mmc-ch-fill",
                                  style: { width: `${Math.round((card.progress ?? 0) * 100)}%` } })]));
+    }
+    if (card.state === "failed") {
+      body.push(el("div", { class: "mmc-ch-doors" }, [
+        el("span", { class: "mmc-bn-gap" }),
+        el("button", {
+          class: "mmc-ch-door", text: t("Try again"),
+          title: t("The same request again, on the nodes as they are set now."),
+          disabled: state.busy || null,
+          onclick: () => this.retry(message),
+        }),
+      ]));
     }
     if (card.entry) {
       body.push(el("div", { class: "mmc-ch-doors" }, [
@@ -1340,45 +1356,51 @@ class Room {
             + "reply waits behind whatever is sampling — a server is the better "
             + "setting on one GPU.")
         : t("A model on a server you already run."),
-      onclick: (event) => openSettings(event.currentTarget, () => this.paint(), rail().video_family),
+      onclick: (event) => openSettings(event.currentTarget, () => this.paint(), this.sides.videoFamily()),
     }, [
       el("span", { class: "mmc-ch-modelname", text: name }),
       icon("chevron", 12),
     ]));
   }
 
-  /** What a message is made against, in the composer's foot: which family
-   *  draws a picture, which makes a clip, and the shape. The shape is the
-   *  simple view's own pill and grid — a person who has set one on the card
-   *  should not meet a second way of setting one here. Size and seed are
-   *  behind the gear: they are set once and left. */
+  /** What a message is made against, in the composer's foot: which model
+   *  draws a picture, which makes a clip — the nodes' own pills — and the
+   *  shape, which is the room's. Size and the sampler rows are behind the
+   *  gear: they are set once and left. */
   paintPills() {
     const bar = rail();
-    const still = this.familyOr(bar.still_family, stillFamilies());
-    const video = this.familyOr(bar.video_family, videoFamilies());
-    const rules = rulesFor(video?.id ?? bar.video_family);
+    const rules = rulesFor(this.sides.videoFamily());
     const label = bar.aspect || rules.aspects[0]?.[0] || "";
     const ratio = rules.aspects.find(([name]) => name === label)?.[1] ?? 16 / 9;
-    const pills = [
-      this.pick("image", t("Pictures"), still, stillFamilies(), (id) => setRail({ still_family: id }),
-                still && !takesPictures(still)
-                  ? t("{family} draws from words alone — it cannot be given a picture to change.",
-                      { family: t(still.label) })
-                  : t("Which family draws a picture.")),
-      this.pick("video", t("Clips"), video, videoFamilies(), (id) => setRail({ video_family: id }),
-                t("Which family makes a clip.")),
+    this.pills.replaceChildren(...[
+      this.sides.picturePill(),
+      this.sides.clipPill(),
       el("button", {
         class: "mmc-ch-pill", title: t("Aspect Ratio"),
         onclick: (event) => {
-          // The popover writes onto a piece; this is the rail's two fields
-          // wearing a piece's names, read back when it commits. Every family
-          // here offers the same shapes, so the video family's list serves.
-          const target = { family: video?.id ?? bar.video_family, aspect: label };
+          // The popover writes onto a piece; this is the rail's field wearing
+          // a piece's names, read back when it commits. Every family here
+          // offers the same shapes, so the video family's list serves.
+          const target = { family: this.sides.videoFamily(), aspect: label };
           openAspectPopover(event.currentTarget, target, () => setRail({ aspect: target.aspect }));
         },
       }, [aspectGlyph(ratio, 14), el("span", { text: label })]),
-    ].filter(Boolean);
-    this.pills.replaceChildren(...pills);
+      // The simple view's pill over the rail's two fields. `widgets.seed` is
+      // only asked whether it exists; nothing was queued through a widget, so
+      // there is no last seed to offer and the ghost never draws.
+      ...seedPill({
+        widgets: { seed: true },
+        value: (name, fallback) => {
+          if (name === "seed") return Number(bar.seed) || 0;
+          if (name === "control_after_generate") return bar.seed_policy === "random" ? "randomize" : "fixed";
+          return fallback;
+        },
+        set: (name, value) => {
+          if (name === "seed") setRail({ seed: value });
+          else if (name === "control_after_generate") setRail({ seed_policy: value === "fixed" ? "fixed" : "random" });
+        },
+      }),
+    ].filter(Boolean));
   }
 
   /**
@@ -1394,10 +1416,10 @@ class Room {
     const bar = rail();
     const label = bar.aspect || "16:9";
     const still = kind === "still";
-    const rules = still ? null : rulesFor(bar.video_family);
+    const rules = still ? null : rulesFor(this.sides.videoFamily());
     const ratio = still ? null : (rules.aspects.find(([name]) => name === label)?.[1] ?? 16 / 9);
     const mark = still ? PRESTAGE_DEFAULT_EDGE : rules.nativeShortEdge;
-    const target = { short_edge: Number(bar[`${kind}_edge`]) || mark };
+    const target = { short_edge: still ? Number(bar.still_edge) || mark : clipEdge(this.sides) };
     const size = () => {
       if (still) {
         const { width, height } = resolvedPreStage({ aspect: label, short_edge: target.short_edge });
@@ -1438,93 +1460,41 @@ class Room {
     dismissable(pop);
   }
 
-  /** A family by id out of a list, or the first one. A rail remembered before a
-   *  family was uninstalled must not leave the pill naming nothing. */
-  familyOr(id, list) {
-    return list.find((entry) => entry.id === id) ?? list[0] ?? null;
-  }
-
-  /** A family pill. The label is the manifest's — no family id is ever drawn,
-   *  and none is ever written here either. */
-  pick(glyph, label, chosen, options, onPick, title) {
-    if (!options.length) return null;
-    return el("button", {
-      class: "mmc-ch-pill", title,
-      onclick: (event) => openChoicePopover(event.currentTarget, {
-        title: label,
-        options: options.map((entry) => entry.id),
-        value: chosen?.id,
-        label: (id) => t(familyOf(id).label),
-        onPick,
-      }),
-    }, [icon(glyph, 14), el("span", { text: chosen ? t(chosen.label) : t("none") })]);
-  }
-
   /**
-   * The gear: what is set once per machine and then left alone.
+   * The gear: how this room renders.
    *
-   * Two tabs. *Room*: the size of a picture and the size of a clip, each with
-   * its own slider because they are different canvases; the seed, as the
-   * simple view's own pill; each side's turbo switch, the Refine switch and a
-   * skill to append. *Models*: every file each family loads and what its
-   * turbo runs on — the whole answer to "what does this room render with",
-   * which used to be reachable only by setting up again. Redrawn in place on
-   * every change: a popover that closed on each switch would be a popover
-   * reopened six times to set six things.
+   * Two sections, one per node: the size a picture is drawn at and the
+   * pre-stage's own sampler row; the size a clip is sampled at and the
+   * piece's. The rows are the nodes' — `chatnode.Sides` calls the same
+   * functions the faces mount over the same blobs — so a step count dialled
+   * here is on the node and a switch thrown on the node is lit here. Under
+   * them, the room's own two: the Refine switch and a skill to append.
+   * Redrawn in place on every change, and whenever either node redraws.
    */
   openMore(anchor) {
     const pop = el("div", { class: "mmc-pop mmc-ch-more" });
-    let tab = state.gearTab ?? "room";
     const draw = () => {
       const bar = rail();
-      const change = (patch) => { if (Object.keys(patch).length) setRail(patch); draw(); };
-      const tabs = el("div", { class: "mmc-ch-tabs", role: "tablist" }, [["room", t("Room")], ["models", t("Models")]]
-        .map(([id, label]) => el("button", {
-          class: `mmc-ch-tab${tab === id ? " on" : ""}`, role: "tab", "aria-selected": tab === id, text: label,
-          onclick: () => { tab = id; state.gearTab = id; draw(); },
-        })));
-      if (tab === "models") {
-        // The same report the first run reads, asked for once per page and
-        // again when the tab opens without one.
-        if (!state.scan && !state.scanning) {
-          state.scanning = true;
-          scanMachine().then((scan) => { state.scan = scan; })
-            .catch(() => {})
-            .finally(() => { state.scanning = false; if (pop.isConnected) draw(); });
-        }
-        pop.replaceChildren(tabs, modelsPanel({ scan: state.scan, bar, change }));
-        return;
-      }
+      const change = (patch) => { setRail(patch); draw(); };
       const sizePill = (kind) => el("button", {
         class: "mmc-pill mmc-ch-value",
         onclick: (event) => this.openEdge(event.currentTarget, kind,
                                           (edge) => change({ [`${kind}_edge`]: edge })),
-      }, [icon("res", 16), el("span", { text: `${bar[`${kind}_edge`]}p` })]);
-      const entryOf = (id) => state.scan?.families?.find((entry) => entry.id === id) ?? null;
+      }, [icon("res", 16), el("span", { text: `${kind === "still" ? bar.still_edge : clipEdge(this.sides)}p` })]);
+      const head = (text, kind) => el("div", { class: "mmc-ch-gearhead" }, [
+        el("span", { text }), el("span", { class: "mmc-bn-gap" }),
+        this.sides.pinPill(kind, () => { draw(); this.paintPills(); }), sizePill(kind)]);
+      const pictureRow = this.sides.pictureRow(draw);
       pop.replaceChildren(
-        tabs,
-        this.row(t("Picture size"), sizePill("still"),
-                 t("The short edge a picture is drawn at.")),
-        this.row(t("Clip size"), sizePill("video"),
-                 t("The short edge a clip is sampled at.")),
-        this.row(t("Seed"), el("span", { class: "mmc-ch-seed" }, seedPill({
-          // The simple view's pill over the rail's two fields. `widgets.seed`
-          // is only asked whether it exists; nothing was queued through a
-          // widget, so there is no last seed to offer and the ghost never draws.
-          widgets: { seed: true },
-          value: (name, fallback) => name === "seed" ? Number(bar.seed) || 0
-            : name === "control_after_generate" ? (bar.seed_policy === "random" ? "randomize" : "fixed")
-            : fallback,
-          set: (name, value) => {
-            if (name === "seed") change({ seed: value, seed_policy: "fixed" });
-            else if (name === "control_after_generate") {
-              change({ seed_policy: value === "fixed" ? "fixed" : "random" });
-            }
-          },
-        }))),
+        head(t("Pictures"), "still"),
+        pictureRow ?? el("button", {
+          class: "mmc-ch-ask", text: t("Add a pre-stage"),
+          title: t("A picture is drawn by a pre-stage beside the piece. There is none yet; the room's first picture would add one."),
+          onclick: async () => { await this.sides.pictureBody(); draw(); },
+        }),
+        head(t("Clips"), "video"),
+        this.sides.clipRow(draw) ?? el("div", { class: "mmc-ch-note", text: t("There is no piece under this room.") }),
         el("div", { class: "mmc-ch-rule" }),
-        ...turboRows({ side: "still", familyId: bar.still_family, entry: entryOf(bar.still_family), bar, change }),
-        ...turboRows({ side: "video", familyId: bar.video_family, entry: entryOf(bar.video_family), bar, change }),
         this.toggle(t("Refine"), bar.refine, (on) => change({ refine: on }),
                     t("Put the model's prompt for a clip through the family's own prompting "
                       + "before queueing, as the Refine button does — a second model call "
@@ -1554,17 +1524,10 @@ class Room {
     draw();
     document.body.appendChild(pop);
     placeNear(pop, anchor, { above: false });
-    const close = dismissable(pop);
-    pop.close = close;
-    // The memory may have moved since this page primed it — a node's weights
-    // popover in another tab, the same room in another browser — and the
-    // Models tab draws off it. One small request, and the rows correct
-    // themselves under the pointer the way the settings page's do.
-    loadSettings().then((fresh) => {
-      noteSettings(fresh);
-      if (!state.railTouched) state.rail = null;
-      if (pop.isConnected) draw();
-    }).catch(() => {});
+    // A node redrawing is a row that may have moved under the pointer — a
+    // switch thrown from a pill the editor owns, an arch swapped.
+    const unfollow = this.sides.follow(() => { if (pop.isConnected) draw(); });
+    pop.close = dismissable(pop, unfollow);
   }
 
   /** One line of the gear: what it is, and the control. */
@@ -1619,9 +1582,16 @@ class Room {
       text: text || asset.name || asset.path,
     }));
     this.pending = [];
-    state.messages.push({ role: "user", text, attached });
+    state.messages.push({ role: "user", text, attached, turn: state.turn });
     if (!text) return this.paint();
+    await this.ask();
+  }
+
+  /** Ask the model about the conversation as it stands, and hang its answer
+   *  — and the render it asked for — on the end of it. */
+  async ask() {
     state.busy = true;
+    state.error = null;
     this.paint();
 
     let turn;
@@ -1629,7 +1599,7 @@ class Room {
       turn = await run("/continuity/chat/turn", {
         messages: forServer(),
         ledger: state.ledger,
-        settings: requestBlock(),
+        settings: requestBlock(this.sides),
       }, {
         // The token counter the refine button already shows. Only the queued
         // backend reports one — a remote call answers inside the request and
@@ -1656,6 +1626,77 @@ class Room {
     notify();
   }
 
+  // ---- going back ----------------------------------------------------------------
+  //
+  // A conversation is not all or nothing. A message can be taken back and
+  // said differently, a reply can be asked for again, a render that failed
+  // can be tried again — each from where it happened, with what came after
+  // it dropped, because what came after was an answer to what is being
+  // changed. The ledger goes with it: a picture made on a turn that is no
+  // longer in the conversation is not a picture the model should be offered.
+  // Handles are never reused, so nothing that was cited elsewhere goes stale.
+
+  /** Whether the transcript can be cut at `index`: not while the model is
+   *  writing, and not above a render still in flight. `flight` is
+   *  `lastInFlight()`, passed in by a paint that asks for every row. */
+  cuttable(index, flight = this.lastInFlight()) {
+    if (state.busy) return false;
+    return index > flight;
+  }
+
+  /** The index of the last message whose render is still on the queue, or -1. */
+  lastInFlight() {
+    return state.messages.findLastIndex((message) =>
+      message.card && !["done", "failed"].includes(message.card.state));
+  }
+
+  /** Cut the conversation back to before `index`. */
+  truncate(index) {
+    const cut = state.messages.slice(index);
+    state.messages.length = index;
+    const turns = cut.map((message) => message.turn ?? message.card?.turn).filter(Boolean);
+    if (turns.length) {
+      const first = Math.min(...turns);
+      state.ledger = state.ledger.filter((entry) => entry.turn < first);
+      state.turn = first - 1;
+    }
+    state.error = null;
+  }
+
+  /** Take a message back into the composer, with what went with it, and
+   *  drop everything from it on. Sending is what commits the change. */
+  edit(index) {
+    if (!this.cuttable(index)) return;
+    const message = state.messages[index];
+    this.truncate(index);
+    this.box.value = message.text ?? "";
+    const media = Object.fromEntries(Object.entries(PREFIX).map(([kind, prefix]) => [prefix, kind]));
+    this.pending = (message.attached ?? []).map((entry) => ({
+      path: entry.filename, name: entry.filename.split("/").pop(),
+      kind: media[entry.handle.split("-")[0]] ?? "image",
+    }));
+    this.paint();
+    this.box.focus();
+    this.grow();
+  }
+
+  /** Ask again from the reply at `index`: it and everything after it go, and
+   *  the model answers the same message afresh. */
+  async again(index) {
+    if (!this.cuttable(index)) return;
+    this.truncate(index);
+    await this.ask();
+  }
+
+  /** The same action on the same reply, after a render that failed. */
+  async retry(message) {
+    if (state.busy || !message.action) return;
+    message.bad = false;
+    if (message.said !== undefined) message.say = message.said;
+    await this.queueRender(message.action, message);
+    notify();
+  }
+
   /**
    * Queue one render and hang a card off the turn that asked for it.
    *
@@ -1668,13 +1709,21 @@ class Room {
    * for a rewrite has somewhere to show: the refine button's token counter,
    * under "Refining…".
    *
+   * The render is the node under the room (or the side's pinned copy), asked
+   * for this: its blob and its sampler widgets go with the request as the
+   * `base`, and the seed is the room's own — kept, or rolled on after the
+   * render the way the frontend's control rolls a widget after a queue. A
+   * picture with no pre-stage to draw it spawns one first — a picture is a
+   * pre-stage's to make.
+   *
    * `{problem}` is the assistant's line verbatim — a duration off the frame
    * grid, a checkpoint nobody picked, a rewrite the compiler will not take —
    * and is a bubble rather than an error: the model asked for something the
    * machine cannot do, which is a thing to say back, not a failure of the room.
    */
   async queueRender(action, message, over = {}) {
-    const bar = { ...rail(), ...over };
+    const bar = railFor(this.sides);
+    const kind = action.kind === "still" ? "still" : "video";
     // Only a clip is refined — the families that draw a still have no prompt
     // refiner, and the server says the same — so a still's card never says
     // "Refining…" for a rewrite that is not going to happen.
@@ -1685,15 +1734,24 @@ class Room {
     message.card = card;
     notify();
 
+    // The refusal goes under the model's own line, which is kept apart so a
+    // second try does not stack a second refusal under the first.
     const said = (line) => {
       message.card = null;
-      message.say = [message.say, line].filter(Boolean).join("\n\n");
+      message.said ??= message.say;
+      message.say = [message.said, line].filter(Boolean).join("\n\n");
       message.bad = true;
     };
+    if (kind === "still" && !(await this.sides.pictureBody())) {
+      return said(t("There is no pre-stage to draw a picture with, and one could not be added."));
+    }
+    const base = this.sides.base(kind);
+    if (!base) return said(t("There is no node under this room to render with."));
+    base.widgets.seed = over.seed ?? (Number(bar.seed) || 0);
     let answer;
     try {
       answer = await run("/continuity/chat/render", {
-        action, ledger: state.ledger, rail: bar,
+        action, ledger: state.ledger, rail: bar, base,
         ...(refining ? { refine: refineRequest() } : {}),
       }, {
         onProgress: (_fraction, value, max) => {
@@ -1705,6 +1763,9 @@ class Room {
       return said(String(error.message || error));
     }
     if (!answer || answer.problem) return said(answer?.problem || t("the server queued nothing"));
+    if (over.seed === undefined && bar.seed_policy === "random") {
+      setRail({ seed: Math.floor(Math.random() * 0xffffffff) });
+    }
     card.promptId = answer.prompt_id;
     card.piece = answer.piece;
     card.refined = answer.refined || null;
@@ -1715,13 +1776,14 @@ class Room {
 
   /** The same request again, on a new seed. A turn of its own, so the model
    *  reads it as one more thing it made and "bluer" after it is a delta on the
-   *  take you were looking at. */
+   *  take you were looking at. The rail's seed is not moved: a retake is a
+   *  different roll of this request, not a change of what the room samples on. */
   async retake(card) {
     const message = { role: "assistant", say: t("Another take, on a new seed.") };
     state.turn += 1;
     state.messages.push(message);
     notify();
-    await this.queueRender(card.action, message, { seed_policy: "random" });
+    await this.queueRender(card.action, message, { seed: Math.floor(Math.random() * 0xffffffff) });
     notify();
   }
 

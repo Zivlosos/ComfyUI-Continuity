@@ -108,14 +108,15 @@ def _rail(raw):
     """The room's rail, filled in and with the still family's arch stamped on.
 
     Absent families fall back to the registry's own defaults, which is what a
-    room that has not been set up yet is holding, and the same answer the node
+    room with no node under it would be holding, and the same answer the node
     gives a freshly dropped blob.
 
     Both routes pass it the same object: `chat/render` calls it the rail and
     `chat/turn` sends it inside `settings` beside the backend and the model,
     because a turn has to be told the same things a render does — which
     families, and whether turbo is thrown — before it can say what this machine
-    can make.
+    can make. The room reads both families off the nodes on the canvas (the
+    piece's family, the pre-stage's arch) and sends them here by name.
 
     The still side is the *image* families and not every family that makes a
     still. H3's still branch is a video generation with one latent frame decoded
@@ -123,7 +124,7 @@ def _rail(raw):
     `minimax` block rather than the shared image shape — a second blob for this
     room to patch, for a picture the video family can already be asked for
     directly. So the rail offers the families that draw a picture outright, and
-    the room's own pill will offer the same set.
+    the room's own pill offers the same set.
     """
     rail = dict(raw or {})
     still = rail.get("still_family")
@@ -138,13 +139,62 @@ def _rail(raw):
     return rail
 
 
+def _base(raw, still):
+    """The node's blob and widgets the render is built over -> `(piece, widgets)`.
+
+    `{piece, widgets}` as the room sends it: the pre-stage's `prestage_data` or
+    the Creator's `creator_data`, parsed, and the node's sampler widgets by
+    name — the seed above all, since the seed is the one number on the row that
+    never moved into the blob. A base of the wrong kind is refused rather than
+    rendered: a pre-stage blob has an `arch` and a piece has a `family`, and a
+    still built over a clip's piece would carry a strip into `compile_prestage`.
+    """
+    raw = raw if isinstance(raw, dict) else {}
+    piece = raw.get("piece")
+    if isinstance(piece, str):
+        try:
+            piece = json.loads(piece)
+        except ValueError:
+            piece = None
+    if not isinstance(piece, dict):
+        raise chat.ActionError("the room sent no node to render with.")
+    if still and "arch" not in piece:
+        raise chat.ActionError("the still's base is not a pre-stage blob.")
+    if not still and "arch" in piece:
+        raise chat.ActionError("the clip's base is not a piece.")
+    widgets = raw.get("widgets")
+    return piece, dict(widgets) if isinstance(widgets, dict) else {}
+
+
+def _families_of(piece, still):
+    """The family a base names, as the rail spells it — so the render is built
+    for the node that was sent and not for whatever the rail last said.
+
+    A pre-stage names an arch, and the room can only draw a picture through
+    an image arch: H3's still branch is a video generation under its own blob
+    (`_rail` says why), so a pre-stage left on it is refused here, in the
+    room's words, rather than built into the wrong compiler.
+    """
+    if not still:
+        return {"video_family": piece.get("family")}
+    family = registry.STILL_ARCHES.get(piece.get("arch"))
+    if family not in registry.IMAGE_FAMILIES:
+        raise chat.ActionError(
+            "the pre-stage is on MiniMax H3, whose still the room cannot ask "
+            "for. Pick an image model on it and ask again.")
+    return {"still_family": family}
+
+
 # ---- the weights ------------------------------------------------------------
 
 
-def _picked(family, stored, available=None):
+def _picked(family, stored, available=None, own=None):
     """The files `family` renders with, as `{slot: filename}`.
 
-    This machine's remembered picks over the folder listing's own guess — the
+    The node's own block (`own`) over this machine's remembered picks over the
+    folder listing's own guess — the node's rule, `adoptWeights`, read back: a
+    piece says what it rendered on, and memory only fills what it left empty.
+    The remembered half is the
     same join `chat.setup_report` shows the room, so a family the room says is
     ready is a family this route renders: a machine that was never asked to
     pick (the family pill moved without a first run, a fresh install with one
@@ -155,12 +205,14 @@ def _picked(family, stored, available=None):
     a version of this one with a slot since renamed, would otherwise ride into
     the blob and read as nothing to every reader downstream.
     """
-    block = (stored or {}).get(family["id"]) or {}
     ids = {slot["id"] for slot in family.get("weights") or []}
-    remembered = {name: value for name, value in block.items()
-                  if name in ids and isinstance(value, str) and value.strip()}
+
+    def files(block):
+        return {name: value for name, value in (block or {}).items()
+                if name in ids and isinstance(value, str) and value.strip()}
+
     guessed = chat.guess_weights(family, available) if available is not None else {}
-    return {**guessed, **remembered}
+    return {**guessed, **files((stored or {}).get(family["id"])), **files(own)}
 
 
 def _not_ready(family, picked, available, turbo=False):
@@ -184,20 +236,25 @@ def _not_ready(family, picked, available, turbo=False):
 # ---- building the render ----------------------------------------------------
 
 
-def _node_widgets(node, family, seed):
-    """Every widget a node's schema declares, at this family's defaults.
+def _node_widgets(node, family, own):
+    """Every widget a node's schema declares, as the node on the canvas has them.
 
     A prompt built by hand carries the whole input list: ComfyUI validates a
     prompt against the schema, and a widget left off is a render that will not
     queue. The values are the schema's own defaults read off the schema — the
     node is the only honest source for what it declares — with the family's
     manifest laid over them, because a static schema can only wear one family's
-    numbers and the manifest is where a family says what row it samples on.
-    `sampling.py` argues that split at length; this is the headless end of it.
+    numbers and the manifest is where a family says what row it samples on,
+    and the node's own widget values (`own`, as the room read them) over both.
+    `sampling.py` argues the blob-over-widget split at length; this is the
+    headless end of it, and the blob wins there too, so what the row is set
+    to on the node is what samples here.
 
-    The seed is set last and is always a widget. `control_after_generate` is the
-    frontend's own linked control and there is nothing in a blob for it to be,
-    which is why the seed is the one number on this row that never moved.
+    The seed is among them and is always a widget. `control_after_generate` is
+    the frontend's own linked control and there is nothing in a blob for it to
+    be, which is why the seed is the one number on this row that never moved —
+    and why the room rolls it on the node after a queue, the way the frontend
+    does, rather than asking this route to.
     """
     values = {}
     for spec in node.define_schema().inputs:
@@ -208,7 +265,9 @@ def _node_widgets(node, family, seed):
     for widget in family.get("widgets") or []:
         if widget.get("id") in values and widget.get("default") is not None:
             values[widget["id"]] = widget["default"]
-    values["seed"] = seed
+    for name, value in (own or {}).items():
+        if name in values and isinstance(value, (str, int, float, bool)):
+            values[name] = value
     return values
 
 
@@ -224,7 +283,7 @@ def _nodes():
             "MiniMaxH3Creator": creator_node.MiniMaxH3Creator}
 
 
-def _build(action, ledger, rail, stored):
+def _build(action, ledger, rail, stored, base):
     """The blocking half of a render: patch, fill, dry run, build the prompt.
 
     -> `{"piece": blob, "prompt": one-node prompt}`, or `{"problem": sentence}`.
@@ -233,31 +292,33 @@ def _build(action, ledger, rail, stored):
     things for a model to have asked for, and relaying the compiler's own
     sentence is what lets it say so and try again.
 
+    `base` is `(piece, widgets)` — the node on the canvas, as the room read it
+    and `_base` parsed it, with the rail already naming its family. The
+    render is that node asked for this prompt in this shape: its stack,
+    its turbo switch, its sampler row and its weights are the ones on the
+    canvas, and nothing here re-derives any of them. The room's gear is the
+    node's own row over the same blob, so there is no second place they could
+    have been set.
+
     The patched blob goes back with the prompt id so the browser can hold it
     without patching a second copy of its own. Two implementations of the same
     patch is exactly the drift this pack keeps writing about, and the server has
     to build the blob anyway to queue it.
     """
     still = action["kind"] == chat.KIND_STILL
+    piece_in, widgets_in = base
     family = manifest.describe(rail["still_family"] if still else rail["video_family"])
     available = core_models.available()
-    picked = _picked(family, stored, available)
+    own = (piece_in.get("models") or {}).get(rail["still_arch"]) if still \
+        else piece_in.get("models")
+    picked = _picked(family, stored, available, own=own)
 
-    # The side's turbo switch: what it is set to decides whether the Turbo
-    # checkpoint is a file this render needs, and whether the LoRA it names is
-    # one the family takes and the folder still has.
-    turbo = chat.turbo_of(rail, "still" if still else "video")
+    # Whether the pre-stage's switch loads the Turbo checkpoint decides whether
+    # that is a file this render needs.
     problem = _not_ready(family, picked, available,
-                         turbo=chat.turbo_wants_checkpoint(family, turbo))
+                         turbo=still and chat.still_turbo_checkpoint(piece_in))
     if problem:
         return {"problem": problem}
-    problem = chat.turbo_problem(family, turbo,
-                                 server_routes._lora_names() if turbo["lora"] else None)
-    if problem:
-        return {"problem": problem}
-    # The pure half builds the switch's stack entry off the family's own
-    # declaration, which is the catalog's and so the route's to hand over.
-    rail = {**rail, ("still_spec" if still else "video_spec"): family}
 
     # What the pure half has to know about this family's pictures, which is the
     # catalog's answer and so the route's to look up. Only for a still: on a
@@ -265,21 +326,24 @@ def _build(action, ledger, rail, stored):
     # families read both.
     if still:
         rail = {**rail, "still_pictures": chat.still_pictures(family, manifest.catalog())}
-    node_id, field, piece = chat.piece_of(action, ledger, rail)
+    node_id, field, piece = chat.piece_of(action, ledger, rail, piece_in)
 
     if still:
         # Per-arch sub-blocks with one shared precision, which is the shape
         # `render_image.ImageWeights.from_blob` reads and the shape the pre-stage
         # writes: flipping the model pill must not forget the other side's files.
-        piece["models"] = {piece["arch"]: picked,
-                           "dtype": ((stored or {}).get(family["id"]) or {}).get("dtype")
+        piece["models"] = {**(piece.get("models") or {}),
+                           piece["arch"]: picked,
+                           "dtype": (piece.get("models") or {}).get("dtype")
+                                    or ((stored or {}).get(family["id"]) or {}).get("dtype")
                                     or "default"}
     else:
-        # Flat, and the whole remembered block rather than the filenames alone:
+        # Flat, and the whole block rather than the filenames alone:
         # `models.Weights.from_blob` reads the precision, the route and the
-        # pinned devices out of the same dict, and a piece that dropped them
-        # would render on other settings than the node would have.
-        piece["models"] = dict((stored or {}).get(family["id"]) or {})
+        # pinned devices out of the same dict. The node's block, with what the
+        # machine remembers filling its empty rows.
+        piece["models"] = {**((stored or {}).get(family["id"]) or {}),
+                           **(piece.get("models") or {}), **picked}
 
     try:
         if still:
@@ -290,12 +354,7 @@ def _build(action, ledger, rail, stored):
         return {"problem": str(refusal)}
 
     node = _nodes()[node_id]
-    widgets = _node_widgets(node, family, chat.render_seed(rail))
-    # The switch's row over the family's: the step count and sampler the
-    # distillation was tuned against. Only the widgets the node declares —
-    # the pre-stage has no flow shifts to set.
-    widgets.update({key: value for key, value in chat.turbo_row(family, turbo).items()
-                    if key in widgets})
+    widgets = _node_widgets(node, family, widgets_in)
     # The blob last: the schema's own default for that widget is in `widgets`
     # too — every input is, which is the point — and it is the one the render is
     # replacing.
@@ -446,15 +505,17 @@ async def chat_render(request):
         return web.json_response({"error": "the request body was not JSON"}, status=400)
 
     ledger = body.get("ledger") or []
-    rail = _rail(body.get("rail"))
-
     try:
         action = chat.validate(body.get("action"), ledger)
+        if action["act"] != chat.ACT_RENDER:
+            raise chat.ActionError("that action says nothing to render")
+        # The node under the room, and the rail naming its family — the render
+        # is built for the node that was sent, whatever the rail last said.
+        still = action["kind"] == chat.KIND_STILL
+        base = _base(body.get("base"), still)
+        rail = _rail({**(body.get("rail") or {}), **_families_of(base[0], still)})
     except chat.ActionError as problem:
         return web.json_response({"error": str(problem)}, status=400)
-    if action["act"] != chat.ACT_RENDER:
-        return web.json_response(
-            {"error": "that action says nothing to render"}, status=400)
 
     refining = (bool(rail.get("refine")) and action["kind"] == chat.KIND_VIDEO
                 and _has_prompting(rail["video_family"]))
@@ -471,7 +532,7 @@ async def chat_render(request):
     try:
         built = await loop.run_in_executor(
             None, lambda: _build(action, ledger, rail,
-                                 settings.load().get("weights") or {}))
+                                 settings.load().get("weights") or {}, base))
     except chat.ActionError as problem:
         return web.json_response({"error": str(problem)}, status=400)
     except Exception as problem:  # noqa: BLE001
@@ -587,10 +648,12 @@ def _run(body):
     messages = body.get("messages") or []
     rail = _rail(block)
 
+    # Whether the pre-stage's switch loads the Turbo checkpoint — read off its
+    # blob by the room and sent as one flag, since the card only needs to know
+    # which files a still would load.
     card = machine_card(rail["still_family"], rail["video_family"],
                         settings.load().get("weights") or {},
-                        turbo=chat.turbo_wants_checkpoint(
-                            None, chat.turbo_of(rail, "still")))
+                        turbo=bool(block.get("still_turbo_checkpoint")))
     system = chat.system_prompt(_skill(block))
     message = chat.context(messages, ledger, card)
     asked = _last_user(messages)

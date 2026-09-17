@@ -169,8 +169,7 @@ def main():
             # of what a conversation about changing a picture runs into.
             "still_pictures": chat.still_pictures(
                 pkg.manifest.describe(args.still), _catalog(pkg)),
-            "video_family": args.video, "aspect": "16:9", "short_edge": 768,
-            "turbo": False, "seed": args.seed, "seed_policy": "fixed"}
+            "video_family": args.video, "aspect": "16:9", "short_edge": 768}
 
     def ask(message):
         return remote.chat(args.model, system, message, [],

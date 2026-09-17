@@ -133,7 +133,10 @@ function packCard(card) {
 
 function packMessage(message) {
   if (message.role === "user") {
-    return { role: "user", text: message.text ?? "", attached: message.attached ?? [] };
+    // The turn it was said on, so a reopened chat can be cut back to it —
+    // the ledger's lines carry the same number.
+    return { role: "user", text: message.text ?? "", attached: message.attached ?? [],
+             ...(message.turn ? { turn: message.turn } : {}) };
   }
   return {
     role: "assistant",

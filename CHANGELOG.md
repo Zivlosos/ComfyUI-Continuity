@@ -6,6 +6,37 @@ exactly as it was written, wall of text and all.
 
 ## Unreleased
 
+**The chat room renders with the node, and its gear is the node's own row.**
+The room used to keep a rail of its own — families, a turbo switch per side,
+a seed policy, a Models tab — a second implementation of settings the node
+already draws as pills, with fewer of them (steps, guidance, the schedule
+and the accelerators could not be set at all; a chat render sampled on the
+family's defaults). Now a chat render is the piece on the canvas asked for
+this prompt in this shape: the room sends the node's blob and its sampler
+widgets as the base, and the server writes the prompt, the citations and the
+shape over it — the stack, the turbo switch, the row, the weights and the
+passes are the node's and are not re-derived. A picture is the pre-stage's
+the same way, and the room adds one beside the piece the first time a
+picture is asked for. The gear is the two nodes' sampler rows drawn again
+over the same blobs (`samplingBar`, the turbo and weights pills — the
+pre-stage's lifted into `PreStageRow` so they draw over any blob), so a
+change on either side shows on the other; the composer's family pills are
+the nodes' own. A side can be **pinned**: the room takes a copy of that
+node's setup and renders with the copy, the gear edits the copy, and the
+node is free to be set differently. The seed is the room's own — the simple
+view's die-and-mark pill in the composer's foot, kept or rolled after each
+render — so a conversation's noise is not the node's. What stays the room's
+is the shape, the seed, the two sizes, the pins, the Refine switch and the
+skill. Five hundred lines of duplicate went with it, the server's turbo
+re-derivation included.
+
+**A conversation is not all or nothing.** A message of yours can be taken
+back into the composer and sent differently, a reply can be asked for
+again, a failed render has *Try again* on its card and a failed turn *Ask
+again* under the error — each from where it happened, with everything after
+it and the ledger lines made on those turns dropped. Retake rolls its own
+seed and leaves the room's where it is.
+
 **Chats are kept, and the room has a list of them.** A conversation used to
 last as long as the page; now every chat is written to ComfyUI's per-user
 data as it goes — one index, one file per chat, a localStorage mirror where

@@ -35,7 +35,7 @@ runs it standalone, the same way `outputs.py` is tested.
 import json
 import os
 
-from . import chat, outputs
+from . import outputs
 from .families.h3 import derope
 from .families import registry
 
@@ -584,34 +584,35 @@ def clean_weights(raw, label="weights"):
 # one `if` at a time because they are one control panel and they are read back
 # as one block; what they *mean* is the room's and the manifest's, exactly as a
 # slot id's meaning is the family's in `clean_weights` above.
-# The `*_turbo_lora` names are the file each side's turbo switch reaches for,
-# empty meaning the family's distilled checkpoint; `*_turbo_quality` is the
-# switch's step stop, a name off the family's own table (`chat.turbo_row`).
-CHAT_NAMES = ("still_family", "video_family", "aspect", "skill",
-              "still_turbo_lora", "video_turbo_lora",
-              "still_turbo_quality", "video_turbo_quality")
+#
+# Short, on purpose: the room renders with the node on the canvas, so which
+# family, which files and whether turbo is thrown are the node's and never
+# written here — unless a side is *pinned*, in which case the room keeps a
+# copy of that node's blob under `pinned_still` / `pinned_video`, serialized
+# as the node's own widget holds it and read back by the same parser. What is
+# otherwise the room's own is the shape and the two sizes — a message names a
+# shape — the seed and what happens to it after a render, the Refine switch,
+# and a skill appended to the room's own prompting. Fields a rail carried
+# before that (families, the turbo switches) are dropped on read, the same
+# way a field a newer build wrote is.
+CHAT_NAMES = ("aspect", "skill", "pinned_still", "pinned_video")
 # `setup` is whether the room's first run has been answered on this machine —
 # the three questions are asked until it is, and "Set up again" clears it.
-# `turbo` is the one flag a rail saved before the switch was split per side
-# carries; the room reads it as `still_turbo`.
-CHAT_FLAGS = ("turbo", "still_turbo", "video_turbo", "refine", "setup")
+CHAT_FLAGS = ("refine", "setup")
 # `short_edge` is what a rail saved before the edge was split per kind holds;
 # the room reads it for both and writes the two it has now.
 CHAT_COUNTS = (("short_edge", 1), ("still_edge", 1), ("video_edge", 1), ("seed", 0))
+# What the seed does after a render: kept, or rolled — the room's version of
+# the node's `control_after_generate`.
+SEED_POLICIES = ("fixed", "random")
 
 
 def clean_chat(raw):
     """The chat room's rail, as this file will store it.
 
-    Structural only, and deliberately: a family id is checked against the
-    served catalog where the pill is drawn, not here. The registry can lose a
-    family between one session and the next — an install downgraded, a package
-    removed — and a rail naming one is a preference to fall back from, not a
-    settings file to refuse. The room's `familyOr` already reads an absent
-    family as the first one it does have, which is the same forgiveness
-    `clean_weights` extends to a slot id it has never heard of.
-
-    What *is* enforced is that every field is the kind of thing it says it is,
+    Structural only: an aspect label is checked against the family's table
+    where the pill is drawn, not here, and a skill name against the folder
+    when it is read. What *is* enforced is that every field is the kind of thing it says it is,
     because that is what makes the file safe to read back — and a field this
     build has never heard of is dropped rather than refused, so a rail written
     by a newer version does not cost somebody the rest of their settings.
@@ -644,9 +645,8 @@ def clean_chat(raw):
             raise ValueError(f"chat.{key} must be {floor} or more")
         kept[key] = int(value)
     if raw.get("seed_policy") is not None:
-        if raw["seed_policy"] not in chat.SEED_POLICIES:
-            raise ValueError("chat.seed_policy must be one of "
-                             + ", ".join(chat.SEED_POLICIES))
+        if raw["seed_policy"] not in SEED_POLICIES:
+            raise ValueError("chat.seed_policy must be one of " + ", ".join(SEED_POLICIES))
         kept["seed_policy"] = raw["seed_policy"]
     return kept
 

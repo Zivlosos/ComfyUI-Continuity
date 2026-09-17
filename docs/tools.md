@@ -285,53 +285,67 @@ panel folds away behind the icon beside the crumb, and on a narrow window it
 opens over the transcript instead of beside it. Chats live in ComfyUI's
 per-user data, so they follow the user across browsers.
 
-The rail on the right holds the standing choices a turn is made against:
+**The room renders with the node.** A chat render is the piece on the canvas,
+asked for this prompt in this shape: its family, its files, its LoRA stack,
+its turbo switch, its sampler row and its passes are the node's, read off it
+on every render. A picture is the pre-stage's the same way — the one beside
+the piece, or one the room adds the first time a picture is asked for.
+Nothing about how a render samples is the room's own, which is what makes
+the two agree: throw turbo in the room and the node has it thrown; dial the
+steps on the node and the room samples on them; *Open in the editor* puts
+back a setup that was the node's to begin with.
 
-- **The model.** The same picker the Refine button uses — this ComfyUI, or a
-  server you already run. A skill file from the node's skills folder can be
-  appended to the room's own prompting; it is only ever appended, because the
-  room's reply contract is what turns an answer into a render.
-- **What it makes.** Which family draws the pictures and which renders the
-  clips, the shape and the two short edges. A family that reads attached
-  pictures only through a LoRA adapter says so under its pill — it can still
-  draw from words, it just cannot be handed a picture to change.
-- **Turbo, one switch per side.** *Picture turbo* and *Clip turbo* each pick
-  what the fast run is: the family's distilled checkpoint, a distillation LoRA
-  over the ordinary one, or — on the clip side — no file at all, for a
-  checkpoint that ships with the distillation merged in. Each family offers
-  only what it has (Krea 2 both, Flux 2 Klein the checkpoint alone, Ideogram 4
-  the LoRA alone, H3 a LoRA), and *Turbo steps* is the family's own table of
-  stops. Whatever is picked, the sampler row follows it — the step count, the
-  sampler and, on a clip, the flow shifts the file was distilled against — the
-  same row the pre-stage's and the timeline's own switches set. A distilled
-  checkpoint sampled on the ordinary forty steps is a fried picture, and the
-  room made exactly that before the row followed the switch.
-- **Models**, the gear's second tab: every file each family loads, with a row
-  per slot off the folder listing, and the turbo switch under it. What the
-  first run's *Let me choose…* offers, reachable without setting up again; a
-  pick here is the machine's, the same memory a node fills its empty rows
-  from.
-- **How it renders.** The seed, kept or rolled each time, and the **Refine**
-  switch. Off, the model's prompt goes to the compiler as written. On, a clip's
-  prompt goes through the family's own prompting first — the Refine button's
-  call, on the Refine button's settings, so the same skill and the same
-  server — and the card says *Refining…* with the token count while it does,
-  then *Refined by* the model once it is done, with the rewrite under the
-  hover. A second model call per render, which is what it costs. A still is
-  never refined: the families that draw one have no prompt refiner, and the
-  pre-stage has no Refine button for the same reason.
-- **What has been made**, as tiles.
+**Unless you pin a side.** The pin beside *Pictures* or *Clips* in the gear
+takes a copy of that node's setup and the room renders with the copy from
+then on: the gear edits the copy, the node keeps whatever it is set to, and
+the two can differ — a strip tuned for a long render on the canvas, a fast
+draft setup in the room. The copy is remembered per machine with the rest of
+the room's choices; pressing the pin again drops it and the room follows the
+node again.
 
-Everything on the rail is remembered per machine — it is a statement about this
-install rather than about any piece — so the room opens where you left it. The
-conversation is not: that is kept for the life of the page and a reload starts a
-fresh one.
+What is the room's own is in the composer's foot and behind the gear:
+
+- **Which model.** *Pictures* is the pre-stage's image model, *Clips* the
+  piece's family — the nodes' own pills, in the composer's clothes. Picking
+  one moves the node, with everything a switch entails there.
+- **The shape, the seed and the two sizes.** A message names a shape; this
+  is where one starts. The seed is the room's own, not the node's — the
+  simple view's die-and-mark pill beside the shape: roll one now, press the
+  mark to type one or to choose whether it is kept for every render or
+  rolled after each. The short edge a picture is drawn at and the short edge
+  a clip is sampled at are separate, because they are separate canvases.
+- **The gear** is the two nodes' sampler rows, drawn again over the same
+  blobs: the steps, the guidance, the schedule, the accelerators, the turbo
+  switch and the weights pill — the same pills, the same values, and a
+  change on either side shows on the other (or, pinned, the room's copy
+  alone). Under them, the room's own two: the **Refine** switch (off, the
+  model's prompt goes to the compiler as written; on, a clip's prompt goes
+  through the family's own prompting first — the Refine button's call, on
+  the Refine button's settings — and the card says *Refining…* while it
+  does; a still is never refined, since the families that draw one have no
+  prompt refiner) and a **skill** file appended to the room's own prompting.
+  *Set up again* asks the three questions afresh.
+- **The refiner model** is in the bar, the picker the Refine button uses —
+  this ComfyUI, or a server you already run.
+
+The shape, the seed, the sizes and any pinned copy are remembered per
+machine; everything else is on the nodes, in the workflow.
+
+**A conversation is not all or nothing.** The pencil under a message of yours
+takes it back into the composer, with what went with it, and drops
+everything from it on — sending is what commits the change. The arrow under
+a reply asks the model again from there. A render that failed has *Try
+again* on its card, and a turn that failed before there was a reply has *Ask
+again* under the error. Cutting the conversation back cuts the ledger with
+it: a picture made on a turn that is no longer in the conversation is not
+offered to the model again, and handles are never reused. None of it is
+offered while a render is still on the queue below that point.
 
 Two doors on a finished card. **Open in the editor** takes that render's own
 setup out of the file it was saved into and puts it on the piece — the
 pre-stage for a picture, the shot for a clip — then goes there, so you can
 carry on in the editor with everything the conversation set up. **Retake** runs
-the same request again on a new seed.
+the same request again on a new seed, without moving the room's.
 
 **On one GPU.** A model running inside this ComfyUI shares the card with your
 renders, so a reply waits behind whatever is sampling and the room says so
@@ -339,8 +353,8 @@ rather than spinning. A server — LM Studio, Ollama, anything
 OpenAI-compatible — is the better setting on a single card, and the rail says
 that too.
 
-Not in it yet: no timeline (a second shot is a new one-shot piece), no cast, no
-`@name`, no streaming, and no saved conversations. The renders stay.
+Not in it yet: no timeline (a second shot is a new one-shot piece), no
+`@name` for the cast, and no streaming.
 
 ## Contact sheet
 

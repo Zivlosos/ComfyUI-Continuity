@@ -247,44 +247,40 @@ refuses("something that is not an object", ["video_crf", 18], "must be an object
 # dropped on the way through, the page cached what came back, and every choice
 # on the rail was forgotten on reload with nothing anywhere saying so.
 
-RAIL = {"still_family": "qwenedit", "video_family": "h3", "aspect": "16:9",
-        "short_edge": 1024, "turbo": True, "seed": 7, "seed_policy": "fixed",
-        "refine": False, "skill": "noir"}
+RAIL = {"aspect": "16:9", "short_edge": 1024, "refine": False, "skill": "noir",
+        "seed": 7, "seed_policy": "fixed", "pinned_video": '{"version": 2}'}
 
 check("an empty rail is the default", settings.clean({})["chat"], {})
 check("a rail is stored whole", settings.clean({"chat": RAIL})["chat"], RAIL)
 check("a null rail is the default", settings.clean({"chat": None})["chat"], {})
 
-# Structural only. A family this install no longer has is a preference to fall
-# back from — the room's own pill reads an absent family as the first one it
-# does have — not a settings file to refuse.
-check("a family id is kept as written, whatever the registry has",
-      settings.clean({"chat": {"still_family": "somethingelse"}})["chat"],
-      {"still_family": "somethingelse"})
+# Structural only: an aspect label is checked where the pill is drawn.
+check("an aspect is kept as written, whatever the family's table has",
+      settings.clean({"chat": {"aspect": "7:3"}})["chat"], {"aspect": "7:3"})
 # And a field from a newer build costs nothing: dropped, so the rest of the
 # rail — and the rest of the settings — still saves.
 check("a field this build has never heard of is dropped",
       settings.clean({"chat": {**RAIL, "cast": ["anna"]}})["chat"], RAIL)
 
-# The turbo switch, one per side: a flag, the file it reaches for (empty is the
-# checkpoint) and the step stop. The old single `turbo` stays readable.
-SPLIT = {"still_turbo": True, "still_turbo_lora": "", "still_turbo_quality": "good",
-         "video_turbo": True, "video_turbo_lora": "h3_turbo.safetensors",
-         "video_turbo_quality": "medium"}
-check("each side's turbo switch is stored whole",
-      settings.clean({"chat": SPLIT})["chat"], SPLIT)
-refuses("a turbo file that is not a name", {"chat": {"video_turbo_lora": 3}}, "must be a name")
-refuses("a side's switch that is not a flag", {"chat": {"video_turbo": "yes"}}, "true or false")
+# The room renders with the node on the canvas, so the fields a rail used to
+# hold about the render — families, seed, the turbo switches — are not the
+# room's any more. A rail written before that is read without them, not
+# refused: the settings file stays whole across the change.
+OLD = {"still_family": "qwenedit", "video_family": "h3", "turbo": True,
+       "still_turbo": True, "still_turbo_lora": "",
+       "video_turbo_lora": "h3_turbo.safetensors", "video_turbo_quality": "medium"}
+check("a rail's old render fields are dropped, not refused",
+      settings.clean({"chat": {**RAIL, **OLD}})["chat"], RAIL)
 
-refuses("a seed policy that is neither", {"chat": {"seed_policy": "sometimes"}},
-        "one of fixed, random")
 refuses("a fractional short edge", {"chat": {"short_edge": 768.5}}, "whole number")
 refuses("a boolean short edge", {"chat": {"short_edge": True}}, "whole number")
 refuses("a short edge of no pixels", {"chat": {"short_edge": 0}}, "1 or more")
+refuses("a skill that is not a name", {"chat": {"skill": 3}}, "must be a name")
+refuses("a pinned copy that is not the blob's text", {"chat": {"pinned_still": {}}}, "must be a name")
 refuses("a negative seed", {"chat": {"seed": -1}}, "0 or more")
-refuses("a family id that is not a name", {"chat": {"video_family": 3}}, "must be a name")
-refuses("a switch that is not one", {"chat": {"turbo": "yes"}}, "true or false")
-refuses("a rail that is not an object", {"chat": ["still_family"]}, "must be an object")
+refuses("a seed policy that is neither", {"chat": {"seed_policy": "sometimes"}}, "one of fixed, random")
+refuses("a switch that is not one", {"chat": {"refine": "yes"}}, "true or false")
+refuses("a rail that is not an object", {"chat": ["aspect"]}, "must be an object")
 
 # The room sizes a picture and a clip apart and says whether its first run has
 # been answered; a rail that dropped either would ask the same questions and

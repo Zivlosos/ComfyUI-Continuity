@@ -926,6 +926,12 @@ class Fullscreen {
             // Given rather than found: the room has no idea what a node is, and
             // spawning a pre-stage that does not exist yet is this shell's.
             openRender: (asset) => this.takeChatRender(asset),
+            // The nodes the room renders with: this piece's, and the pre-stage
+            // beside it — spawned on the room's first picture, since a
+            // picture is a pre-stage's to make. See `chatnode.js`.
+            node: () => this.node,
+            preStage: () => preStageOf(this.node),
+            spawnPreStage: () => this.spawnPreStage(),
           }) },
         { label: t("Upscale"), glyph: "expand",
           sub: t("Make a still or a clip bigger — the file itself, not a new render"),
@@ -962,6 +968,23 @@ class Fullscreen {
       throw new Error(t("There is no node here to put that on."));
     }
     target.apply(captured.data, P.SCOPE_SECTIONS[captured.scope] ?? [], captured.scope);
+  }
+
+  /**
+   * Put a pre-stage beside the piece and wait for its body. The same call the
+   * removed pill makes, and the same wait `stepTarget` takes for the same
+   * reason: the node is not in the graph until the next frame. The step is
+   * not changed — the room is over the shell, and what is on the card under
+   * it is not the room's to move.
+   */
+  async spawnPreStage() {
+    if (!preStageOf(this.node)) this.node.mmcBody?.preStage?.toggle();
+    for (let tries = 0; tries < 30; tries += 1) {
+      const spawned = preStageOf(this.node);
+      if (spawned?.mmcBody) return spawned;
+      await new Promise((done) => requestAnimationFrame(done));
+    }
+    return null;
   }
 
   /**

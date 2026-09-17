@@ -149,7 +149,7 @@ One tool, one schema, at most one call per turn:
 }
 ```
 
-- `kind` picks the family: the rail's standing still family or video
+- `kind` picks the family: the pre-stage's image model or the piece's
   family. The model does not name families in this iteration.
 - `from` is zero or more handles from the ledger. They become references
   on the segment, scope `full`. Under `kind: video` a still in `from` is
@@ -177,8 +177,8 @@ Three blocks, short, in a fixed order that ends with the freshest thing,
 the way `families/h3/refine.py` orders its rules for small models.
 
 1. **The machine card** (~150 tokens, built server-side, cached until
-   settings change). The still family and the video family the rail has
-   chosen, whether each is ready (required slots have a file), what each
+   settings change). The still family and the video family the nodes under
+   the room are on, whether each is ready (required slots have a file), what each
    makes, its duration range and grid, its aspect table, how many
    references it takes. A family with missing weights says so, so the
    model can say so instead of trying.
@@ -200,12 +200,16 @@ sensitivity is real), so tuning happens on the bench (§7), not in the room.
 
 ### 5.4 Running the render
 
-The browser holds the chat's **piece**: a `creator_data` blob (or
-`prestage_data` for stills) it patches from each action and posts back. The
-server route `POST /continuity/chat/render` takes the blob and:
+The render is built over the **node on the canvas**: the browser sends the
+piece's `creator_data` (or the pre-stage's `prestage_data` for a still) and
+the node's sampler widgets as the `base`, and the server route
+`POST /continuity/chat/render`:
 
-1. Fills `models` from `settings.weights` and the sampler block from the
-   rail (seed policy, turbo, resolution).
+1. Writes the action over it — the prompt, the citations, the room's shape
+   and short edge — and fills what the node's `models` left empty from
+   `settings.weights`. The sampler row, the LoRA stack, the turbo switch and
+   the passes are the node's (or the pinned copy's) and are not re-derived;
+   the seed is the room's, sent with the base's widgets.
 2. Runs the `compiled_prompt` dry run. A `{problem}` comes back as the
    assistant's line, verbatim.
 3. Optionally refines (§5.1).
@@ -241,17 +245,25 @@ the way back.
 
 - **The conversation**, centre. User and assistant bubbles; a render card
   inline with the thumbnail or player, its handle, and two doors: **Open in
-  the editor** (the chat's piece becomes the node's blob) and **Retake**
-  (same blob, new seed). A refusal is a bubble.
+  the editor** (the render's setup back onto the node it came from) and
+  **Retake** (same request, new seed). A refusal is a bubble. Every message
+  can be taken back: edit-and-resend under a user turn, ask-again under a
+  reply, try-again on a failed card and under a failed turn — each cuts the
+  transcript and the ledger back to that point.
 - **No rail.** The model's name is in the bar, the way ChatGPT places it,
-  and opens the refine popover; a gear beside it holds what is set once per
-  machine — the picture size and the clip size (two short edges, because a
-  still is drawn on the image canvas and a clip on the video family's), the
-  seed as the simple view's die-and-mark pill, turbo, the **Refine** switch
-  (off), a skill to append. The composer's foot holds what changes between
-  messages: the still family and video family for `kind`, and the shape,
-  which opens the simple view's own aspect grid. The ledger has no tiles: each thing is in the transcript where it was made
-  or attached, wearing its handle, and pressing it cites it.
+  and opens the refine popover; a gear beside it holds the two nodes' own
+  sampler rows — the same `samplingBar`, turbo and weights pills the faces
+  mount, over the same blobs (`chatnode.js`) — with the room's picture size
+  and clip size at their heads (two short edges, because a still is drawn
+  on the image canvas and a clip on the video family's) and a pin per side
+  that gives the room a copy of that node's setup to render and edit apart
+  from it, and under them the **Refine** switch (off) and a skill to append.
+  The composer's foot holds what changes between messages: the pre-stage's
+  image model and the piece's family for `kind` — the nodes' own pills —
+  the shape, which opens the simple view's own aspect grid, and the room's
+  own seed as the simple view's die-and-mark pill. The ledger has no tiles: each
+  thing is in the transcript where it was made or attached, wearing its
+  handle, and pressing it cites it.
 - **The composer**, bottom. One rounded sheet: attachments waiting to go,
   the text, and a foot with **+** on the left and the send arrow on the
   right. The plus opens the pack's own picker (image, video, audio, renders);
