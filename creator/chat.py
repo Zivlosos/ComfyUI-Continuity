@@ -766,6 +766,46 @@ def takes_refs(family):
     return bool(ref_limit(family)) and not needs_adapter(family)
 
 
+def edits_pictures(family):
+    """Whether a picture cited to this family is *changed* rather than drawn beside.
+
+    `capabilities.refs.edits_first` on a family that reads pictures outright —
+    Qwen Image Edit's and Flux 2 Klein's arrangement. `compile_prestage` starts
+    the render from the first reference on these families, at denoise 1, so
+    citing a picture first is what changes it; the room reads the same flag to
+    decide where a cited picture goes and what to say about it, and never a
+    family id.
+    """
+    refs = (family.get("capabilities") or {}).get("refs") or {}
+    return takes_refs(family) and bool(refs.get("edits_first"))
+
+
+def edit_families(catalog):
+    """The still-only families a cited picture can be changed on, in order."""
+    return [family for family in (catalog or {}).get("families") or []
+            if list(family.get("produces") or ()) == ["still"] and edits_pictures(family)]
+
+
+def pick_edit_family(catalog, available, weights, preferred=None):
+    """The family a cited picture is changed on when the still family cannot.
+
+    The one the rail asked for, ready or not — a choice somebody made is
+    theirs, and the card says what it is missing; else the first that is ready
+    on this disk, by the same reading the card takes; else the first there is,
+    so the card can say what it would take; None where no family edits at all.
+    """
+    choices = edit_families(catalog)
+    for family in choices:
+        if family["id"] == preferred:
+            return family
+    for family in choices:
+        picked = {**guess_weights(family, available),
+                  **((weights or {}).get(family["id"]) or {})}
+        if not missing_weights(family, picked, available):
+            return family
+    return choices[0] if choices else None
+
+
 def refs_refusal(family, instead=()):
     """Why this family cannot be given a picture, and what to do instead.
 
@@ -805,11 +845,14 @@ def still_pictures(family, catalog):
     needs: whether a citation may be honoured, and the sentence if it may not.
     Here rather than in the route so the bench reaches the same answer the room
     does — a bench that refused on different words would be tuning the prompt
-    against a machine nobody has. See `DEFAULT_STILL_PICTURES`.
+    against a machine nobody has. See `DEFAULT_STILL_PICTURES`. `edits` is
+    `edits_pictures` of the family: whether the first picture cited plain is
+    the one being changed, which moves what `still_piece` writes.
     """
     if takes_refs(family):
-        return {"takes": True, "refusal": ""}
-    return {"takes": False, "refusal": refs_refusal(family, refs_families(catalog))}
+        return {"takes": True, "refusal": "", "edits": edits_pictures(family)}
+    return {"takes": False, "refusal": refs_refusal(family, refs_families(catalog)),
+            "edits": False}
 
 
 def _find(catalog, family_id):
@@ -847,7 +890,7 @@ def _durations(family):
 
 
 def machine_card(still_family, video_family, catalog, available, weights,
-                 turbo=False):
+                 turbo=False, edit_family=None):
     """What this machine can make, in about a hundred and fifty tokens.
 
     The join nothing in the pack did before: the families route says what each
@@ -866,14 +909,36 @@ def machine_card(still_family, video_family, catalog, available, weights,
     The aspect table is printed once where both families agree on it, which on
     this pack's families they always do — eleven names twice is a fifth of the
     card's whole budget spent saying the same thing.
+
+    `edit_family` is the family a cited picture is changed on when the still
+    family cannot read one (`pick_edit_family`). The model is never told its
+    name: a still with a picture in "from" is a still that changes it, and
+    which weights do the changing is the rail's business — the same way the
+    model is not told which checkpoint a clip routes to. It is named only
+    when it is not ready, because the file that is missing is that family's.
+    Its turbo switch is not counted here — the card knows the still family's
+    alone — and a Turbo checkpoint nobody picked is refused by the render's
+    own check, in the same words, one turn later.
     """
     still = _find(catalog, still_family)
     video = _find(catalog, video_family)
+    edit = _find(catalog, edit_family) if edit_family else None
     lines = ["WHAT THIS MACHINE MAKES"]
+
+    # Whether a picture can be changed here at all, and by what: the still
+    # family itself where it reads pictures, else the edit family, if it is
+    # ready. What it is missing is said below, with the other readiness lines.
+    edit_gone = []
+    if still and not takes_refs(still) and edit and edit["id"] != still["id"]:
+        picked = {**guess_weights(edit, available),
+                  **((weights or {}).get(edit["id"]) or {})}
+        edit_gone = missing_weights(edit, picked, available)
+    else:
+        edit = None
 
     if still:
         lines.append(_sentences(f'"still" is {still["label"]}: one picture.',
-                                _attaches(still)))
+                                _attaches(still, None if edit_gone else edit)))
     if video:
         sound = " with its own sound" if (video.get("capabilities") or {}).get("audio") else ""
         lines.append(_sentences(
@@ -909,6 +974,10 @@ def machine_card(still_family, video_family, catalog, available, weights,
             lines.append(
                 f"{family['label']} is not ready: no file is picked for "
                 f"{listed(gone)}. Say so instead of asking for a {name}.")
+    if edit_gone:
+        lines.append(
+            f"Changing a picture is not ready: {edit['label']} has no file "
+            f"picked for {listed(edit_gone)}. Say so instead of citing one.")
     return "\n".join(lines)
 
 
@@ -917,7 +986,7 @@ def _sentences(*parts):
     return " ".join(part for part in parts if part)
 
 
-def _attaches(family):
+def _attaches(family, edit=None):
     """What this family does with the handles cited in `from`, in one sentence.
 
     A count where it reads pictures, a plain refusal where it cannot be given
@@ -925,20 +994,32 @@ def _attaches(family):
     has to know this before it cites something: afterwards the only thing left
     is a refusal in the bubble where a picture should be, and on the default
     still family that would be every "make it bluer" in the room.
+
+    `edit` is the ready edit family standing behind a still family that reads
+    no picture: a picture cited then is changed on it, so the count and the
+    rule are its — said as what a still *does*, never as a family's name.
     """
     limit = ref_limit(family)
     if limit is None:
         return ""
     if not takes_refs(family):
-        return ('It cannot be given the pictures in "from" — cite nothing '
-                "there, and say so if you are asked to change a picture.")
+        if edit is None or not ref_limit(edit):
+            return ('It cannot be given the pictures in "from" — cite nothing '
+                    "there, and say so if you are asked to change a picture.")
+        family, limit = edit, ref_limit(edit)
     said = f'Up to {limit} picture{"s" if limit != 1 else ""} may be cited in "from".'
-    if ((family.get("capabilities") or {}).get("refs") or {}).get("edits_first"):
+    if edits_pictures(family):
         # `compile_prestage` starts the render from the first reference on these
         # families, so citing the thing being changed first is the difference
-        # between an edit of it and a new picture beside it — eight words, and
-        # they are what "make her coat white" depends on.
-        said += " The first is the picture being changed."
+        # between changing a picture and drawing a new one beside it — and
+        # they are what "make her coat white" depends on. It keeps its own
+        # shape because the compiler follows the init's, so an "aspect" on an
+        # edit is a number nothing reads; the model is told not to write one
+        # rather than left to wonder why the picture came back unchanged in
+        # shape. A scope makes it a reference: drawn from, not changed.
+        said += (" The first is the picture being changed and keeps its own "
+                 'shape, so leave "aspect" out; one cited :style, :person, '
+                 ":scene or :object is only drawn from.")
     return said
 
 
@@ -1176,7 +1257,13 @@ DEFAULT_SECONDS = 6
 # what a rail that says nothing means. `takes` is `takes_refs` of that family and
 # `refusal` is `refs_refusal` of it with the alternatives already named — both
 # are the catalog's answers, and the catalog is the route's.
-DEFAULT_STILL_PICTURES = {"takes": True, "refusal": ""}
+DEFAULT_STILL_PICTURES = {"takes": True, "refusal": "", "edits": False}
+
+# The blob field that releases an edit family's first picture from being the
+# thing changed — `compile_image.START_BLANK_FIELD`, spelled here because that
+# module imports the neural backend and this one has to load with nothing but
+# the standard library under it. `tests/test_chat.py` holds the two together.
+START_BLANK_FIELD = "start_blank"
 
 
 def _entry_kind(entry):
@@ -1238,6 +1325,45 @@ def _cited(action, ledger, handles=None):
     return out
 
 
+def cites_picture(action, ledger, cast=()):
+    """Whether a still action puts a picture in front of the weights at all.
+
+    A picture in "from", or a cast member named in the prompt who has one —
+    the two roads a picture takes into `still_piece`. What the room's still
+    family does with it is the family's business (`still_pictures`); this is
+    only whether there is one.
+    """
+    known = known_handles(ledger)
+    for item in action.get("from") or []:
+        if known.get(split_handle(item)[0]) == "image":
+            return True
+    for member in _cited_members(action.get("prompt") or "", cast):
+        if any(known.get(str(handle)) == "image" for handle in member.get("from") or []):
+            return True
+    return False
+
+
+def still_arch_for(action, ledger, rail, cast=()):
+    """The arch a still is drawn on: the rail's, or its edit arch for a picture.
+
+    The one decision this surface makes about families, and the harness makes
+    it rather than the model: a still that cites a picture the still family
+    cannot read goes to the family that can, when the rail has one. The model
+    wrote "still" and cited a picture, which is all a person would have said;
+    which weights change it is the rail's (`routes/chat._rail` stamps
+    `edit_arch` from `pick_edit_family`). A still family that reads pictures
+    itself, a still with none cited, or a rail with no edit family all stay
+    where the rail's *Pictures* pill points — the last so the refusal the still
+    family gives is the one the person reads, naming what would work.
+    """
+    rail = rail or {}
+    own = rail.get("still_arch")
+    pictures = {**DEFAULT_STILL_PICTURES, **(rail.get("still_pictures") or {})}
+    if pictures.get("takes") or not rail.get("edit_arch"):
+        return own
+    return rail["edit_arch"] if cites_picture(action, ledger, cast) else own
+
+
 def _cited_members(prompt, cast):
     """The members this prompt names, in cast order. `cast` is the room's
     reading of the piece's subjects: `{name, takes, from, description}`."""
@@ -1293,13 +1419,21 @@ def still_piece(action, ledger, rail, base=None, cast=None):
     shape `compile_image.compile_prestage` reads, at its defaults.
 
     Every cited handle becomes a reference, in the order it was cited, which is
-    the order the encoder labels them in — so under an edit family (Qwen Image
-    Edit, Flux 2 Klein) the first one is the picture being edited and this does
-    nothing special to make that true. `compile_image.compile_prestage` promotes
-    a first reference to the init at denoise 1 on exactly those families, which
-    is where that rule belongs and where it already is. The init the node held
-    is cleared for the same reason: the room's picture is the citation, not
-    whatever the node was last painting over.
+    the order the encoder labels them in. `compile_image.compile_prestage`
+    promotes a first reference to the init at denoise 1 on the edit families
+    (Qwen Image Edit, Flux 2 Klein), which is where that rule belongs; what
+    this side does on those families — the rail says which, `still_pictures`
+    — is put the pictures cited *plain* in front of the ones cited for
+    something, so the promotion lands on the picture being changed and not on
+    a look that happened to be cited first, and set `start_blank` when nothing
+    was cited plain, which is "draw a new picture from these" and not "change
+    the first of them". A member's picture is always the second kind. The
+    init the node held is cleared for the same reason: the room's picture is
+    the citation, not whatever the node was last painting over.
+
+    A picture being changed keeps its own shape — the compiler follows the
+    init's — so the action's "aspect" is not written onto an edit: a number
+    the render would not read is a number the blob should not carry.
 
     A family that cannot be handed a picture refuses one here, in the room's own
     words, before the compiler refuses it in words about the node's LoRA stack.
@@ -1334,7 +1468,9 @@ def still_piece(action, ledger, rail, base=None, cast=None):
         if picture and pictures.get("takes"):
             handle = picture[0]
             if handle not in {c[0] for c in cited}:
-                cited.append(picture)
+                # As a reference (`ROLE_REF`): who they are, never the
+                # picture being changed.
+                cited.append((handle, picture[1], picture[2], ROLE_REF))
             stood = f"@{handle}" + (f" ({text})" if text else "")
         elif text:
             stood = text
@@ -1349,7 +1485,7 @@ def still_piece(action, ledger, rail, base=None, cast=None):
         raise ActionError(pictures.get("refusal") or
                           "this still family cannot be given a picture.")
 
-    refs = []
+    entries = []
     for handle, kind, filename, scope in cited:
         if kind != "image":
             raise ActionError(
@@ -1358,8 +1494,19 @@ def still_piece(action, ledger, rail, base=None, cast=None):
             raise ActionError(
                 f"@{handle}:{scope} — a picture has no start or end frame; cite "
                 f"it plain, or ask for a clip.")
-        refs.append({"handle": handle, "filename": filename,
-                     **({"takes": scope} if scope and scope != ROLE_REF else {})})
+        entries.append(({"handle": handle, "filename": filename,
+                         **({"takes": scope} if scope and scope != ROLE_REF else {})},
+                        scope))
+
+    canvas = _canvas(action, rail, "still")
+    changed = [entry for entry, scope in entries if scope is None]
+    drawn_from = [entry for entry, scope in entries if scope is not None]
+    refs = changed + drawn_from if pictures.get("edits") else [e for e, _ in entries]
+    edit = {}
+    if pictures.get("edits"):
+        edit[START_BLANK_FIELD] = bool(entries) and not changed
+        if changed:
+            canvas.pop("aspect", None)
 
     piece = json.loads(json.dumps(base)) if isinstance(base, dict) else {}
     piece.update({
@@ -1371,7 +1518,8 @@ def still_piece(action, ledger, rail, base=None, cast=None):
         "loras": piece.get("loras") or [],
         "turbo": piece.get("turbo") or {},
         "models": piece.get("models") or {},
-        **_canvas(action, rail, "still"),
+        **edit,
+        **canvas,
     })
     return piece
 

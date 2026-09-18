@@ -31,13 +31,20 @@ import { samplingBar, blobIO, SAMPLING_WIDGETS, WIDGET_ONLY } from "./sampling.j
 import { turboPills, sync as syncTurbo } from "./turbo.js";
 import { PreStageRow } from "./prestage.js";
 import * as S from "./state.js";
-import { DEFAULT_STILL_ARCH, STILL_ARCHES, DEFAULT_VIDEO_FAMILY } from "./manifest.js";
+import { DEFAULT_STILL_ARCH, STILL_ARCHES, DEFAULT_VIDEO_FAMILY, stillFamily } from "./manifest.js";
 import { t } from "./i18n.js";
 
 /** The image arches the room can draw a picture with. H3's still branch is a
  *  video generation under its own blob, which the server's still route does
  *  not build — see `routes/chat._rail`. */
 export const PICTURE_ARCHES = S.PRESTAGE_IMAGE_ARCHES;
+
+/** The image arches a cited picture can be *changed* on: the families whose
+ *  manifest says the first picture cited is the one being edited. Read off
+ *  the manifest, never off a family id — `chat.edits_pictures` reads the
+ *  same flag. What the room's *Edits* pill offers. */
+export const EDIT_ARCHES = PICTURE_ARCHES.filter(
+  (arch) => Boolean(stillFamily(arch).capabilities?.refs?.edits_first));
 
 /** The rail field a side's pinned row is kept in. */
 const PIN = { still: "pinned_still", video: "pinned_video" };
@@ -97,6 +104,14 @@ export class Sync {
     return STILL_ARCHES[this.stillArch()] ?? null;
   }
 
+  /** The arch a cited picture is changed on when the image model cannot read
+   *  one — the room's *Edits* choice — or "" for whichever is ready, which
+   *  the server decides (`routes/chat.machine`). */
+  editArch() {
+    const arch = this.rail().edit_arch;
+    return EDIT_ARCHES.includes(arch) ? arch : "";
+  }
+
   /** What the turn's settings block says about the sides: which families,
    *  and whether the still's turbo switch loads the Turbo checkpoint. */
   families() {
@@ -104,6 +119,7 @@ export class Sync {
     return {
       still_family: this.stillFamily() ?? "",
       video_family: this.videoFamily(),
+      edit_family: STILL_ARCHES[this.editArch()] ?? "",
       still_turbo_checkpoint: Boolean(turbo?.on && !turbo?.lora),
     };
   }
@@ -125,14 +141,17 @@ export class Sync {
   }
 
   /** Whether a side's node is one the room can follow: there, and on the
-   *  room's own family. A row is a family's. */
-  followable(kind) {
+   *  room's own family. A row is a family's. `arch` is the image arch a
+   *  still is being drawn on where it is not the room's own — an edit of a
+   *  cited picture on the *Edits* family — and the pre-stage has to be on
+   *  that one to be followed for it. */
+  followable(kind, arch = this.stillArch()) {
     if (kind === "video") {
       const live = this.clipNode();
       return Boolean(live && S.pieceFamily(live.piece) === this.videoFamily());
     }
     const live = this.pictureNode();
-    return Boolean(live && live.state.arch === this.stillArch());
+    return Boolean(live && live.state.arch === arch);
   }
 
   // ---- pinning ------------------------------------------------------------------
@@ -220,23 +239,34 @@ export class Sync {
    * node's widget values as the queue would read them (the blob wins for the
    * row, the widgets are the fallback — `sampling.resolve`). Neither: empty,
    * which is the family's defaults all the way down.
+   *
+   * `arch` is the image arch a still is drawn on where it is not the room's
+   * own — a cited picture changed on the *Edits* family. A row is a
+   * family's, so the copy's steps and guidance are read only where the copy
+   * is on that arch, and the node's only where the node is; the turbo block
+   * is per arch on both and is read for the one asked. Otherwise the
+   * family's own defaults, which is what a node on another family gets too.
    */
-  row(kind) {
+  row(kind, arch = this.stillArch()) {
     const copy = this.copy(kind);
-    if (copy) return this.rowFrom(kind, copy, {});
-    if (!this.followable(kind)) return { sampling: {}, turbo: null, loras: [], widgets: {} };
+    if (copy) return this.rowFrom(kind, copy, {}, arch);
+    if (!this.followable(kind, arch)) return { sampling: {}, turbo: null, loras: [], widgets: {} };
     if (kind === "still") {
       const { body, state } = this.pictureNode();
-      return this.rowFrom(kind, state, rowWidgets(this.values(body.widgetIO(), body.samplingWidgets)));
+      return this.rowFrom(kind, state, rowWidgets(this.values(body.widgetIO(), body.samplingWidgets)), arch);
     }
     const { body, piece } = this.clipNode();
     return this.rowFrom(kind, piece, rowWidgets(this.values(body.widgetIO(), body.widgets)));
   }
 
-  rowFrom(kind, blob, widgets) {
+  rowFrom(kind, blob, widgets, arch = this.stillArch()) {
     if (kind === "still") {
-      return { sampling: { ...(blob.sampling ?? {}) }, turbo: blob.turbo?.[this.stillArch()] ?? null,
-               loras: [], widgets };
+      // The room's own arch reads the row whatever the blob says it was
+      // written for — a copy pinned before the pill moved keeps working;
+      // any other arch reads it only when the blob is on that arch.
+      const own = arch === this.stillArch() || blob.arch === arch;
+      return { sampling: own ? { ...(blob.sampling ?? {}) } : {}, turbo: blob.turbo?.[arch] ?? null,
+               loras: [], widgets: own ? widgets : {} };
     }
     const turbo = blob.turbo ?? null;
     const worn = (blob.loras ?? []).filter((entry) => entry.name && entry.name === turbo?.lora);

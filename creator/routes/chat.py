@@ -60,8 +60,16 @@ _CARDS = {}
 _CARDS_KEEP = 4
 
 
-def machine_card(still_family, video_family, weights, turbo=False):
-    """What this machine can make, as the model reads it. See `chat.machine_card`.
+def machine(still_family, video_family, weights, turbo=False, edit=None):
+    """What this machine can make, as the model reads it, and two answers the
+    turn needs beside it -> `{card, edit_family, still_pictures}`.
+
+    `card` is `chat.machine_card`. `edit_family` is the family a cited picture
+    is changed on when the still family cannot read one — `edit` is the rail's
+    own choice, or None for whichever is ready (`chat.pick_edit_family`) — and
+    `still_pictures` is `chat.still_pictures` of the still family, the two
+    things `chat.still_arch_for` reads. All three are one join of the catalog,
+    the folder listing and the picks, so they are made and held together.
 
     Keyed on its own inputs rather than invalidated from `settings.save`. A hook
     there would catch the settings page and miss everything else that moves this
@@ -74,16 +82,25 @@ def machine_card(still_family, video_family, weights, turbo=False):
     folders on every turn is the cost this cache exists to avoid, and
     `settings.weights` moving is what a *picked* file changing looks like here.
     """
-    key = json.dumps([still_family, video_family, weights, bool(turbo)],
+    key = json.dumps([still_family, video_family, weights, bool(turbo), edit],
                      sort_keys=True, default=str)
-    card = _CARDS.get(key)
-    if card is None:
-        card = chat.machine_card(still_family, video_family, manifest.catalog(),
-                                 core_models.available(), weights, turbo=bool(turbo))
+    held = _CARDS.get(key)
+    if held is None:
+        catalog = manifest.catalog()
+        available = core_models.available()
+        picked = chat.pick_edit_family(catalog, available, weights, edit)
+        held = {
+            "card": chat.machine_card(still_family, video_family, catalog, available,
+                                      weights, turbo=bool(turbo),
+                                      edit_family=picked["id"] if picked else None),
+            "edit_family": picked["id"] if picked else None,
+            "still_pictures": chat.still_pictures(
+                manifest.describe(still_family), catalog),
+        }
         while len(_CARDS) >= _CARDS_KEEP:
             _CARDS.pop(next(iter(_CARDS)))
-        _CARDS[key] = card
-    return card
+        _CARDS[key] = held
+    return held
 
 
 # ---- the rail ---------------------------------------------------------------
@@ -125,6 +142,11 @@ def _rail(raw):
     room to patch, for a picture the video family can already be asked for
     directly. So the rail offers the families that draw a picture outright, and
     the room's own pill offers the same set.
+
+    `edit_family` is the room's *Edits* choice: the image family a cited
+    picture is changed on when the still family cannot read one, or nothing
+    for whichever is ready. Read as a preference here and resolved by
+    `machine`, which has the disk; `edit_arch` is stamped there.
     """
     rail = dict(raw or {})
     still = rail.get("still_family")
@@ -133,9 +155,11 @@ def _rail(raw):
     video = rail.get("video_family")
     if video not in registry.video_families():
         video = registry.DEFAULT_VIDEO
+    edit = rail.get("edit_family")
     rail["still_family"] = still
     rail["video_family"] = video
     rail["still_arch"] = _arch_of(still)
+    rail["edit_family"] = edit if edit in registry.IMAGE_FAMILIES else None
     return rail
 
 
@@ -557,9 +581,16 @@ def _run(body):
     # Whether the pre-stage's switch loads the Turbo checkpoint — read off its
     # blob by the room and sent as one flag, since the card only needs to know
     # which files a still would load.
-    card = machine_card(rail["still_family"], rail["video_family"],
-                        settings.load().get("weights") or {},
-                        turbo=bool(block.get("still_turbo_checkpoint")))
+    known = machine(rail["still_family"], rail["video_family"],
+                    settings.load().get("weights") or {},
+                    turbo=bool(block.get("still_turbo_checkpoint")),
+                    edit=rail.get("edit_family"))
+    card = known["card"]
+    # What `still_arch_for` reads: the still family's answer about pictures,
+    # and the arch a picture it cannot read goes to.
+    rail = {**rail, "still_pictures": known["still_pictures"],
+            "edit_family": known["edit_family"],
+            "edit_arch": _arch_of(known["edit_family"]) if known["edit_family"] else None}
     # The rail's verbosity dial rides in the same block as the skill: both are
     # about how the model writes, and `chat.system_prompt` places them.
     system = chat.system_prompt(_skill(block), verbosity=block.get("verbosity"))
@@ -578,7 +609,16 @@ def _run(body):
     if quoted:
         out["reask"] = quoted
     if verdict["act"] == chat.ACT_RENDER:
-        out["action"] = verdict["action"]
+        action = verdict["action"]
+        if action["kind"] == chat.KIND_STILL:
+            # Which image arch draws it, decided here and not in the room:
+            # the rail's, or its edit arch for a picture the rail's family
+            # cannot read. The room builds the base for this arch
+            # (`chat.js renderBase`) and `chat/render` reads the family off
+            # that base, so the decision is made once and carried, never
+            # re-derived on the way to the queue.
+            action = {**action, "arch": chat.still_arch_for(action, ledger, rail, cast)}
+        out["action"] = action
     return out
 
 

@@ -310,7 +310,16 @@ What is the room's own is in the composer's foot and behind the gear:
 
 - **Which model.** *Pictures* is the image model a picture is drawn with,
   *Clips* the family a clip is made on — the room's two choices, remembered
-  per machine and never the node's.
+  per machine and never the node's. A third pill, *Edits*, appears when the
+  image model cannot read a picture you cite (Krea 2 without its reference
+  adapter, Ideogram): a message that changes a picture — *bluer*, *make her
+  coat white*, *@pic-2 in the look of @pic-1* — is drawn on that model
+  instead, Qwen Image Edit or Flux 2 Klein, whichever your models folder is
+  complete for unless you pick one. The assistant is told only that a
+  picture can be changed, not which model does it; a picture being changed
+  keeps its own shape, and a picture cited for its look, its person, its
+  scene or a thing in it is drawn from rather than changed. Where neither
+  edit model has its files, the assistant says which are missing.
 - **The shape, the seed and the two sizes.** A message names a shape; this
   is where one starts. The seed is the room's own — the simple view's
   die-and-mark pill beside the shape: roll one now, press the mark to type

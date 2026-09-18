@@ -292,6 +292,7 @@ CATALOG = {"families": [
 ]}
 
 KREA2, QWENEDIT, H3 = CATALOG["families"]
+CATALOG_NO_EDIT = {"families": [KREA2, H3]}
 
 ON_DISK = {"by_folder": {
     "diffusion_models": ["krea2.safetensors", "h3_fl2va.safetensors",
@@ -345,9 +346,58 @@ check("while one that reads pictures outright says how many",
 # which one is cited first is the difference between changing a picture and
 # drawing a new one beside it.
 check("and an edit family says which one is being changed",
-      "The first is the picture being changed." in edits, True)
+      "The first is the picture being changed" in edits, True)
+# The compiler makes the canvas follow the init's shape on an edit, so an
+# aspect on one is a number nothing reads — the model is told not to write it
+# rather than left to wonder why the shape never moved.
+check("and that it keeps its shape, so the model leaves the aspect out",
+      'keeps its own shape, so leave "aspect" out' in edits, True)
 check("which a family that only cites them does not",
       "being changed" in card, False)
+
+# The still family cannot read a picture, but an edit family on the rail can:
+# the card says a still *can* be given one, and by the edit family's count and
+# rule — and never by its name. The model wrote "still" and cited a picture;
+# which weights change it is the rail's business, the way a clip's checkpoint
+# is, and `still_arch_for` below is what carries the picture there.
+routed = chat.machine_card("krea2", "h3", CATALOG, ON_DISK, READY, edit_family="qwenedit")
+check("with an edit family behind it, a still that reads no picture may be given one",
+      "Up to 3 pictures may be cited" in routed and "cannot be given" not in routed, True)
+check("with the edit family's own rule", "The first is the picture being changed" in routed, True)
+check("and the still family still named as what draws a picture",
+      '"still" is Krea 2' in routed, True)
+check("but the edit family never named", "Qwen" in routed, False)
+check("the card stays inside its budget with the edit line on it",
+      len(routed.split()) < 160, True)
+# Not ready is the one time the edit family is named: the file that is missing
+# is that family's, and the person has to know whose weights to go and pick.
+bare_edit = chat.machine_card("krea2", "h3", CATALOG, ON_DISK,
+                              {**READY, "qwenedit": {}}, edit_family="qwenedit")
+check("an edit family with a file missing is named with what it is missing",
+      "Changing a picture is not ready: Qwen Image Edit has no file picked for" in bare_edit, True)
+check("and the still family goes back to refusing pictures",
+      "cannot be given" in bare_edit, True)
+check("an edit family that is the still family is nothing extra to say",
+      chat.machine_card("qwenedit", "h3", CATALOG, ON_DISK, READY, edit_family="qwenedit"),
+      edits)
+
+# Which family a picture is changed on: the rail's own choice, ready or not
+# (the card says what it is missing), else the first that is ready, else the
+# first there is so the card can say what it would take, else none.
+KLEIN = {**QWENEDIT, "id": "flux2klein", "label": "Flux 2 Klein",
+         "weights": [{**slot, "folder": "klein_" + slot["folder"]} for slot in QWENEDIT["weights"]]}
+TWO_EDITS = {"families": [KREA2, KLEIN, QWENEDIT, H3]}
+check("the edit families are the still-only ones whose first picture is the one changed",
+      [f["id"] for f in chat.edit_families(TWO_EDITS)], ["flux2klein", "qwenedit"])
+check("the rail's own choice wins, ready or not",
+      chat.pick_edit_family(TWO_EDITS, ON_DISK, {}, "qwenedit")["id"], "qwenedit")
+check("otherwise the first that is ready",
+      chat.pick_edit_family(TWO_EDITS, ON_DISK, READY)["id"], "qwenedit")
+check("else the first there is",
+      chat.pick_edit_family(TWO_EDITS, {"by_folder": {}}, {})["id"], "flux2klein")
+check("and none where no family edits", chat.pick_edit_family(CATALOG_NO_EDIT, ON_DISK, READY), None)
+check("a choice the catalog does not list is no choice",
+      chat.pick_edit_family(TWO_EDITS, ON_DISK, READY, "krea2")["id"], "qwenedit")
 check("read off the manifest, never off a family id",
       (chat.takes_refs(KREA2), chat.takes_refs(QWENEDIT), chat.takes_refs(H3)),
       (False, True, True))
@@ -720,6 +770,99 @@ check("a still with nothing cited is made on that family all the same",
 check("a family whose weights read no picture says so differently",
       chat.refs_refusal({"label": "Ideogram 4", "prompt": {"max_refs": 0}}),
       "Ideogram 4 draws from words alone: it reads no attached picture at all.")
+check("the rail's block says whether the first picture is the one being changed",
+      (chat.still_pictures(KREA2, CATALOG)["edits"], chat.still_pictures(QWENEDIT, CATALOG)["edits"]),
+      (False, True))
+
+# ---- where a still goes ------------------------------------------------------
+#
+# The one decision this surface makes about families, and the harness makes it
+# rather than the model: a still that cites a picture the still family cannot
+# read goes to the rail's edit arch, when the rail has one. The model is never
+# asked to name a family — it wrote "still" and cited a picture, which is all a
+# person would have said.
+
+EDIT_RAIL = {**RAIL, "edit_family": "qwenedit", "edit_arch": "qwenedit",
+             "still_pictures": chat.still_pictures(KREA2, CATALOG)}
+CAST = [{"name": "anna", "takes": "person", "from": ["img-1"], "description": "red coat"}]
+
+
+def where(action, rail=EDIT_RAIL, cast=()):
+    return chat.still_arch_for(
+        chat.validate(action, LEDGER, cast=[m["name"] for m in cast]), LEDGER, rail, cast)
+
+
+check("a still with nothing cited is drawn on the rail's own arch",
+      where({"act": "render", "kind": "still", "prompt": "a fox"}), "krea2")
+check("a still that cites a picture goes to the edit arch",
+      where({"act": "render", "kind": "still", "prompt": "bluer", "from": ["img-1"]}), "qwenedit")
+check("whatever the picture is cited for",
+      where({"act": "render", "kind": "still", "prompt": "a fox", "from": ["img-1:style"]}), "qwenedit")
+check("a clip cited is not a picture, and stays",
+      where({"act": "render", "kind": "still", "prompt": "a fox", "from": ["vid-1"]}), "krea2")
+check("a cast member with a picture is a picture cited",
+      where({"act": "render", "kind": "still", "prompt": "@anna at dusk"}, cast=CAST), "qwenedit")
+check("a family that reads pictures itself keeps them",
+      where({"act": "render", "kind": "still", "prompt": "bluer", "from": ["img-1"]},
+            {**EDIT_RAIL, "still_pictures": chat.still_pictures(QWENEDIT, CATALOG)}), "krea2")
+check("and a rail with no edit arch leaves the still where it is, to be refused in words",
+      where({"act": "render", "kind": "still", "prompt": "bluer", "from": ["img-1"]},
+            {**EDIT_RAIL, "edit_arch": None}), "krea2")
+check("a rail that says nothing about pictures is one whose family takes them",
+      where({"act": "render", "kind": "still", "prompt": "bluer", "from": ["img-1"]},
+            {**RAIL, "edit_arch": "qwenedit"}), "krea2")
+
+# On an edit family the compiler starts the render from the first reference,
+# so the order the pictures ride in is whether this changes a picture or draws
+# beside one: the ones cited plain lead, the ones cited for something follow,
+# and with none cited plain the render starts from an empty canvas. A picture
+# being changed keeps its own shape, so the action's aspect is not written.
+ON_EDIT = {"still_family": "qwenedit", "still_arch": "qwenedit", "aspect": "16:9",
+           "still_edge": 1024, "still_pictures": chat.still_pictures(QWENEDIT, CATALOG)}
+EDIT_LEDGER = LEDGER + [{"handle": "img-2", "kind": "still", "aspect": "1:1", "turn": 3,
+                         "filename": "continuity/chat/street.png", "text": "a street"}]
+
+
+def edited(action, cast=()):
+    return chat.still_piece(chat.validate(action, EDIT_LEDGER, cast=[m["name"] for m in cast]),
+                            EDIT_LEDGER, ON_EDIT, cast=cast)
+
+
+changed = edited({"act": "render", "kind": "still", "prompt": "bluer", "from": ["img-1"], "aspect": "1:1"})
+check("a picture cited plain is the one changed: first, from its own canvas",
+      ([r["handle"] for r in changed["refs"]], changed[chat.START_BLANK_FIELD]), (["img-1"], False))
+check("and it keeps its own shape — the aspect is not written",
+      "aspect" in changed, False)
+beside = edited({"act": "render", "kind": "still", "prompt": "a fox in that look",
+                 "from": ["img-1:style"], "aspect": "1:1"})
+check("a picture cited for its look is only drawn from: a blank canvas, in the asked shape",
+      (beside[chat.START_BLANK_FIELD], beside["aspect"]), (True, "1:1"))
+ordered = edited({"act": "render", "kind": "still", "prompt": "@img-2 in the look of @img-1",
+                  "from": ["img-1:style", "img-2"]})
+check("the picture cited plain leads whatever order it was cited in",
+      [r["handle"] for r in ordered["refs"]], ["img-2", "img-1"])
+check("with the compiler's own scope kept on the other",
+      ordered["refs"][1].get("takes"), "style")
+member = edited({"act": "render", "kind": "still", "prompt": "@anna on @img-2"}, cast=CAST)
+check("a member's picture is a reference, never the picture being changed",
+      ([r["handle"] for r in member["refs"]], member[chat.START_BLANK_FIELD]), (["img-2", "img-1"], False))
+alone = edited({"act": "render", "kind": "still", "prompt": "@anna at dusk"}, cast=CAST)
+check("and a member alone is drawn from, on a blank canvas",
+      (alone[chat.START_BLANK_FIELD], alone["aspect"]), (True, "16:9"))
+fresh = edited({"act": "render", "kind": "still", "prompt": "a fox", "aspect": "1:1"})
+check("a still with nothing cited on an edit family is an ordinary still",
+      (fresh[chat.START_BLANK_FIELD], fresh["aspect"], fresh["refs"]), (False, "1:1", []))
+check("none of which a family that only cites pictures does",
+      chat.START_BLANK_FIELD in chat.still_piece(
+          chat.validate({"act": "render", "kind": "still", "prompt": "x", "from": ["img-1:style"]}, LEDGER),
+          LEDGER, {**RAIL, "still_pictures": {"takes": True, "edits": False}}), False)
+# The field is the compiler's, spelled here because `compile_image` imports
+# the neural backend and this module has to load on nothing.
+with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                       "creator", "compile_image.py"), encoding="utf-8") as source:
+    check("the blank-canvas field is spelled as the compiler spells it",
+          f'START_BLANK_FIELD = "{chat.START_BLANK_FIELD}"' in source.read(), True)
+
 # A rail that says nothing means a family that takes pictures, which is what
 # every still family but Krea 2 and Ideogram 4 is.
 check("a rail with nothing to say about pictures lets one through",

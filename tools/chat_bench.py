@@ -92,16 +92,18 @@ def _load(url):
     return pkg, remote
 
 
-def _machine(pkg, still_family, video_family):
+def _machine(pkg, still_family, video_family, edit_family=None):
     """The machine card, for a machine that has every file it needs.
 
     Built off the real manifests — the durations, the grid and the aspect table
     the model is told about are this install's — and off an invented weights
     block, because which files are on the disk of whoever runs this bench says
-    nothing about whether the prompting works.
+    nothing about whether the prompting works. `edit_family` is the one a cited
+    picture is changed on when the still family cannot read one, as the room's
+    rail would carry it; complete here like the other two.
     """
     families = [pkg.manifest.describe(name)
-                for name in dict.fromkeys([still_family, video_family])]
+                for name in dict.fromkeys([still_family, video_family, edit_family]) if name]
     picked, by_folder = {}, {}
     for family in families:
         block = {}
@@ -112,7 +114,8 @@ def _machine(pkg, still_family, video_family):
         picked[family["id"]] = block
     return pkg.chat.machine_card(still_family, video_family,
                                  {"families": families},
-                                 {"by_folder": by_folder}, picked)
+                                 {"by_folder": by_folder}, picked,
+                                 edit_family=edit_family)
 
 
 def _catalog(pkg):
@@ -160,6 +163,10 @@ def main():
     parser.add_argument("--model", default="qwen3-vl:4b")
     parser.add_argument("--url", default="http://localhost:11434/v1")
     parser.add_argument("--still", default="krea2", help="the rail's still family")
+    parser.add_argument("--edit", default="auto",
+                        help="the family a cited picture is changed on when the still "
+                             "family cannot read one — the rail's Edits pill; 'auto' "
+                             "is the first that edits, 'none' is a rail without one")
     parser.add_argument("--video", default="h3", help="the rail's video family")
     parser.add_argument("--temperature", type=float, default=0.3)
     parser.add_argument("--seed", type=int, default=1)
@@ -180,17 +187,30 @@ def main():
     if args.still not in pkg.registry.IMAGE_FAMILIES:
         print(f"--still must be one of: {', '.join(pkg.registry.IMAGE_FAMILIES)}")
         return 1
+    # The family a cited picture goes to when the still family cannot read one
+    # — `routes/chat.machine` resolves it the same way, off the same function,
+    # with this machine's disk standing in for the bench's invented one.
+    edit = None
+    if args.edit != "none":
+        wanted = chat.pick_edit_family(_catalog(pkg), {"by_folder": {}}, {},
+                                       None if args.edit == "auto" else args.edit)
+        if wanted is None or (args.edit != "auto" and wanted["id"] != args.edit):
+            print("--edit must be one of: " + ", ".join(
+                f["id"] for f in chat.edit_families(_catalog(pkg))) + ", auto or none")
+            return 1
+        edit = wanted["id"]
+    arch_of = lambda family: next(  # noqa: E731
+        arch for arch, owner in pkg.registry.STILL_ARCHES.items() if owner == family)
     system = chat.system_prompt(verbosity=args.verbosity)
-    card = _machine(pkg, args.still, args.video)
-    rail = {"still_family": args.still,
-            "still_arch": next(arch for arch, owner in pkg.registry.STILL_ARCHES.items()
-                               if owner == args.still),
+    card = _machine(pkg, args.still, args.video, edit)
+    rail = {"still_family": args.still, "still_arch": arch_of(args.still),
             # What the room's own rail carries about this family's pictures, so
             # a citation the family cannot be given is refused here in the same
-            # words the room would use — which on Krea 2, the default, is most
-            # of what a conversation about changing a picture runs into.
+            # words the room would use — or, with an edit family on the rail,
+            # goes where the room would send it (`still_arch_for`).
             "still_pictures": chat.still_pictures(
                 pkg.manifest.describe(args.still), _catalog(pkg)),
+            "edit_family": edit, "edit_arch": arch_of(edit) if edit else None,
             "video_family": args.video, "aspect": "16:9", "short_edge": 768}
 
     def ask(message):
@@ -241,8 +261,21 @@ def main():
         action = verdict["action"]
         print(f"ACTION: {json.dumps(action, ensure_ascii=False)}")
         print(f"SAY:    {verdict['say']}")
+        # A still is drawn on the arch the route would stamp on the action —
+        # the rail's, or its edit arch for a picture the rail's family cannot
+        # read — and the blob is patched as that family's, the way the room
+        # builds its base for it.
+        drawn = rail
+        if action["kind"] == chat.KIND_STILL:
+            arch = chat.still_arch_for(action, told, rail, cast)
+            if arch != rail["still_arch"]:
+                family = pkg.registry.STILL_ARCHES[arch]
+                drawn = {**rail, "still_family": family, "still_arch": arch,
+                         "still_pictures": chat.still_pictures(
+                             pkg.manifest.describe(family), _catalog(pkg))}
+                print(f"DRAWN:  on {family}, since a picture is cited")
         try:
-            compiled, blob = _dry_run(pkg, action, told, rail, strip, cast)
+            compiled, blob = _dry_run(pkg, action, told, drawn, strip, cast)
             print("COMPILED:\n" + compiled)
         except chat.ActionError as problem:
             print(f"REFUSED: {problem}")

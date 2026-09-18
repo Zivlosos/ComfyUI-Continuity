@@ -150,13 +150,25 @@ One tool, one schema, at most one call per turn:
 ```
 
 - `kind` picks the family: the pre-stage's image model or the piece's
-  family. The model does not name families in this iteration.
+  family. The model does not name families. The one exception is the
+  harness's, not the model's (amended 2026-09-18, §9): a still that cites a
+  picture the rail's image model cannot read is drawn on the rail's *edit*
+  family — Qwen Image Edit or Flux 2 Klein, whichever the disk is complete
+  for, or the one the rail names — and the model is told only that a still
+  *can* be given a picture and what the first one cited means, never which
+  weights change it. `routes/chat._run` stamps the arch onto the action and
+  the room builds its base for that arch.
 - `from` is zero or more handles from the ledger. They become references
   on the segment, scope `full`. Under `kind: video` a still in `from` is
   the **start frame**. Under an edit family (Qwen Image Edit, Flux 2 Klein)
-  the first one is the picture being edited, which is what those families
-  do with a first reference already. Nothing else is resolved: no
-  `continue`, no `camera`, no cast.
+  the first one cited *plain* is the picture being edited, which is what
+  those families do with a first reference already; the harness puts the
+  plain citations in front of the scoped ones so that stays true whatever
+  order the model wrote them in, and with none cited plain sets
+  `start_blank` — a new picture drawn from the cited ones. A picture being
+  edited keeps its own shape (the compiler follows the init's), so `aspect`
+  is dropped from an edit and the card tells the model to leave it out.
+  Nothing else is resolved: no `continue`, no `camera`, no cast.
 - `seconds` and `aspect` are optional; the family's defaults apply, and the
   compiler's grid snaps the seconds.
 - `say` is what the bubble shows on a `render`; on a `say` it is the whole

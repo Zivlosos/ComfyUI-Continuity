@@ -6,6 +6,28 @@ exactly as it was written, wall of text and all.
 
 ## Unreleased
 
+**A chat still that cites a picture is drawn on an edit model, whatever the
+image model is.** Krea 2, the room's default image model, reads a reference
+only through an adapter in the pre-stage's LoRA stack, which the room has no
+stack to put one in, and Ideogram reads none, so *make it bluer* on either
+ended every time in a polite refusal. Now the rail carries an *Edits* choice
+beside *Pictures* — Qwen Image Edit or Flux 2 Klein, whichever the models
+folder is complete for, or the one you pick — and a still that cites a
+picture the image model cannot read is drawn there instead. The decision is
+the harness's, not the model's: the model still answers with one action and
+never names a family, and the machine card tells it only that a picture can
+be changed, by the edit family's count and rule, naming the family only when
+a file of its is missing. On the edit families the pictures cited plain now
+lead the ones cited for something, so the compiler's promotion of the first
+reference lands on the picture being changed and not on a look that was
+cited first; with none cited plain the render starts from a blank canvas
+(`start_blank`), which is *a new picture from these* rather than *change the
+first of them*; and a picture being changed keeps its own shape, so the
+action's aspect is not written onto an edit and the card says to leave it
+out. The room builds its base for the arch the turn named, following the
+pre-stage's row only where the pre-stage is on that arch and reading its
+turbo block per arch. The bench takes `--edit`.
+
 **The chat's Refine door is gone, and a verbosity dial takes its place.** The
 gear's Refine switch put a clip's prompt through the family's own prompting in
 a second model call before queueing, with the button's settings and a

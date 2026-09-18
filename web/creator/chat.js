@@ -51,7 +51,7 @@ import { FAMILIES, STILL_ARCHES, VIDEO_FAMILIES, DEFAULT_VIDEO_FAMILY, DEFAULT_S
 import { run, watch as watchQueue, dropQueued } from "./queue.js";
 import { openLoupe } from "./loupe.js";
 import { FirstRun, freshSetup, scanMachine } from "./chatsetup.js";
-import { Sync, PICTURE_ARCHES } from "./chatnode.js";
+import { Sync, PICTURE_ARCHES, EDIT_ARCHES } from "./chatnode.js";
 import { pinsFor } from "./loras.js";
 import * as S from "./state.js";
 import { castIntoPiece } from "./presets.js";
@@ -382,6 +382,11 @@ function defaultRail() {
     // not the nodes': a chat renders from its own piece.
     video_family: DEFAULT_VIDEO_FAMILY,
     still_arch: DEFAULT_STILL_ARCH,
+    // Which image model changes a picture the one above cannot read — a
+    // cited picture on Krea 2 or Ideogram goes here instead. "" is whichever
+    // edit family this disk is complete for, which the server picks
+    // (`routes/chat.machine`); the *Edits* pill sets one by hand.
+    edit_arch: "",
     // The seed is the room's, not the node's: a conversation rolls or keeps
     // its own number, drawn as the simple view's die-and-mark pill. `fixed`
     // keeps it so "again, bluer" is the same noise with a different prompt;
@@ -752,17 +757,24 @@ function took(ms) {
  * otherwise. The server writes the prompt, the citations and the shape over
  * it (`chat.video_piece`, `chat.still_piece`) and fills the weights from what
  * this machine picked.
+ *
+ * `arch` is the image arch the turn said a still is drawn on (`action.arch`,
+ * stamped by `routes/chat._run`): the room's own, or its edit arch for a
+ * picture the room's image model cannot read. The server reads the family
+ * off the base that comes back, so the base has to be built for that arch
+ * here — the decision is the server's, and this only carries it. An action
+ * that names none (a chat saved before the field) is the room's own arch.
  */
-function renderBase(sync, kind) {
-  const row = sync.row(kind);
+function renderBase(sync, kind, arch = null) {
+  const row = sync.row(kind, kind === "still" && PICTURE_ARCHES.includes(arch) ? arch : undefined);
   const worn = (family) => {
     const held = new Set(row.loras.map((entry) => entry.name));
     return [...pinsFor(family).filter((entry) => !held.has(entry.name)), ...row.loras];
   };
   if (kind === "still") {
-    const arch = sync.stillArch();
-    const blob = { ...S.emptyPreStage(), arch, loras: worn(STILL_ARCHES[arch]), sampling: row.sampling };
-    if (row.turbo) blob.turbo = { ...blob.turbo, [arch]: { ...row.turbo } };
+    const drawn = PICTURE_ARCHES.includes(arch) ? arch : sync.stillArch();
+    const blob = { ...S.emptyPreStage(), arch: drawn, loras: worn(STILL_ARCHES[drawn]), sampling: row.sampling };
+    if (row.turbo) blob.turbo = { ...blob.turbo, [drawn]: { ...row.turbo } };
     return { piece: JSON.parse(S.serializePreStage(blob)), widgets: row.widgets };
   }
   const family = sync.videoFamily();
@@ -1712,15 +1724,16 @@ class Room {
   }
 
   /** What a message is made against, in the composer's foot: which model
-   *  draws a picture, which makes a clip, and the shape — all three the
-   *  room's own. Size and the sampler rows are behind the gear: they are set
-   *  once and left. */
+   *  draws a picture, which changes one where that model cannot, which makes
+   *  a clip, and the shape — all the room's own. Size and the sampler rows
+   *  are behind the gear: they are set once and left. */
   paintPills() {
     const bar = rail();
     const rules = rulesFor(this.sync.videoFamily());
     const label = bar.aspect || rules.aspects[0]?.[0] || "";
     const ratio = rules.aspects.find(([name]) => name === label)?.[1] ?? 16 / 9;
     const arch = this.sync.stillArch();
+    const edit = this.sync.editArch();
     const family = this.sync.videoFamily();
     this.pills.replaceChildren(...[
       el("button", {
@@ -1732,6 +1745,20 @@ class Room {
           onPick: (which) => setRail({ still_arch: which }),
         }),
       }, [icon("image", 14), el("span", { text: t(S.PRESTAGE_ARCH_LABEL[arch]) })]),
+      // Only where the image model cannot read a cited picture: a model that
+      // edits its own pictures has nothing to hand off, and the pill would be
+      // a choice about nothing. "" is whichever edit family the disk is
+      // complete for, decided on the server per turn.
+      !EDIT_ARCHES.includes(arch) && EDIT_ARCHES.length > 0 && el("button", {
+        class: "mmc-ch-pill",
+        title: t("Which model changes a picture you cite, since the image model cannot read one."),
+        onclick: (event) => openChoicePopover(event.currentTarget, {
+          title: t("Edits with"),
+          options: ["", ...EDIT_ARCHES], value: edit,
+          label: (which) => (which ? t(S.PRESTAGE_ARCH_LABEL[which]) : t("whichever is ready")),
+          onPick: (which) => setRail({ edit_arch: which }),
+        }),
+      }, [icon("pen", 14), el("span", { text: edit ? t(S.PRESTAGE_ARCH_LABEL[edit]) : t("Edits: auto") })]),
       el("button", {
         class: "mmc-ch-pill", title: t("Which model makes a clip."),
         onclick: (event) => openChoicePopover(event.currentTarget, {
@@ -2113,7 +2140,7 @@ class Room {
       message.say = [message.said, line].filter(Boolean).join("\n\n");
       message.bad = true;
     };
-    const base = renderBase(this.sync, kind);
+    const base = renderBase(this.sync, kind, action.arch);
     base.widgets.seed = over.seed ?? (Number(bar.seed) || 0);
     card.seed = base.widgets.seed;
     let answer;
