@@ -60,6 +60,13 @@ log = logging.getLogger(__name__)
 # can execute for as long as one is in flight across a restart.
 NODE_ID = "ContinuityJob"
 
+# The id the one node has in the prompt `submit` builds. Not a number: ComfyUI
+# files a node's outputs and progress under its id, and the frontend hands
+# that id to `getNodeById` — so a job keyed "1" moved the progress bar of
+# whichever canvas node is LiteGraph's node 1, and a chat render keyed the
+# same way showed up in it as its own (`chat.NODE` says the same).
+KEY = "continuity-job"
+
 
 class JobError(ValueError):
     """A job body that cannot be run. Reported where the press was."""
@@ -178,7 +185,7 @@ async def submit(kind, body, client_id=None):
     with the envelope: `{kind, body}`, and the runner is handed `body` alone.
     """
     return await enqueue(
-        {"1": {"class_type": NODE_ID,
+        {KEY: {"class_type": NODE_ID,
                "inputs": {"job": json.dumps({"kind": kind, "body": body})}}},
         client_id)
 

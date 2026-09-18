@@ -128,6 +128,18 @@ check("the room imports the builder rather than spelling a second block",
       "refineRequest" in ROOM and "refineRequest(" in ROOM, True)
 
 
+# ---- the node's id ------------------------------------------------------------
+#
+# The room listens for previews from inside the chat prompt's expansion by the
+# id the server keyed the node under. Two spellings, and a mismatch is a card
+# that never shows a frame.
+
+node_id = re.search(r'const CHAT_NODE = "([^"]+)"', ROOM)
+check("the room and the server key the chat's node the same way",
+      node_id and node_id.group(1), chat.NODE)
+check("and it is not a canvas node's id", chat.NODE.isdigit(), False)
+
+
 # ---- the conversation ---------------------------------------------------------
 #
 # The room sends its own transcript, so what it calls a turn has to be what

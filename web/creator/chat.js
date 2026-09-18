@@ -90,9 +90,11 @@ const CARD_EVENTS = ["progress_state", "b_preview_with_metadata", "b_preview",
                      "kj_preview_override", "executed", "execution_error",
                      "execution_interrupted"];
 
-/** The one node a chat prompt has — `routes/chat._build` builds `{"1": ...}` —
- *  so a preview from inside its expansion names `1.<something>`. */
-const CHAT_NODE = "1";
+/** The one node a chat prompt has — `routes/chat._build` keys it by
+ *  `chat.NODE` — so a preview from inside its expansion names
+ *  `continuity-chat.<something>`. Not a number, because a number is a canvas
+ *  node's id and ComfyUI would file the render on that node. */
+const CHAT_NODE = "continuity-chat";
 
 /** Whether the sidebar is open, per browser. A choice about the window
  *  rather than the machine, so it is not in the settings file. */

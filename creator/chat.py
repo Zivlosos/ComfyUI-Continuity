@@ -46,6 +46,19 @@ from .families import refine, registry
 from .families.h3 import subjects
 
 
+# The one node a chat render's prompt has, by id. Not a number, and that is
+# the whole point: ComfyUI files a finished render's outputs under the id of
+# the node that made it — an expanded save node's `executed` message carries
+# its parent's id as `display_node`, and the frontend hands that to
+# `getNodeById`. A prompt keyed "1" is therefore a render for whichever node
+# on the canvas is LiteGraph's node 1, which is the first node anybody placed,
+# and the piece under the room was showing the chat's stills and clips as its
+# own. A canvas node never has this id, so nothing on the canvas can claim
+# what the chat makes. `chat.js` spells the same id for the previews it
+# listens for, and `tests/test_chat_mirror.py` holds the two together.
+NODE = "continuity-chat"
+
+
 # ---- the system prompt ------------------------------------------------------
 
 _SYSTEM_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),

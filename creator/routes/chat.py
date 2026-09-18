@@ -363,10 +363,12 @@ def _build(action, ledger, rail, stored, base, strip=None, cast=None):
     # The blob last: the schema's own default for that widget is in `widgets`
     # too — every input is, which is the point — and it is the one the render is
     # replacing.
+    # Keyed by `chat.NODE`, never by a number: a number is a canvas node's id
+    # and ComfyUI would file this render on that node. See `chat.NODE`.
     return {"piece": piece, "node": node_id, "field": field,
-            "prompt": {"1": {"class_type": node_id,
-                             "inputs": {**widgets,
-                                        field: json.dumps(piece, indent=2)}}}}
+            "prompt": {chat.NODE: {"class_type": node_id,
+                                   "inputs": {**widgets,
+                                              field: json.dumps(piece, indent=2)}}}}
 
 
 # ---- the Refine switch --------------------------------------------------------
@@ -418,7 +420,7 @@ def _refine(built, block):
         server_routes.compiled_passes(piece)
     except server_routes.COMPILE_FAILURES as refusal:
         return {"problem": f"The rewrite could not be used: {refusal}"}
-    built["prompt"]["1"]["inputs"][built["field"]] = json.dumps(piece, indent=2)
+    built["prompt"][chat.NODE]["inputs"][built["field"]] = json.dumps(piece, indent=2)
     out = {"model": block.get("model") or "", "problems": problems}
     if result.get("skill"):
         out["skill"] = result["skill"]

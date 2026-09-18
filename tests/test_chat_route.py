@@ -128,9 +128,10 @@ finally:
 if "problem" in built:
     FAILURES.append(f"the build over a full machine was refused: {built['problem']}")
 else:
-    inputs = built["prompt"]["1"]["inputs"]
+    inputs = built["prompt"][chat.NODE]["inputs"]
     blob = json.loads(inputs["creator_data"])
-    check("the render is a one-node prompt for the Creator", built["prompt"]["1"]["class_type"], "MiniMaxH3Creator")
+    check("the render is a one-node prompt for the Creator, under the chat's own id",
+          (list(built["prompt"]), built["prompt"][chat.NODE]["class_type"]), ([chat.NODE], "MiniMaxH3Creator"))
     check("the seed is the node's widget", inputs["seed"], 42)
     check("the blob carries the piece's row, stack and switch",
           (blob["sampling"], blob["loras"], blob["turbo"]),

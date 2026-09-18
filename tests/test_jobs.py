@@ -139,12 +139,13 @@ prompt_id = asyncio.run(jobs.submit("upscale", body, "tab-7"))
 check("one job is one item on the queue", len(queue.queue), 1)
 number, queued_id, prompt, extra, outputs, sensitive = queue.queue[0]
 check("queued under the id the caller was given", queued_id, prompt_id)
-check("as one node", list(prompt), ["1"])
-check("and it is ours", prompt["1"]["class_type"], jobs.NODE_ID)
+check("as one node, under an id no canvas node can have", list(prompt), [jobs.KEY])
+check("which is not a number", jobs.KEY.isdigit(), False)
+check("and it is ours", prompt[jobs.KEY]["class_type"], jobs.NODE_ID)
 # The body rides as a string, so anything in it that will not serialize fails
 # here rather than inside `prompt_worker` some minutes later — and it rides
 # *nested*, which is the whole of the next case.
-envelope = json.loads(prompt["1"]["inputs"]["job"])
+envelope = json.loads(prompt[jobs.KEY]["inputs"]["job"])
 check("the body rides whole", envelope["body"], body)
 check("under the kind that says who runs it", envelope["kind"], "upscale")
 # Which tab hears `executed`. Without this the answer goes to whoever queued
@@ -172,7 +173,7 @@ check("and they are ordered", queue.queue[0][0] < queue.queue[1][0], True)
 # server before anything here noticed, which is why it is pinned.
 execution.validate_prompt = _validates
 asyncio.run(jobs.submit("refine", {"kind": "segment", "data": {}}, None))
-sent = json.loads(queue.queue[-1][2]["1"]["inputs"]["job"])
+sent = json.loads(queue.queue[-1][2][jobs.KEY]["inputs"]["job"])
 check("the job's kind is the caller's", sent["kind"], "refine")
 check("and the body keeps its own", sent["body"]["kind"], "segment")
 

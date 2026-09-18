@@ -6,6 +6,13 @@ exactly as it was written, wall of text and all.
 
 ## Unreleased
 
+**A chat render no longer shows up on the canvas's node 1.** ComfyUI files a
+finished render under the id of the node that made it, and the chat's one-node
+prompt — like the bench presses and refines before it — was node "1", which is
+also the first node anybody places. The piece under the room was showing the
+chat's stills and clips as its own, and its progress bar moved for them. The
+chat's node and the job node are keyed by names now, which no canvas node has.
+
 **The chat renders from its own piece, and a still you cite is the one it
 uses.** A chat clip was built over the piece on the canvas, and a still sent
 "→ start" landed on that node, where the model was told about it under a
