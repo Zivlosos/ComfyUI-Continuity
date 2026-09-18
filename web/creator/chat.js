@@ -46,7 +46,7 @@ import { openPicker } from "./picker.js";
 import { loadLoraPrefs, outputUrl, upload, uiSetting, patchSettings, primeSettings,
          viewUrl } from "./api.js";
 import { settings as refinerSettings, chosenModel, openSettings, listSkills } from "./refine.js";
-import { FAMILIES, STILL_ARCHES, VIDEO_FAMILIES, DEFAULT_VIDEO_FAMILY, DEFAULT_STILL_ARCH,
+import { FAMILIES, STILL_ARCHES, VIDEO_FAMILIES, DEFAULT_VIDEO_FAMILY, DEFAULT_STILL_ARCH, DEFAULT_EDIT_FAMILY,
          videoFamily, stillFamily } from "./manifest.js";
 import { run, watch as watchQueue, dropQueued } from "./queue.js";
 import { openLoupe } from "./loupe.js";
@@ -1747,15 +1747,17 @@ class Room {
       }, [icon("image", 14), el("span", { text: t(S.PRESTAGE_ARCH_LABEL[arch]) })]),
       // Only where the image model cannot read a cited picture: a model that
       // edits its own pictures has nothing to hand off, and the pill would be
-      // a choice about nothing. "" is whichever edit family the disk is
-      // complete for, decided on the server per turn.
+      // a choice about nothing. "" is the pack's default edit family where
+      // the disk is complete for it, else whichever is — decided on the
+      // server per turn (`chat.pick_edit_family`), and said here by name.
       !EDIT_ARCHES.includes(arch) && EDIT_ARCHES.length > 0 && el("button", {
         class: "mmc-ch-pill",
         title: t("Which model changes a picture you cite, since the image model cannot read one."),
         onclick: (event) => openChoicePopover(event.currentTarget, {
           title: t("Edits with"),
           options: ["", ...EDIT_ARCHES], value: edit,
-          label: (which) => (which ? t(S.PRESTAGE_ARCH_LABEL[which]) : t("whichever is ready")),
+          label: (which) => (which ? t(S.PRESTAGE_ARCH_LABEL[which])
+            : t("{family} when ready, else whichever is", { family: t(S.FAMILY_LABEL[DEFAULT_EDIT_FAMILY] ?? DEFAULT_EDIT_FAMILY) })),
           onPick: (which) => setRail({ edit_arch: which }),
         }),
       }, [icon("pen", 14), el("span", { text: edit ? t(S.PRESTAGE_ARCH_LABEL[edit]) : t("Edits: auto") })]),

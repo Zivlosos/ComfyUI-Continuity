@@ -43,6 +43,9 @@ export const FAMILIES = catalog.families;
  *  are frozen in saved blobs (`"minimax"` stays H3's alias). */
 export const STILL_ARCHES = catalog.still_arches;
 export const DEFAULT_STILL_ARCH = catalog.default_still_arch;
+/** The family a cited picture is changed on before the room's *Edits* pill
+ *  says otherwise, where it is ready. Mirrors `registry.DEFAULT_EDIT`. */
+export const DEFAULT_EDIT_FAMILY = catalog.default_edit_family;
 
 /** One family's manifest, by id. Unknown ids are a bug, not a state. */
 export function family(id) {

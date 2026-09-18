@@ -314,8 +314,9 @@ What is the room's own is in the composer's foot and behind the gear:
   image model cannot read a picture you cite (Krea 2 without its reference
   adapter, Ideogram): a message that changes a picture — *bluer*, *make her
   coat white*, *@pic-2 in the look of @pic-1* — is drawn on that model
-  instead, Qwen Image Edit or Flux 2 Klein, whichever your models folder is
-  complete for unless you pick one. The assistant is told only that a
+  instead: Flux 2 Klein when your models folder is complete for it, else
+  Qwen Image Edit when it is, unless you pick one on the pill. The
+  assistant is told only that a
   picture can be changed, not which model does it; a picture being changed
   keeps its own shape, and a picture cited for its look, its person, its
   scene or a thing in it is drawn from rather than changed. Where neither

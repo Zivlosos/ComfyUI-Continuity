@@ -281,6 +281,7 @@ def catalog():
         "neural": neural.status(),
         "still_arches": dict(registry.STILL_ARCHES),
         "default_still_arch": registry.DEFAULT_STILL_ARCH,
+        "default_edit_family": registry.DEFAULT_EDIT,
         "video_families": list(registry.video_families()),
         "default_video_family": registry.DEFAULT_VIDEO,
     }

@@ -382,22 +382,33 @@ check("an edit family that is the still family is nothing extra to say",
       edits)
 
 # Which family a picture is changed on: the rail's own choice, ready or not
-# (the card says what it is missing), else the first that is ready, else the
-# first there is so the card can say what it would take, else none.
+# (the card says what it is missing), else the pack's default where it is
+# ready, else the first that is ready, else the default or the first there is
+# so the card can say what it would take, else none. The default is Flux 2
+# Klein — `registry.DEFAULT_EDIT` — so a disk complete for both edit families
+# edits on the same one every time, and the pill is where to say otherwise.
 KLEIN = {**QWENEDIT, "id": "flux2klein", "label": "Flux 2 Klein",
          "weights": [{**slot, "folder": "klein_" + slot["folder"]} for slot in QWENEDIT["weights"]]}
-TWO_EDITS = {"families": [KREA2, KLEIN, QWENEDIT, H3]}
+KLEIN_FILES = {slot["id"]: f"klein_{slot['id']}.safetensors" for slot in KLEIN["weights"]}
+KLEIN_ON_DISK = {"by_folder": {**ON_DISK["by_folder"],
+                               **{slot["folder"]: [KLEIN_FILES[slot["id"]]] for slot in KLEIN["weights"]}}}
+BOTH_READY = {**READY, "flux2klein": KLEIN_FILES}
+# Qwen first in the catalog, so the default is a choice and not the order.
+TWO_EDITS = {"families": [KREA2, QWENEDIT, KLEIN, H3]}
 check("the edit families are the still-only ones whose first picture is the one changed",
-      [f["id"] for f in chat.edit_families(TWO_EDITS)], ["flux2klein", "qwenedit"])
+      [f["id"] for f in chat.edit_families(TWO_EDITS)], ["qwenedit", "flux2klein"])
+check("the pack's default is Flux 2 Klein", chat.pick_edit_family.__defaults__[1], "flux2klein")
 check("the rail's own choice wins, ready or not",
       chat.pick_edit_family(TWO_EDITS, ON_DISK, {}, "qwenedit")["id"], "qwenedit")
-check("otherwise the first that is ready",
+check("with both ready, the default edits — not the first in the catalog",
+      chat.pick_edit_family(TWO_EDITS, KLEIN_ON_DISK, BOTH_READY)["id"], "flux2klein")
+check("with only the other ready, the one that is ready",
       chat.pick_edit_family(TWO_EDITS, ON_DISK, READY)["id"], "qwenedit")
-check("else the first there is",
+check("with neither ready, the default, so the card says what it would take",
       chat.pick_edit_family(TWO_EDITS, {"by_folder": {}}, {})["id"], "flux2klein")
 check("and none where no family edits", chat.pick_edit_family(CATALOG_NO_EDIT, ON_DISK, READY), None)
 check("a choice the catalog does not list is no choice",
-      chat.pick_edit_family(TWO_EDITS, ON_DISK, READY, "krea2")["id"], "qwenedit")
+      chat.pick_edit_family(TWO_EDITS, KLEIN_ON_DISK, BOTH_READY, "krea2")["id"], "flux2klein")
 check("read off the manifest, never off a family id",
       (chat.takes_refs(KREA2), chat.takes_refs(QWENEDIT), chat.takes_refs(H3)),
       (False, True, True))

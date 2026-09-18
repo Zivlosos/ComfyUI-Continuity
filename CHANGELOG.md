@@ -11,9 +11,10 @@ image model is.** Krea 2, the room's default image model, reads a reference
 only through an adapter in the pre-stage's LoRA stack, which the room has no
 stack to put one in, and Ideogram reads none, so *make it bluer* on either
 ended every time in a polite refusal. Now the rail carries an *Edits* choice
-beside *Pictures* — Qwen Image Edit or Flux 2 Klein, whichever the models
-folder is complete for, or the one you pick — and a still that cites a
-picture the image model cannot read is drawn there instead. The decision is
+beside *Pictures* — Flux 2 Klein when the models folder is complete for it
+(`registry.DEFAULT_EDIT`), else Qwen Image Edit when it is, or the one you
+pick on the pill — and a still that cites a picture the image model cannot
+read is drawn there instead. The decision is
 the harness's, not the model's: the model still answers with one action and
 never names a family, and the machine card tells it only that a picture can
 be changed, by the edit family's count and rule, naming the family only when

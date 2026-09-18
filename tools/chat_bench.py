@@ -166,7 +166,8 @@ def main():
     parser.add_argument("--edit", default="auto",
                         help="the family a cited picture is changed on when the still "
                              "family cannot read one — the rail's Edits pill; 'auto' "
-                             "is the first that edits, 'none' is a rail without one")
+                             "is the pack's default (Flux 2 Klein), 'none' is a rail "
+                             "without one")
     parser.add_argument("--video", default="h3", help="the rail's video family")
     parser.add_argument("--temperature", type=float, default=0.3)
     parser.add_argument("--seed", type=int, default=1)

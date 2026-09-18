@@ -153,8 +153,9 @@ One tool, one schema, at most one call per turn:
   family. The model does not name families. The one exception is the
   harness's, not the model's (amended 2026-09-18, §9): a still that cites a
   picture the rail's image model cannot read is drawn on the rail's *edit*
-  family — Qwen Image Edit or Flux 2 Klein, whichever the disk is complete
-  for, or the one the rail names — and the model is told only that a still
+  family — Flux 2 Klein where the disk is complete for it
+  (`registry.DEFAULT_EDIT`), else Qwen Image Edit where it is, or the one
+  the rail names — and the model is told only that a still
   *can* be given a picture and what the first one cited means, never which
   weights change it. `routes/chat._run` stamps the arch onto the action and
   the room builds its base for that arch.

@@ -786,18 +786,25 @@ def edit_families(catalog):
             if list(family.get("produces") or ()) == ["still"] and edits_pictures(family)]
 
 
-def pick_edit_family(catalog, available, weights, preferred=None):
+def pick_edit_family(catalog, available, weights, preferred=None,
+                     default=registry.DEFAULT_EDIT):
     """The family a cited picture is changed on when the still family cannot.
 
     The one the rail asked for, ready or not — a choice somebody made is
-    theirs, and the card says what it is missing; else the first that is ready
-    on this disk, by the same reading the card takes; else the first there is,
-    so the card can say what it would take; None where no family edits at all.
+    theirs, and the card says what it is missing; else the pack's own default
+    (`registry.DEFAULT_EDIT`, Flux 2 Klein) where it is ready, so a disk that
+    is complete for both edit families edits on the same one every time; else
+    the first that is ready on this disk, by the same reading the card takes;
+    else the default, or the first there is, so the card can say what it would
+    take; None where no family edits at all.
     """
     choices = edit_families(catalog)
     for family in choices:
         if family["id"] == preferred:
             return family
+    # The default in front, then the registry's order — one list, walked twice.
+    choices = ([f for f in choices if f["id"] == default]
+               + [f for f in choices if f["id"] != default])
     for family in choices:
         picked = {**guess_weights(family, available),
                   **((weights or {}).get(family["id"]) or {})}

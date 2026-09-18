@@ -156,6 +156,14 @@ DEFAULT_STILL_ARCH = "krea2"
 # permanent: it is what "the video node" meant when there was only one answer.
 DEFAULT_VIDEO = "h3"
 
+# The family a cited picture is changed on when the still family cannot read
+# one and more than one family could: the chat's *Edits* choice before anybody
+# has made it. A product choice, like the two above — Flux 2 Klein because it
+# is the smaller of the two edit families and edits from pictures natively —
+# and only a preference: `chat.pick_edit_family` takes the rail's own choice
+# first, this second where it is ready, and whatever is ready otherwise.
+DEFAULT_EDIT = "flux2klein"
+
 
 def rules(family):
     """The canvas rules of `family`, or None where it renders no video."""
