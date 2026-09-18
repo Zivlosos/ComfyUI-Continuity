@@ -2309,7 +2309,7 @@ export const ja = {
  "Which model draws a picture — the pre-stage's own.": "どのモデルが画像を描くか — プリステージ自身の設定です。",
  "Which model makes a clip — the node's own.": "どのモデルがクリップを作るか — ノード自身の設定です。",
  "Which model changes a picture you cite, since the image model cannot read one.": "引用した画像をどのモデルが変更するか — 画像モデルは画像を読めないため。",
- "{family} when ready, else whichever is": "{family}が準備できていればそれ、なければ準備できている方",
+ "Auto: {family} if ready": "自動: 準備できていれば{family}",
  "Edits with": "編集に使うモデル",
  "Edits: auto": "編集: 自動",
  "Following the node: what it is set to is what the room renders {what} with. Press to pin a copy of its setup for the room alone.": "ノードに追従中: ノードの設定のまま{what}をレンダリングします。押すと設定のコピーをルーム専用にピン留めします。",

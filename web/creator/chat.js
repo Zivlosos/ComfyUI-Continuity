@@ -1757,7 +1757,8 @@ class Room {
           title: t("Edits with"),
           options: ["", ...EDIT_ARCHES], value: edit,
           label: (which) => (which ? t(S.PRESTAGE_ARCH_LABEL[which])
-            : t("{family} when ready, else whichever is", { family: t(S.FAMILY_LABEL[DEFAULT_EDIT_FAMILY] ?? DEFAULT_EDIT_FAMILY) })),
+            : t("Auto: {family} if ready",
+                { family: t(FAMILIES.find((entry) => entry.id === DEFAULT_EDIT_FAMILY)?.label ?? DEFAULT_EDIT_FAMILY) })),
           onPick: (which) => setRail({ edit_arch: which }),
         }),
       }, [icon("pen", 14), el("span", { text: edit ? t(S.PRESTAGE_ARCH_LABEL[edit]) : t("Edits: auto") })]),

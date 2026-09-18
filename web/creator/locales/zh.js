@@ -2311,7 +2311,7 @@ export const zh = {
  "Which model draws a picture — the pre-stage's own.": "哪个模型绘制图片——即预置节点自己的设置。",
  "Which model makes a clip — the node's own.": "哪个模型生成片段——即节点自己的设置。",
  "Which model changes a picture you cite, since the image model cannot read one.": "由哪个模型修改你引用的图片——因为图片模型无法读取图片。",
- "{family} when ready, else whichever is": "{family}就绪则用它，否则用就绪的那个",
+ "Auto: {family} if ready": "自动：{family}就绪则用它",
  "Edits with": "编辑所用模型",
  "Edits: auto": "编辑：自动",
  "Following the node: what it is set to is what the room renders {what} with. Press to pin a copy of its setup for the room alone.": "跟随节点：按节点当前设置渲染{what}。按下可将其设置复制一份，固定为房间专用。",
