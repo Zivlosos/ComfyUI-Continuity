@@ -43,16 +43,19 @@ import { rulesFor, resolveCanvas } from "./canvas.js";
 import { resolvedPreStage, PRESTAGE_CANVAS_MULTIPLE, PRESTAGE_MIN_EDGE, PRESTAGE_MAX_EDGE,
          PRESTAGE_DEFAULT_EDGE } from "./state.js";
 import { openPicker } from "./picker.js";
-import { outputUrl, upload, uiSetting, patchSettings, primeSettings,
+import { loadLoraPrefs, outputUrl, upload, uiSetting, patchSettings, primeSettings,
          viewUrl } from "./api.js";
 import { settings as refinerSettings, chosenModel, openSettings, listSkills, refineRequest } from "./refine.js";
-import { FAMILIES, STILL_ARCHES, videoFamily, stillFamily } from "./manifest.js";
+import { FAMILIES, STILL_ARCHES, VIDEO_FAMILIES, DEFAULT_VIDEO_FAMILY, DEFAULT_STILL_ARCH,
+         videoFamily, stillFamily } from "./manifest.js";
 import { run, watch as watchQueue, dropQueued } from "./queue.js";
 import { openLoupe } from "./loupe.js";
 import { FirstRun, freshSetup, scanMachine } from "./chatsetup.js";
-import { Sides } from "./chatnode.js";
+import { Sync, PICTURE_ARCHES } from "./chatnode.js";
+import { pinsFor } from "./loras.js";
+import * as S from "./state.js";
 import { castIntoPiece } from "./presets.js";
-import { openPresetLibrary, styleCastMember } from "./presetlib.js";
+import { styleCastMember } from "./presetlib.js";
 import { PromptBox } from "./prompt.js";
 import { listChats, loadChat, saveChat, renameChat, deleteChat, newId, pack, groupByDay,
          coverOf } from "./chatstore.js";
@@ -120,6 +123,11 @@ const state = {
   // for the life of the page even after it scrolls out of the ledger block.
   counts: { pic: 0, clip: 0, snd: 0 },
   turn: 0,
+  // The chat's own piece: who is cast here and the files they are built
+  // from. Everything else a render needs — the family, the row, the stack —
+  // is assembled from the rail and the LoRA pins when it is asked for, so
+  // nothing on the canvas is ever in a chat render. See `renderBase`.
+  piece: { subjects: [], assets: [] },
   rail: null,
   railTouched: false,
   busy: false,
@@ -155,7 +163,7 @@ const state = {
  *  `openSaved` replace them on `state` rather than emptying them, so a home
  *  taken here stays whole. */
 const home = () => ({ messages: state.messages, ledger: state.ledger, strip: state.strip,
-                      counts: state.counts, chat: state.chat });
+                      counts: state.counts, chat: state.chat, piece: state.piece });
 
 /** Whether the sidebar starts open: what was chosen last, else the width. */
 function sideOpen() {
@@ -254,6 +262,7 @@ function reset() {
   state.strip = [];
   state.counts = { pic: 0, clip: 0, snd: 0 };
   state.turn = 0;
+  state.piece = { subjects: [], assets: [] };
   state.chat = null;
   state.error = null;
   state.editing = null;
@@ -290,6 +299,7 @@ async function openSaved(id) {
   state.strip = body.strip;
   state.counts = body.counts;
   state.turn = body.turn;
+  state.piece = body.piece ?? { subjects: [], assets: [] };
   state.chat = { id, title: line?.title ?? "", created: line?.created ?? Date.now() };
   state.error = null;
   state.editing = null;
@@ -351,14 +361,19 @@ function fail(card, message) {
 function defaultRail() {
   return {
     aspect: "",
+    // What makes a clip and what draws a picture. The room's own two choices,
+    // not the nodes': a chat renders from its own piece.
+    video_family: DEFAULT_VIDEO_FAMILY,
+    still_arch: DEFAULT_STILL_ARCH,
     // The seed is the room's, not the node's: a conversation rolls or keeps
     // its own number, drawn as the simple view's die-and-mark pill. `fixed`
     // keeps it so "again, bluer" is the same noise with a different prompt;
     // `random` rolls a new one after every render.
     seed: Math.floor(Math.random() * 0xffffffff),
     seed_policy: "fixed",
-    // A side's pinned copy, serialized as the node's widget holds it — empty
-    // while the side follows the node. See `chatnode.Sides.pin`.
+    // A side's pinned row, as a blank blob of the room's family with the
+    // row and the turbo switch on it — empty while the side follows the
+    // node's row. See `chatnode.Sync.pin`.
     pinned_still: "",
     pinned_video: "",
     // One short edge per kind, because they are not one number: a still is
@@ -396,12 +411,12 @@ function setRail(patch) {
   notify();
 }
 
-/** The clip's short edge: the rail's, or the node's family's trained edge
- *  while nobody has moved it — which is the node's own default too. */
-const clipEdge = (sides) => Number(rail().video_edge) || rulesFor(sides.videoFamily()).nativeShortEdge;
+/** The clip's short edge: the rail's, or the room's video family's trained
+ *  edge while nobody has moved it. */
+const clipEdge = (sync) => Number(rail().video_edge) || rulesFor(sync.videoFamily()).nativeShortEdge;
 
 /** The rail as a render reads it, the clip's edge resolved. */
-const railFor = (sides) => ({ ...rail(), video_edge: clipEdge(sides) });
+const railFor = (sync) => ({ ...rail(), video_edge: clipEdge(sync) });
 
 // ---- the ledger -------------------------------------------------------------
 
@@ -462,16 +477,22 @@ function forServer() {
     }
     trimmed.unshift(message.role === "user"
       ? { role: "user", text: withAttached(message) }
-      : { role: "assistant", say: message.say ?? "", ...(message.action ? { action: message.action } : {}) });
+      : { role: "assistant", say: message.say ?? "",
+          ...(message.action ? { action: message.action } : {}),
+          // Which handle the render became, so "it" on the next line has a
+          // name; a render that failed or was refused says nothing was made.
+          ...(message.card?.entry ? { made: message.card.entry.handle } : {}),
+          ...(message.action && !message.card?.entry && (message.bad || message.card?.state === "failed")
+            ? { failed: true } : {}) });
   }
   return trimmed;
 }
 
 /** The block `chat/turn` takes as `settings`: the refiner's half of the request,
- *  assembled the way `refine.refine` assembles it, plus what the nodes under
- *  the room say. One object, because the server reads the families off the
- *  same block it reads the backend off — see `routes/chat._rail`. */
-function requestBlock(sides) {
+ *  assembled the way `refine.refine` assembles it, plus the room's own two
+ *  families. One object, because the server reads the families off the same
+ *  block it reads the backend off — see `routes/chat._rail`. */
+function requestBlock(sync) {
   const current = refinerSettings();
   const bar = rail();
   return {
@@ -485,7 +506,7 @@ function requestBlock(sides) {
     // Always appended. The room offers no replace, so it says so rather than
     // letting a package's own declared mode decide and be refused.
     skill_mode: bar.skill ? "add" : "",
-    ...sides.families(),
+    ...sync.families(),
   };
 }
 
@@ -702,26 +723,46 @@ function took(ms) {
     : t("{m} m {s} s", { m: Math.floor(total / 60), s: total % 60 });
 }
 
+/**
+ * The blob a chat render is built over, and the node's widget values beside it.
+ *
+ * The chat's piece and nothing of the canvas: a blank blob of the room's
+ * family, the chat's cast and their files, the family's pinned LoRAs, and the
+ * sampler row and turbo switch `Sync` says the room samples on — the node's
+ * while following, the room's own while pinned, the family's defaults
+ * otherwise. The server writes the prompt, the citations and the shape over
+ * it (`chat.video_piece`, `chat.still_piece`) and fills the weights from what
+ * this machine picked.
+ */
+function renderBase(sync, kind) {
+  const row = sync.row(kind);
+  const worn = (family) => {
+    const held = new Set(row.loras.map((entry) => entry.name));
+    return [...pinsFor(family).filter((entry) => !held.has(entry.name)), ...row.loras];
+  };
+  if (kind === "still") {
+    const arch = sync.stillArch();
+    const blob = { ...S.emptyPreStage(), arch, loras: worn(STILL_ARCHES[arch]), sampling: row.sampling };
+    if (row.turbo) blob.turbo = { ...blob.turbo, [arch]: { ...row.turbo } };
+    return { piece: JSON.parse(S.serializePreStage(blob)), widgets: row.widgets };
+  }
+  const family = sync.videoFamily();
+  const blob = { ...S.emptyTimeline(), family,
+                 subjects: state.piece.subjects ?? [], assets: state.piece.assets ?? [],
+                 loras: worn(family), sampling: row.sampling,
+                 ...(row.turbo ? { turbo: { ...row.turbo } } : {}) };
+  // The serializer leaves the default family unwritten and the server reads
+  // the same default back; said outright so the two ends never have to agree
+  // on what "unwritten" means.
+  return { piece: { ...JSON.parse(S.serializeTimeline(blob)), family }, widgets: row.widgets };
+}
+
 /** The ledger as the box's "attached" list: what `@` offers first. */
 function ledgerAssets() {
   const media = { still: "image", clip: "video", sound: "audio" };
   return state.ledger.map((entry) => ({
     handle: entry.handle, filename: entry.filename, kind: media[entry.kind] ?? "image",
   }));
-}
-
-/** The piece's shelf, a one-shot piece's own row included — mirrors
- *  `chat._shelf`, which is what the render puts on the shelf. */
-function shelfOf(piece) {
-  if (!piece) return [];
-  const pool = [...(piece.assets ?? [])];
-  const held = new Set(pool.map((asset) => asset.handle));
-  if ((piece.segments ?? []).length === 1) {
-    for (const asset of piece.segments[0].assets ?? []) {
-      if (asset?.handle && !held.has(asset.handle)) pool.push(asset);
-    }
-  }
-  return pool;
 }
 
 /** The strip as the model is told it: each shot's handle and length. */
@@ -756,7 +797,7 @@ class Room {
   constructor(options, resolve) {
     this.resolve = resolve;
     this.back = options.back ?? null;
-    this.sides = new Sides({ ...options, rail, setRail });
+    this.sync = new Sync({ ...options, rail, setRail });
     this.queue = { remaining: 0, running: false };
     this.skills = [];
     // Files picked or pasted but not yet sent. They ride the next message the
@@ -765,7 +806,7 @@ class Room {
     this.pending = [];
     this.firstRun = new FirstRun({
       setup: () => state.setup,
-      rail, setRail, sides: this.sides,
+      rail, setRail, sides: this.sync,
       said: (key, ask, answer) => this.setupSaid(ask, answer),
       finish: () => this.finishSetup(),
       repaint: () => this.paint(),
@@ -777,11 +818,11 @@ class Room {
   mount() {
     this.log = keepScroll(el("div", { class: "mmc-ch-log" }));
     // The node's own prompt box, over the room's things: `@` cites what the
-    // conversation has made or attached and what the piece holds on its
-    // shelf and in its cast, `/` brings in a look, somebody from the cast
-    // library or a file. A member cast here lands on the piece — the node's,
-    // or the room's pinned copy — exactly as one cast in the node's box does,
-    // and the model reads the name back as the citation it is.
+    // conversation has made or attached and who is in its cast, `/` brings
+    // in a look, somebody from the cast library or a file. A member cast here
+    // lands on the chat's own piece, and the model reads the name back as the
+    // citation it is. A file's chip is a control: pressing it says what the
+    // file is for — a start frame, an end frame, its look.
     this.box = new PromptBox({
       placeholder: t("Ask for a picture or a shot…"),
       getState: () => ({ assets: ledgerAssets() }),
@@ -791,16 +832,12 @@ class Room {
       // paperclip stages one, with its handle minted now so the chip resolves.
       onAttach: (row) => this.stage(row)?.entry?.handle ?? null,
       attachBlocked: () => null,
-      getPool: () => shelfOf(this.sides.piece()),
-      getCast: () => this.sides.piece()?.subjects ?? [],
+      getPool: () => [],
+      getCast: () => state.piece.subjects ?? [],
       castFromLibrary: (member) => this.castOntoPiece(member),
       castStyle: (row) => this.castOntoPiece(styleCastMember(row, 0)),
       castVoice: (member) => this.castOntoPiece(member),
-      openLibrary: (scope) => {
-        const target = this.sides.presetTarget();
-        if (!target) return;
-        openPresetLibrary({ target, scope }).then(() => this.paintComposer());
-      },
+      onRefChip: (handle, chip) => this.scopeMenu(handle, chip),
       onBrowse: () => this.browse(),
     });
     this.box.root.classList.add("mmc-ch-box");
@@ -949,9 +986,9 @@ class Room {
       if (this.overlay.isConnected) this.paint();
     });
     if (!state.indexRead) readIndex();
-    // The composer's family pills read the nodes, and a family moved under the
-    // gear — or on the canvas, in another tab of the shell — has to show.
-    this.unfollow = this.sides.follow(() => { if (this.overlay.isConnected) this.paintPills(); });
+    // The family's pins go on every chat render; warm the store so the first
+    // render wears them too.
+    loadLoraPrefs().catch(() => {});
 
     this.paint();
     this.box.root.focus();
@@ -968,6 +1005,7 @@ class Room {
     this.stopThinking();
     this.unfollow?.();
     this.unwatchQueue?.();
+    this.unfollow?.();
     this.unmount?.();
     this.resolve?.();
   }
@@ -1426,10 +1464,10 @@ class Room {
         n: card.piece.segments.length }) }));
     }
     if (card.entry) {
-      const target = card.isClip ? null : this.sides.node();
+  
       const send = (role, label, title) => el("button", {
         class: "mmc-ch-door mmc-ch-sendon", text: t(label),
-        title: t("{action} on {target}.", { action: t(title), target: target.title || target.comfyClass }),
+        title: t(title),
         onclick: () => this.sendOn(card, role),
       });
       body.push(el("div", { class: "mmc-ch-doors" }, [
@@ -1439,13 +1477,14 @@ class Room {
           onclick: () => this.cite(card.entry),
         }),
         el("span", { class: "mmc-bn-gap" }),
-        // A still goes on to the piece under the room through the same door
-        // the pre-stage's chips use, in the same words: "→ start" here is
-        // "→ start" there. A clip has no frame to be, so it has neither.
-        ...(target?.mmcBody?.attachFromPreStage ? [
-          send("first_frame", "→ start", "Use this still as the start frame"),
-          send("last_frame", "→ end", "Use this still as the end frame"),
-        ] : []),
+        // A still goes into the next message as a chip that says what it is
+        // for — `@pic-2:start` — which is the one way anything reaches a chat
+        // render. A clip has no frame to be, so it has only its handle.
+        ...(card.isClip ? [] : [
+          send("start", "→ start", "Cite this still as the next clip's start frame"),
+          send("end", "→ end", "Cite this still as the next clip's end frame"),
+          send("ref", "→ ref", "Cite this still as a reference"),
+        ]),
         el("button", {
           class: "mmc-ch-door", text: t("Retake"),
           title: t("The same request again, on a new seed."),
@@ -1633,11 +1672,9 @@ class Room {
    * member is there for the render and there on the node's own shelf.
    */
   castOntoPiece(member) {
-    const piece = this.sides.piece();
-    if (!piece) return null;
-    const subject = castIntoPiece(member, piece, { pool: true });
+    const subject = castIntoPiece(member, state.piece, { pool: true });
     if (!subject) return null;
-    this.sides.commitPiece();
+    notify();
     return subject.handle;
   }
 
@@ -1664,7 +1701,7 @@ class Room {
             + "reply waits behind whatever is sampling — a server is the better "
             + "setting on one GPU.")
         : t("A model on a server you already run."),
-      onclick: (event) => openSettings(event.currentTarget, () => this.paint(), this.sides.videoFamily()),
+      onclick: (event) => openSettings(event.currentTarget, () => this.paint(), this.sync.videoFamily()),
     }, [
       el("span", { class: "mmc-ch-modelname", text: name }),
       icon("chevron", 12),
@@ -1672,24 +1709,42 @@ class Room {
   }
 
   /** What a message is made against, in the composer's foot: which model
-   *  draws a picture, which makes a clip — the nodes' own pills — and the
-   *  shape, which is the room's. Size and the sampler rows are behind the
-   *  gear: they are set once and left. */
+   *  draws a picture, which makes a clip, and the shape — all three the
+   *  room's own. Size and the sampler rows are behind the gear: they are set
+   *  once and left. */
   paintPills() {
     const bar = rail();
-    const rules = rulesFor(this.sides.videoFamily());
+    const rules = rulesFor(this.sync.videoFamily());
     const label = bar.aspect || rules.aspects[0]?.[0] || "";
     const ratio = rules.aspects.find(([name]) => name === label)?.[1] ?? 16 / 9;
+    const arch = this.sync.stillArch();
+    const family = this.sync.videoFamily();
     this.pills.replaceChildren(...[
-      this.sides.picturePill(),
-      this.sides.clipPill(),
+      el("button", {
+        class: "mmc-ch-pill", title: t("Which model draws a picture."),
+        onclick: (event) => openChoicePopover(event.currentTarget, {
+          title: t("Image model"),
+          options: PICTURE_ARCHES, value: arch,
+          label: (which) => t(S.PRESTAGE_ARCH_LABEL[which]),
+          onPick: (which) => setRail({ still_arch: which }),
+        }),
+      }, [icon("image", 14), el("span", { text: t(S.PRESTAGE_ARCH_LABEL[arch]) })]),
+      el("button", {
+        class: "mmc-ch-pill", title: t("Which model makes a clip."),
+        onclick: (event) => openChoicePopover(event.currentTarget, {
+          title: t("Video model"),
+          options: VIDEO_FAMILIES, value: family,
+          label: (which) => t(S.FAMILY_LABEL[which] ?? which),
+          onPick: (which) => setRail({ video_family: which }),
+        }),
+      }, [icon("video", 14), el("span", { text: t(S.FAMILY_LABEL[family] ?? family) })]),
       el("button", {
         class: "mmc-ch-pill", title: t("Aspect Ratio"),
         onclick: (event) => {
           // The popover writes onto a piece; this is the rail's field wearing
           // a piece's names, read back when it commits. Every family here
           // offers the same shapes, so the video family's list serves.
-          const target = { family: this.sides.videoFamily(), aspect: label };
+          const target = { family: this.sync.videoFamily(), aspect: label };
           openAspectPopover(event.currentTarget, target, () => setRail({ aspect: target.aspect }));
         },
       }, [aspectGlyph(ratio, 14), el("span", { text: label })]),
@@ -1724,10 +1779,10 @@ class Room {
     const bar = rail();
     const label = bar.aspect || "16:9";
     const still = kind === "still";
-    const rules = still ? null : rulesFor(this.sides.videoFamily());
+    const rules = still ? null : rulesFor(this.sync.videoFamily());
     const ratio = still ? null : (rules.aspects.find(([name]) => name === label)?.[1] ?? 16 / 9);
     const mark = still ? PRESTAGE_DEFAULT_EDGE : rules.nativeShortEdge;
-    const target = { short_edge: still ? Number(bar.still_edge) || mark : clipEdge(this.sides) };
+    const target = { short_edge: still ? Number(bar.still_edge) || mark : clipEdge(this.sync) };
     const size = () => {
       if (still) {
         const { width, height } = resolvedPreStage({ aspect: label, short_edge: target.short_edge });
@@ -1771,13 +1826,14 @@ class Room {
   /**
    * The gear: how this room renders.
    *
-   * Two sections, one per node: the size a picture is drawn at and the
-   * pre-stage's own sampler row; the size a clip is sampled at and the
-   * piece's. The rows are the nodes' — `chatnode.Sides` calls the same
-   * functions the faces mount over the same blobs — so a step count dialled
-   * here is on the node and a switch thrown on the node is lit here. Under
-   * them, the room's own two: the Refine switch and a skill to append.
-   * Redrawn in place on every change, and whenever either node redraws.
+   * Two sections, one per kind: the size a picture is drawn at and the row
+   * it samples on; the size a clip is sampled at and its row. A row is the
+   * node's while the room follows it — `chatnode.Sync` calls the same
+   * functions the faces mount over the node's own blob, so a step count
+   * dialled here is on the node and a switch thrown on the node is lit here
+   * — or the room's own once pinned. Under them, the room's own two: the
+   * Refine switch and a skill to append. Redrawn in place on every change,
+   * and whenever either node redraws.
    */
   openMore(anchor) {
     const pop = el("div", { class: "mmc-pop mmc-ch-more" });
@@ -1788,20 +1844,15 @@ class Room {
         class: "mmc-pill mmc-ch-value",
         onclick: (event) => this.openEdge(event.currentTarget, kind,
                                           (edge) => change({ [`${kind}_edge`]: edge })),
-      }, [icon("res", 16), el("span", { text: `${kind === "still" ? bar.still_edge : clipEdge(this.sides)}p` })]);
+      }, [icon("res", 16), el("span", { text: `${kind === "still" ? bar.still_edge : clipEdge(this.sync)}p` })]);
       const head = (text, kind) => el("div", { class: "mmc-ch-gearhead" }, [
         el("span", { text }), el("span", { class: "mmc-bn-gap" }),
-        this.sides.pinPill(kind, () => { draw(); this.paintPills(); }), sizePill(kind)]);
-      const pictureRow = this.sides.pictureRow(draw);
+        this.sync.pinPill(kind, () => { draw(); this.paintPills(); }), sizePill(kind)]);
       pop.replaceChildren(
         head(t("Pictures"), "still"),
-        pictureRow ?? el("button", {
-          class: "mmc-ch-ask", text: t("Add a pre-stage"),
-          title: t("A picture is drawn by a pre-stage beside the piece. There is none yet; the room's first picture would add one."),
-          onclick: async () => { await this.sides.pictureBody(); draw(); },
-        }),
+        this.sync.pictureRow(draw),
         head(t("Clips"), "video"),
-        this.sides.clipRow(draw) ?? el("div", { class: "mmc-ch-note", text: t("There is no piece under this room.") }),
+        this.sync.clipRow(draw),
         el("div", { class: "mmc-ch-rule" }),
         this.toggle(t("Refine"), bar.refine, (on) => change({ refine: on }),
                     t("Put the model's prompt for a clip through the family's own prompting "
@@ -1834,7 +1885,7 @@ class Room {
     placeNear(pop, anchor, { above: false });
     // A node redrawing is a row that may have moved under the pointer — a
     // switch thrown from a pill the editor owns, an arch swapped.
-    const unfollow = this.sides.follow(() => { if (pop.isConnected) draw(); });
+    const unfollow = this.sync.follow(() => { if (pop.isConnected) draw(); });
     pop.close = dismissable(pop, unfollow);
   }
 
@@ -1909,12 +1960,11 @@ class Room {
         messages: forServer(),
         ledger: state.ledger,
         strip: stripSummary(),
-        // The piece, for its cast and its shelf: the names and the handles
-        // the person can write with the `@` menu, which the model has to be
-        // told and the validator has to accept. The server reads both off
-        // the blob (`chat.cast_entries`, `chat.shelf_entries`).
-        piece: this.sides.base("video")?.piece ?? null,
-        settings: requestBlock(this.sides),
+        // The chat's own piece, for its cast: the names the person can write
+        // with the `@` menu, which the model has to be told and the validator
+        // has to accept (`chat.cast_entries`).
+        piece: state.piece,
+        settings: requestBlock(this.sync),
       }, {
         // The token counter the refine button already shows. Only the queued
         // backend reports one — a remote call answers inside the request and
@@ -2029,12 +2079,9 @@ class Room {
    * for a rewrite has somewhere to show: the refine button's token counter,
    * under "Refining…".
    *
-   * The render is the node under the room (or the side's pinned copy), asked
-   * for this: its blob and its sampler widgets go with the request as the
-   * `base`, and the seed is the room's own — kept, or rolled on after the
-   * render the way the frontend's control rolls a widget after a queue. A
-   * picture with no pre-stage to draw it spawns one first — a picture is a
-   * pre-stage's to make.
+   * The render is the chat's own piece asked for this — see `renderBase` —
+   * and the seed is the room's own: kept, or rolled on after the render the
+   * way the frontend's control rolls a widget after a queue.
    *
    * `{problem}` is the assistant's line verbatim — a duration off the frame
    * grid, a checkpoint nobody picked, a rewrite the compiler will not take —
@@ -2042,7 +2089,7 @@ class Room {
    * machine cannot do, which is a thing to say back, not a failure of the room.
    */
   async queueRender(action, message, over = {}) {
-    const bar = railFor(this.sides);
+    const bar = railFor(this.sync);
     const kind = action.kind === "still" ? "still" : "video";
     // Only a clip is refined — the families that draw a still have no prompt
     // refiner, and the server says the same — so a still's card never says
@@ -2062,18 +2109,14 @@ class Room {
       message.say = [message.said, line].filter(Boolean).join("\n\n");
       message.bad = true;
     };
-    if (kind === "still" && !(await this.sides.pictureBody())) {
-      return said(t("There is no pre-stage to draw a picture with, and one could not be added."));
-    }
-    const base = this.sides.base(kind);
-    if (!base) return said(t("There is no node under this room to render with."));
+    const base = renderBase(this.sync, kind);
     base.widgets.seed = over.seed ?? (Number(bar.seed) || 0);
     card.seed = base.widgets.seed;
     let answer;
     try {
       answer = await run("/continuity/chat/render", {
         action, ledger: state.ledger, strip: state.strip, rail: bar, base,
-        piece: this.sides.base("video")?.piece ?? null,
+        piece: state.piece,
         ...(refining ? { refine: refineRequest() } : {}),
       }, {
         onProgress: (_fraction, value, max) => {
@@ -2110,19 +2153,41 @@ class Room {
   }
 
   /**
-   * A finished still, onto the piece under the room as its start or end frame.
+   * A finished still, into the composer as what the next clip is to make of
+   * it: `@pic-2:start`, `@pic-2:end`, or a plain reference.
    *
-   * The same door the pre-stage's chips go through — `attachFromPreStage`
-   * on the piece's body — so the capacity and exclusivity rules are its, and
-   * a refusal is said where the press happened. The room stays open: the
-   * still was sent on, and the next thing is usually to ask for the shot.
+   * A chip and nothing else. The message is the only road into a chat
+   * render, so a door that wrote onto a node behind the room would be a
+   * door onto nothing; this one puts the citation where the person can see
+   * it, change it (press the chip) or delete it before sending.
    */
   sendOn(card, role) {
-    const body = this.sides.node()?.mmcBody;
-    if (!body?.attachFromPreStage || !card.saved) return;
-    const refused = body.attachFromPreStage({ role, filename: this.sourceOf(card).path });
-    state.error = refused || null;
-    notify();
+    if (!card.entry) return;
+    this.box.root.focus();
+    this.box.insertChip(card.entry.handle, role);
+  }
+
+  /** What a cited file is for, asked on its chip: the roles a clip gives a
+   *  picture, then the scopes the reference card offers. The server's
+   *  `chat.scopes_for` is the same list, and refuses anything else by name. */
+  scopeMenu(handle, chip) {
+    const media = { pic: "image", clip: "video", snd: "audio" }[handle.split("-")[0]] ?? "image";
+    const options = media === "image"
+      ? ["", "start", "end", "ref", "style", "person", "object", "scene", "action"]
+      : media === "video"
+        ? ["", "ref", "camera", "continue", "style", "person", "object", "scene", "action"]
+        : ["", "voice", "music", "ambience", "copy"];
+    const label = (scope) => ({
+      "": t("the whole thing"), start: t("start frame"), end: t("end frame"), ref: t("a reference"),
+      style: t("its look"), person: t("who is in it"), object: t("a thing in it"), scene: t("where it is"),
+      action: t("the action"), camera: t("the camera move"), continue: t("carry on from it"),
+      voice: t("the voice"), music: t("the music"), ambience: t("the room tone"), copy: t("the sound itself"),
+    })[scope] ?? scope;
+    openChoicePopover(chip, {
+      title: t("@{handle} is for", { handle }),
+      options, value: chip.dataset.scope ?? "", label,
+      onPick: (scope) => this.box.setScope(chip, scope || null),
+    });
   }
 
   /** A render that has not landed, stopped. Queued, the job comes off the

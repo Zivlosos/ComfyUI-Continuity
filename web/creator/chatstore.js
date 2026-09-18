@@ -166,6 +166,18 @@ export function pack(state) {
     strip: state.strip ?? [],
     counts: { pic: 0, clip: 0, snd: 0, ...(state.counts ?? {}) },
     turn: state.turn ?? 0,
+    // The chat's own piece: who is cast and the files they are built from.
+    // Nothing else of a piece is the conversation's — the family, the row and
+    // the stack are assembled at render time from the rail and the pins.
+    piece: packPiece(state.piece),
+  };
+}
+
+/** The two things a chat's piece keeps. */
+export function packPiece(piece) {
+  return {
+    subjects: Array.isArray(piece?.subjects) ? piece.subjects : [],
+    assets: Array.isArray(piece?.assets) ? piece.assets : [],
   };
 }
 
@@ -179,6 +191,7 @@ export function unpack(body) {
     strip: Array.isArray(body?.strip) ? body.strip : [],
     counts: { pic: 0, clip: 0, snd: 0, ...(body?.counts ?? {}) },
     turn: Number.isFinite(body?.turn) ? body.turn : 0,
+    piece: packPiece(body?.piece),
   };
 }
 

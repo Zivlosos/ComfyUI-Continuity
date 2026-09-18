@@ -32,7 +32,6 @@ import { saveSettings as saveRefiner, saveRemote, listRemoteModels, chosenModel,
          settings as refinerSettings, PROVIDERS } from "./refine.js";
 import { rememberedWeights, adoptWeights } from "./models.js";
 import { STILL_ARCHES } from "./manifest.js";
-import * as S from "./state.js";
 import { patchSettings } from "./api.js";
 import { t } from "./i18n.js";
 import { api } from "../../../scripts/api.js";
@@ -141,7 +140,7 @@ export function refinerName() {
  *
  * @param {object} host  the room's doors:
  *   `setup()` the run's state; `rail()` / `setRail(patch)` the room's rail;
- *   `sides` the nodes under the room (`chatnode.Sides`); `said(key, ask,
+ *   `sides` the room's families and sampling (`chatnode.Sync`); `said(key, ask,
  *   answer)` records a question and its answer as two bubbles; `finish()`
  *   closes the run; `repaint()` redraws; `openEdge(anchor, kind, onChange)`
  *   the room's own size slider; `familyLabel(id)` a name off the served catalog.
@@ -379,10 +378,9 @@ export class FirstRun {
                video: this.familyLabel(sides.videoFamily()) });
   }
 
-  /** Write two families' picks as this machine's, and put the families on
-   *  the nodes: the video family onto the piece, the way its own pill does,
-   *  and the still family onto the pre-stage — spawned for it if there is
-   *  none, since a picture is a pre-stage's to make. */
+  /** Write two families' picks as this machine's, and make the families the
+   *  room's own: what draws a picture and what makes a clip are the rail's
+   *  two fields, and nothing on the canvas is moved for it. */
   async pickFamilies(still, video, picks = null) {
     const weights = {};
     for (const family of [still, video]) {
@@ -390,19 +388,13 @@ export class FirstRun {
       weights[family.id] = { ...(rememberedWeights()[family.id] ?? {}), ...(picks?.[family.id] ?? family.picks) };
     }
     patchSettings({ weights });
-    const sides = this.host.sides;
-    if (video) {
-      const { body, piece } = sides.clip();
-      if (piece && S.pieceFamily(piece) !== video.id && S.setFamily(piece, video.id, rememberedWeights())) {
-        adoptWeights(piece);
-        body.commit();
-      }
-    }
+    const patch = {};
+    if (video) patch.video_family = video.id;
     if (still) {
       const arch = Object.keys(STILL_ARCHES).find((key) => STILL_ARCHES[key] === still.id);
-      const body = arch ? await sides.pictureBody() : null;
-      if (body && body.state.arch !== arch) body.setArch(arch);
+      if (arch) patch.still_arch = arch;
     }
+    if (Object.keys(patch).length) this.host.setRail(patch);
   }
 
   families() {

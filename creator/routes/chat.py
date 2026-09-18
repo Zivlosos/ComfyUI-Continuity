@@ -237,7 +237,7 @@ def _not_ready(family, picked, available, turbo=False):
 
 
 def _node_widgets(node, family, own):
-    """Every widget a node's schema declares, as the node on the canvas has them.
+    """Every widget a node's schema declares, at the values the room sent.
 
     A prompt built by hand carries the whole input list: ComfyUI validates a
     prompt against the schema, and a widget left off is a render that will not
@@ -292,8 +292,9 @@ def _build(action, ledger, rail, stored, base, strip=None, cast=None):
     things for a model to have asked for, and relaying the compiler's own
     sentence is what lets it say so and try again.
 
-    `base` is `(piece, widgets)` — the node on the canvas, as the room read it
-    and `_base` parsed it, with the rail already naming its family. `strip`
+    `base` is `(piece, widgets)` — the chat's own piece as the room assembled
+    it (`chat.js renderBase`) and `_base` parsed it, with the rail already
+    naming its family; the widgets are the sampler row the room samples on. `strip`
     is the shots the room has joined so far, each with its take — the room's
     state, sent the way the ledger is. `cast` is the piece's subjects as the
     room read them, for a still: a picture has no cast, and a member cited
@@ -641,12 +642,13 @@ def _ask(block, system, message):
 
 
 def _with_piece(body):
-    """The ledger with the piece's shelf on it, and the piece's cast.
+    """The ledger as the room sent it, and the piece's cast.
 
-    `body["piece"]` is the video piece under the room — the node's blob or
-    the pinned copy — as a dict or as the widget's JSON string. Both routes
-    read it the same way, so what the model was told a handle means and
-    what the render attaches under it cannot disagree.
+    `body["piece"]` is the chat's own piece — the cast the conversation has
+    brought in and the pool their files are on — as a dict or as JSON. Only
+    the cast is read off it: the model is told who is cast and cites them by
+    name, and the ledger is the room's alone. Nothing on the canvas is in
+    either.
     """
     piece = body.get("piece")
     if isinstance(piece, str):
@@ -655,8 +657,7 @@ def _with_piece(body):
         except ValueError:
             piece = None
     piece = piece if isinstance(piece, dict) else {}
-    ledger = list(body.get("ledger") or []) + chat.shelf_entries(piece)
-    return ledger, chat.cast_entries(piece)
+    return list(body.get("ledger") or []), chat.cast_entries(piece)
 
 
 def _last_user(messages):

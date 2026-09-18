@@ -6,6 +6,24 @@ exactly as it was written, wall of text and all.
 
 ## Unreleased
 
+**The chat renders from its own piece, and a still you cite is the one it
+uses.** A chat clip was built over the piece on the canvas, and a still sent
+"→ start" landed on that node, where the model was told about it under a
+heading and asked not to reach for it — which is how a clip came back opening
+on a picture the conversation no longer showed. Now nothing on the canvas is
+in a chat render: a clip is a fresh piece of the room's own video family with
+the chat's cast, the family's pinned LoRAs and the files the conversation
+cited, a picture a fresh pre-stage the same way, and the model is told only
+what the chat made, with the latest picture and clip marked and each turn
+saying which handle its render became. The one thing that follows the node
+is how a render samples — the row and the turbo switch — and a pin keeps a
+row of the room's own instead. A handle you write is binding: it goes into
+the render whether or not the model repeats it, and what you say it is for
+wins. Which is now said on the chip: press a file's chip in the box for
+start frame, end frame, reference or a scope, spelled `@pic-2:start` for you
+and the model alike; the "→ start" and "→ end" doors under a still put that
+chip in the box rather than writing onto the node.
+
 **The chat's render card turns over, opens in the loupe, sends a still on,
 and can be cancelled.** The corner button turns the plate: the picture on
 one side, on the other the prompt as asked, what the refiner actually sent

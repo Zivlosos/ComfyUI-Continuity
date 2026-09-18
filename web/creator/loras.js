@@ -284,6 +284,18 @@ let prefsLanding = null;
 /** The pins a family holds, from the loaded prefs. */
 const wornBy = (family) => loraPrefsNow()?.wears?.[family] ?? [];
 
+/** The pins a family wears, as the stack entries `settlePins` would put on
+ *  an empty stack. The chat room builds its own piece's stack from these
+ *  and from nothing else the LoRA manager holds. Empty until the prefs have
+ *  loaded — see `loadLoraPrefs`. */
+export function pinsFor(family) {
+  if (!family) return [];
+  return wornBy(family).map((pin) => ({
+    ...pin, enabled: true, triggers: [...(pin.triggers ?? [])],
+    modes: pin.modes ? [...pin.modes] : [...S.checkpointsOf(family)],
+  }));
+}
+
 /** Whether this file is pinned to this family. */
 export const isPinned = (name, family) =>
   Boolean(family) && wornBy(family).some((entry) => entry.name === name);

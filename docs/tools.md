@@ -246,10 +246,12 @@ lands in your output folder beside everything else, with the blob that made it
 in its metadata.
 
 Each render gets a handle — `pic-1`, `clip-2` — and the handles are how you ask
-for a change: cite one and the model builds the next request on it. A still
-cited on a clip is that clip's first frame. Press the handle under a card to
-drop its chip into the box. The paperclip, a paste and a dropped file all
-upload into `input/continuity/chat/` and get a handle of their own.
+for a change: cite one and the model builds the next request on it. "It" and
+"that" mean the latest thing made, which the model is told; a handle you write
+is the one used, whatever the model would have picked. A still cited plain on
+a clip is that clip's start frame. Press the handle under a card to drop its
+chip into the box. The paperclip, a paste and a dropped file all upload into
+`input/continuity/chat/` and get a handle of their own.
 
 **The first time, the room asks three questions** before anything else: who
 does the thinking, what does the drawing, and what shape things come out in.
@@ -285,51 +287,53 @@ panel folds away behind the icon beside the crumb, and on a narrow window it
 opens over the transcript instead of beside it. Chats live in ComfyUI's
 per-user data, so they follow the user across browsers.
 
-**The room renders with the node.** A chat render is the piece on the canvas,
-asked for this prompt in this shape: its family, its files, its LoRA stack,
-its turbo switch, its sampler row and its passes are the node's, read off it
-on every render. A picture is the pre-stage's the same way — the one beside
-the piece, or one the room adds the first time a picture is asked for.
-Nothing about how a render samples is the room's own, which is what makes
-the two agree: throw turbo in the room and the node has it thrown; dial the
-steps on the node and the room samples on them; *Open in the editor* puts
-back a setup that was the node's to begin with.
+**The chat renders from its own piece.** Nothing on the canvas is in a chat
+render, and nothing a chat renders is written onto the canvas. A clip is a
+fresh piece of the room's video family with the chat's cast on it, the
+family's pinned LoRAs on its stack, and the files the conversation cited; a
+picture is a fresh pre-stage of the room's image model the same way. The
+files each family loads are the machine's picks, the ones a node fills its
+weight rows from. What a render *samples on* — the steps, the guidance, the
+schedule, the accelerators and the turbo switch — follows the piece on the
+canvas, so a draft in the room samples the way the piece beside it was tuned
+to. A piece on another family than the room's has nothing to follow, and the
+room samples on its own family's defaults.
 
 **Unless you pin a side.** The pin beside *Pictures* or *Clips* in the gear
-takes a copy of that node's setup and the room renders with the copy from
-then on: the gear edits the copy, the node keeps whatever it is set to, and
-the two can differ — a strip tuned for a long render on the canvas, a fast
-draft setup in the room. The copy is remembered per machine with the rest of
-the room's choices; pressing the pin again drops it and the room follows the
-node again.
+takes a copy of that row for the room alone: the gear edits the copy, the
+node keeps whatever it is set to, and the two can differ — a strip tuned for
+a long render on the canvas, a fast draft row in the room. The copy is
+remembered per machine with the rest of the room's choices; pressing the pin
+again drops it and the room follows the node's row again.
 
 What is the room's own is in the composer's foot and behind the gear:
 
-- **Which model.** *Pictures* is the pre-stage's image model, *Clips* the
-  piece's family — the nodes' own pills, in the composer's clothes. Picking
-  one moves the node, with everything a switch entails there.
+- **Which model.** *Pictures* is the image model a picture is drawn with,
+  *Clips* the family a clip is made on — the room's two choices, remembered
+  per machine and never the node's.
 - **The shape, the seed and the two sizes.** A message names a shape; this
-  is where one starts. The seed is the room's own, not the node's — the
-  simple view's die-and-mark pill beside the shape: roll one now, press the
-  mark to type one or to choose whether it is kept for every render or
-  rolled after each. The short edge a picture is drawn at and the short edge
-  a clip is sampled at are separate, because they are separate canvases.
-- **The gear** is the two nodes' sampler rows, drawn again over the same
-  blobs: the steps, the guidance, the schedule, the accelerators, the turbo
-  switch and the weights pill — the same pills, the same values, and a
-  change on either side shows on the other (or, pinned, the room's copy
-  alone). Under them, the room's own two: the **Refine** switch (off, the
-  model's prompt goes to the compiler as written; on, a clip's prompt goes
-  through the family's own prompting first — the Refine button's call, on
-  the Refine button's settings — and the card says *Refining…* while it
-  does; a still is never refined, since the families that draw one have no
-  prompt refiner) and a **skill** file appended to the room's own prompting.
-  *Set up again* asks the three questions afresh.
+  is where one starts. The seed is the room's own — the simple view's
+  die-and-mark pill beside the shape: roll one now, press the mark to type
+  one or to choose whether it is kept for every render or rolled after
+  each. The short edge a picture is drawn at and the short edge a clip is
+  sampled at are separate, because they are separate canvases.
+- **The gear** is the two sampler rows: the steps, the guidance, the
+  schedule, the accelerators and the turbo switch — the node's own pills
+  over the node's own blob while the room follows it, so a change on either
+  side shows on the other, or the room's copy alone once pinned. Under
+  them, the room's own two: the **Refine** switch (off, the model's prompt
+  goes to the compiler as written; on, a clip's prompt goes through the
+  family's own prompting first — the Refine button's call, on the Refine
+  button's settings — and the card says *Refining…* while it does; a still
+  is never refined, since the families that draw one have no prompt
+  refiner) and a **skill** file appended to the room's own prompting. *Set
+  up again* asks the three questions afresh.
 - **The refiner model** is in the bar, the picker the Refine button uses —
   this ComfyUI, or a server you already run.
 
-The shape, the seed, the sizes and any pinned copy are remembered per
-machine; everything else is on the nodes, in the workflow.
+The families, the shape, the seed, the sizes and any pinned row are
+remembered per machine; the cast and everything made are the chat's, saved
+with it.
 
 **A conversation is not all or nothing.** The pencil under a message of yours
 takes it back into the composer, with what went with it, and drops
@@ -341,11 +345,12 @@ it: a picture made on a turn that is no longer in the conversation is not
 offered to the model again, and handles are never reused. None of it is
 offered while a render is still on the queue below that point.
 
-Two doors on a finished card. **Open in the editor** takes that render's own
-setup out of the file it was saved into and puts it on the piece — the
-pre-stage for a picture, the shot for a clip — then goes there, so you can
-carry on in the editor with everything the conversation set up. **Retake** runs
-the same request again on a new seed, without moving the room's.
+Under a finished card: its handle, which drops a chip into the box; on a
+still, **→ start**, **→ end** and **→ ref**, which drop the chip already
+saying what the still is for; and **Retake**, which runs the same request
+again on a new seed without moving the room's. The corner button turns the
+card over onto its slate — the prompt as asked, what the sampler read, the
+seed, what it opened from — and two presses on the picture open the loupe.
 
 **On one GPU.** A model running inside this ComfyUI shares the card with your
 renders, so a reply waits behind whatever is sampling and the room says so
@@ -354,30 +359,32 @@ OpenAI-compatible — is the better setting on a single card, and the rail says
 that too.
 
 **The composer is the node's prompt box.** `@` cites what the conversation
-has made or attached, what the piece holds on its shelf, and who is in its
-cast — and offers the cast library, so typing `@ver` and picking Vera casts
-her onto the piece with her files, exactly as it does in the node's box. `/`
-brings in a look from the style atlas, somebody from the cast library, or a
-file from the input folder. A file picked this way is attached to the next
-message with a handle already minted, so the sentence can cite it at once.
-Enter sends; Shift+Enter breaks the line.
+has made or attached and who is in its cast — and offers the cast library,
+so typing `@ver` and picking Vera casts her onto the chat's piece with her
+files, exactly as it does in the node's box. `/` brings in a look from the
+style atlas, somebody from the cast library, or a file from the input
+folder. A file picked this way is attached to the next message with a handle
+already minted, so the sentence can cite it at once. Enter sends;
+Shift+Enter breaks the line.
 
-**The cast is the piece's.** Somebody cast here lands on the node under the
-room (or on the room's pinned copy) — the same member, the same files, the
-same shelf the node's own cast tab shows — and the model is told who is
-cast and what they are built from. Write *"@anna walks down the street"*
-and the model keeps `@anna` in the prompt exactly as written: the name is
-the whole citation, and the compiler expands it into her pictures and her
-definition, as it does for a shot typed on the node. The model never casts
-anybody itself. A cast member in a still is their first picture cited where
-the name stood, with their description after it.
+**The cast is the chat's.** Somebody cast here lands on the chat's own
+piece, saved with the conversation, and the model is told who is cast and
+what they are built from. Write *"@anna walks down the street"* and the
+model keeps `@anna` in the prompt exactly as written: the name is the whole
+citation, and the compiler expands it into her pictures and her definition,
+as it does for a shot typed on the node. The model never casts anybody
+itself. A cast member in a still is their first picture cited where the name
+stood, with their description after it.
 
-**Say what a picture is for.** A cited file is the whole picture unless you
-say otherwise — "in the style of that one" makes the model write
-`pic-2:style`, and the reference goes in scoped to its look, the same dial
-the reference card has: `person`, `object`, `scene`, `style`, and on a clip
-`camera` or `continue`. A shelf reference cited by handle rides as the shelf
-holds it, its size and its cut included.
+**Say what a picture is for.** Press a file's chip in the box and pick: the
+next clip's **start frame**, its **end frame**, **a reference**, or what it
+is cited for — its look, who is in it, where it is, a thing in it, the
+action; on a clip, the camera move or carrying on from it. The chip reads
+`@pic-2:start`, the model reads the same, and the server refuses anything
+else by name. The **→ start**, **→ end** and **→ ref** doors under a finished
+still put that chip in the box for you. A picture cited plain opens the
+clip if nothing else does; the model writes the suffixes too when your
+words ask for them — "in the style of that one" becomes `pic-2:style`.
 
 **Shots on a strip.** *"Now the next shot: she turns and walks away"* puts a
 card after the last clip and continues from its last frames — the seam a
@@ -388,12 +395,14 @@ the clip on the card is the whole strip so far. *"Redo the second shot,
 darker"* replaces that shot; a new shot after an earlier one cuts the strip
 there, as edit-and-resend cuts the transcript. A clip asked for with no
 "next" starts a new film of one shot. The strip's seam widths, restore and
-one-pass mode are the timeline's own controls: *Open in the editor* carries
-the strip there.
+one-pass mode are the timeline's own controls; the finished clip's file
+carries the whole piece in its metadata, and the picker's Renders tab is
+where it goes back onto a node.
 
 The room's handles are `pic-N`, `clip-N` and `snd-N` — a namespace apart
-from the node's `img`/`vid`/`aud` and the shelf's `ref-N`, so a picture the
-conversation made and a picture on the node's row never share a name.
+from the `img-N` a cast member's files land under on the chat's piece, so a
+picture the conversation made and a picture somebody is built from never
+share a name.
 
 Not in it yet: no captions of what a render actually shows, and no
 streaming.

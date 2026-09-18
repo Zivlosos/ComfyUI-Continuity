@@ -334,6 +334,10 @@ export class PromptBox {
    * @param {(over:boolean)=>void} [hooks.onOverflow]  the text stopped fitting
    *   the box, or started fitting it again. What a node face does about that is
    *   its own business — see `CreatorEditor.onPromptOverflow`.
+   * @param {(handle:string, chip:HTMLElement)=>void} [hooks.onRefChip]  a file's
+   *   chip was clicked. Where a host offers it, the chip is a control — the
+   *   chat's composer opens a menu of what the file is for (a start frame, an
+   *   end frame, its look) and writes the answer back with `setScope`.
    * @param {(handle:string)=>void} [hooks.onCastChip]  a subject's name in the
    *   sentence was clicked. The name is where a subject is used, so it
    *   is also the obvious place to ask what they are made of — see
@@ -441,9 +445,15 @@ export class PromptBox {
         return;
       }
       const chip = this.castChip(event);
-      if (!chip) return;
+      if (chip) {
+        event.preventDefault();
+        this.hooks.onCastChip?.(chip.dataset.handle);
+        return;
+      }
+      const ref = this.refChip(event);
+      if (!ref) return;
       event.preventDefault();
-      this.hooks.onCastChip?.(chip.dataset.handle);
+      this.hooks.onRefChip(ref.dataset.handle, ref);
     });
     // A press on a name is a command, and a command is not a selection. Left to
     // the browser, a click on a contenteditable="false" chip selects the whole
@@ -461,7 +471,7 @@ export class PromptBox {
     // Only the names, and only where they open somebody. A file's chip is not a
     // control, so selecting it is the ordinary thing to be doing with it.
     this.root.addEventListener("mousedown", (event) => {
-      if (this.castChip(event) || event.target?.closest?.("[data-say]")) event.preventDefault();
+      if (this.castChip(event) || this.refChip(event) || event.target?.closest?.("[data-say]")) event.preventDefault();
     });
 
     // The graph canvas swallows keys and drags otherwise, and answers a copy
@@ -745,7 +755,7 @@ export class PromptBox {
           // twice and the tag not at all.
           text += node.dataset.say;
         } else if (node.dataset?.handle) {
-          text += `@${node.dataset.handle}`;
+          text += `@${node.dataset.handle}${node.dataset.scope ? `:${node.dataset.scope}` : ""}`;
         } else if (node.tagName === "BR") {
           // Enter writes a literal newline (see the header), so a <br> is the
           // browser's: the one it leaves after the last character is deleted,
@@ -871,13 +881,16 @@ export class PromptBox {
     const cast = new Set((this.hooks.getCast?.() ?? []).map((s) => s.handle));
     const out = [];
     let at = 0;
-    const pattern = /@([A-Za-z]+-\d+|[A-Za-z][A-Za-z0-9_]*)/g;
+    // A file's handle may wear what it is cited as (`@pic-2:start`); a name
+    // never does, so the suffix is only read after a handle-shaped citation.
+    const pattern = /@([A-Za-z]+-\d+)(?::([a-z]+))?|@([A-Za-z][A-Za-z0-9_]*)/g;
     let match;
     while ((match = pattern.exec(text)) !== null) {
-      const handle = match[1];
+      const handle = match[1] ?? match[3];
+      const scope = match[1] ? (match[2] ?? null) : null;
       if (!known.has(handle) && !cast.has(handle)) continue;
       if (match.index > at) out.push(document.createTextNode(text.slice(at, match.index)));
-      out.push(this.chip(handle, cast.has(handle), off.has(handle)));
+      out.push(this.chip(handle, cast.has(handle), off.has(handle), scope));
       at = match.index + match[0].length;
     }
     if (at < text.length) out.push(document.createTextNode(text.slice(at)));
@@ -893,18 +906,39 @@ export class PromptBox {
     return chip && this.root.contains(chip) ? chip : null;
   }
 
-  chip(handle, subject = false, muted = false) {
+  chip(handle, subject = false, muted = false, scope = null) {
     return el("span", {
       class: `mmc-ref${subject ? " mmc-ref-cast" : ""}${muted ? " mmc-ref-off" : ""} mmc-tag-${tagIndex(handle)}`,
       contenteditable: "false",
       "data-handle": handle,
+      // What the file is cited as — `@pic-2:start`, `@pic-2:style` — kept on
+      // the chip and written back into the text by `getValue`. A host that
+      // offers a menu on the chip (`onRefChip`) is what sets it.
+      ...(scope ? { "data-scope": scope } : {}),
       // Said on the chip, because a gesture nobody can see is a gesture nobody
       // finds. The pointer is the other half of it — see .mmc-prompt-castable.
       title: subject && this.hooks.onCastChip
         ? t("Edit @{handle}", { handle })
-        : undefined,
-      text: `@${handle}`,
+        : !subject && this.hooks.onRefChip
+          ? t("What @{handle} is for", { handle })
+          : undefined,
+      text: `@${handle}${scope ? `:${scope}` : ""}`,
     });
+  }
+
+  /** Change what a file's chip is cited as, in place. `null` clears it. */
+  setScope(chip, scope) {
+    const handle = chip.dataset.handle;
+    if (scope) chip.dataset.scope = scope; else delete chip.dataset.scope;
+    chip.textContent = `@${handle}${scope ? `:${scope}` : ""}`;
+    this.hooks.onInput(this.getValue());
+  }
+
+  /** The file chip an event landed on, where the host offers a menu on one. */
+  refChip(event) {
+    if (!this.hooks.onRefChip) return null;
+    const chip = event.target?.closest?.(".mmc-ref[data-handle]:not(.mmc-ref-cast)");
+    return chip && this.root.contains(chip) ? chip : null;
   }
 
   /**
@@ -1480,7 +1514,7 @@ export class PromptBox {
   }
 
   /** Swap the typed "@query" for a chip, followed by a space. */
-  insertChip(handle) {
+  insertChip(handle, scope = null) {
     // Reported to the host below by the same rule as `onEdit`: a chip the box
     // did not hold a moment ago is the reference asking to be sent again.
     const fresh = !this.chipped.has(handle);
@@ -1495,14 +1529,14 @@ export class PromptBox {
       range.setStart(selection.getRangeAt(0).startContainer, selection.getRangeAt(0).startOffset);
       range.collapse(true);
     } else {
-      this.root.appendChild(this.chip(handle));
+      this.root.appendChild(this.chip(handle, false, false, scope));
       this.root.appendChild(document.createTextNode(" "));
       this.censusChips();
       this.hooks.onInput(this.getValue());
       if (fresh) this.hooks.onCited?.([handle]);
       return;
     }
-    const chip = this.chip(handle);
+    const chip = this.chip(handle, false, false, scope);
     const space = document.createTextNode(" ");
     range.insertNode(space);
     range.insertNode(chip);

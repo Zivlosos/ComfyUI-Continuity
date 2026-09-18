@@ -54,6 +54,9 @@ const state = {
     { role: "assistant", say: "Five seconds.", action: left.action, card: left },
   ],
   ledger: [done.entry], counts: { pic: 1, clip: 0, snd: 0 }, turn: 2,
+  piece: { subjects: [{ handle: "anna", takes: "person", from: ["img-1"] }],
+           assets: [{ handle: "img-1", kind: "image", role: "reference", filename: "anna.png" }],
+           family: "not kept" },
 };
 const packed = store.pack(state);
 out.packed = {
@@ -67,8 +70,10 @@ const back = store.unpack(JSON.parse(JSON.stringify(packed)));
 out.back = { turn: back.turn, counts: back.counts, ledger: back.ledger.length,
              turns: back.messages.filter((m) => m.role === "user").map((m) => m.turn),
              saved: back.messages[1].card.saved, entry: back.messages[1].card.entry.handle,
-             leftState: back.messages[3].card.state };
+             leftState: back.messages[3].card.state,
+             piece: back.piece };
 out.cover = store.coverOf(state);
+out.emptyPiece = store.unpack({ messages: [], ledger: [], counts: {}, turn: 0 }).piece;
 
 // -- the shelf --------------------------------------------------------------
 const t0 = 1_700_000_000_000;
@@ -131,6 +136,12 @@ back = out["back"]
 check(f"turn, counters and ledger round-trip: {back}", bool(back["turn"] == 2 and back["counts"] == {"pic": 1, "clip": 0, "snd": 0} and back["ledger"] == 1), True)
 check("a user message keeps the turn it was said on, so the chat can be cut back to it",
       back["turns"], [1, 2])
+check("the chat's own piece comes back as its cast and their files, and nothing else",
+      back["piece"], {"subjects": [{"handle": "anna", "takes": "person", "from": ["img-1"]}],
+                      "assets": [{"handle": "img-1", "kind": "image", "role": "reference",
+                                  "filename": "anna.png"}]})
+check("a chat saved before it had a piece comes back with an empty one",
+      out.get("emptyPiece"), {"subjects": [], "assets": []})
 check(f"cards come back whole: {back}", bool(back["saved"]["subfolder"] == "continuity/stills/krea2" and back["entry"] == "pic-1"
       and back["leftState"] == "left"), True)
 check(f"the cover is the last render: {out['cover']}", bool(out["cover"] == {"cover": "continuity/stills/krea2/Krea2_00001_.png [output]", "coverKind": "still"}), True)

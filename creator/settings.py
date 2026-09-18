@@ -585,17 +585,19 @@ def clean_weights(raw, label="weights"):
 # as one block; what they *mean* is the room's and the manifest's, exactly as a
 # slot id's meaning is the family's in `clean_weights` above.
 #
-# Short, on purpose: the room renders with the node on the canvas, so which
-# family, which files and whether turbo is thrown are the node's and never
-# written here — unless a side is *pinned*, in which case the room keeps a
-# copy of that node's blob under `pinned_still` / `pinned_video`, serialized
-# as the node's own widget holds it and read back by the same parser. What is
-# otherwise the room's own is the shape and the two sizes — a message names a
-# shape — the seed and what happens to it after a render, the Refine switch,
-# and a skill appended to the room's own prompting. Fields a rail carried
-# before that (families, the turbo switches) are dropped on read, the same
-# way a field a newer build wrote is.
-CHAT_NAMES = ("aspect", "skill", "pinned_still", "pinned_video")
+# The room renders from its own piece, so the two families are its own —
+# `video_family` makes the clips and `still_arch` (the pre-stage pill's name
+# for an image family) draws the pictures. Which files a family loads is
+# `weights` above, the machine's. How a render samples follows the node on
+# the canvas unless a side is *pinned*, in which case the room keeps a row of
+# its own under `pinned_still` / `pinned_video`: a blank blob of the room's
+# family with the sampler row and the turbo switch on it, serialized as the
+# node's own widget holds one and read back by the same parser. The rest is
+# the shape and the two sizes — a message names a shape — the seed and what
+# happens to it after a render, the Refine switch, and a skill appended to
+# the room's own prompting. A field this build has never heard of is dropped
+# on read, the same way a field a newer build wrote is.
+CHAT_NAMES = ("aspect", "skill", "pinned_still", "pinned_video", "video_family", "still_arch")
 # `setup` is whether the room's first run has been answered on this machine —
 # the three questions are asked until it is, and "Set up again" clears it.
 CHAT_FLAGS = ("refine", "setup")

@@ -57,9 +57,9 @@ SCRIPT = [
     "what does the seed actually change?",
 ]
 
-# The piece under the room, as far as the model is concerned: somebody cast
-# on it, built from a picture on its shelf. What `routes/chat._with_piece`
-# reads off the node's blob, invented here.
+# The chat's own piece, as far as the model is concerned: somebody cast on
+# it, built from a picture on its pool. What `routes/chat._with_piece` reads
+# off the piece the room sends, invented here.
 PIECE = {"family": "h3",
          "subjects": [{"handle": "ferris", "takes": "object", "from": ["ref-1"],
                        "description": "a red fox with a white chest"}],
@@ -201,9 +201,9 @@ def main():
     for turn, said in enumerate(SCRIPT, start=1):
         messages.append({"role": "user", "text": said})
         # The strip and the piece as the room sends them: the shots joined so
-        # far by handle and length, the shelf as ledger lines, the cast.
+        # far by handle and length, and the cast. The ledger is the room's.
         shots = [{"handle": c[chat.STRIP_KEY], "seconds": c["duration_s"]} for c in strip]
-        told = ledger + chat.shelf_entries(PIECE)
+        told = ledger
         message = chat.context(messages, told, card, strip=shots, cast=cast)
         if args.dump:
             print(f"===== MESSAGE {turn} =====\n{message}\n===== END =====")

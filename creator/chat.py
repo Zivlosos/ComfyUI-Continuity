@@ -228,16 +228,32 @@ def _handles(raw, known):
                 f"handles you may cite are: {where}.")
         if scope:
             media = known.get(handle) or _media_kind(handle)
-            allowed = [t for t in TAKES.get(media, ()) if t != "full"]
+            allowed = scopes_for(media)
             if scope not in allowed:
                 raise ActionError(
                     f'@{handle}:{scope} — what a {media} can be '
-                    f"cited for is {', '.join(allowed)}.")
+                    f"cited as is {', '.join(allowed)}.")
         if handle in seen:
             continue
         seen.add(handle)
         out.append(f"{handle}:{scope}" if scope else handle)
     return out
+
+
+# What a handle may be cited *as*, beside what it may be cited *for*. A role
+# says where a picture goes in a clip — its start frame, its end frame, or a
+# plain reference — and is the same suffix a scope is, so a person types
+# `@pic-2:start` the way they type `@pic-2:style` and the model writes it
+# into "from" the same way. `ref` is for a still that would otherwise open
+# the shot by being cited first.
+ROLE_START, ROLE_END, ROLE_REF = "start", "end", "ref"
+ROLES = {"image": (ROLE_START, ROLE_END, ROLE_REF), "video": (ROLE_REF,), "audio": ()}
+
+
+def scopes_for(media):
+    """Every suffix a handle of this media may carry: the compiler's scopes
+    bar `full`, then the roles."""
+    return [t for t in TAKES.get(media, ()) if t != "full"] + list(ROLES.get(media, ()))
 
 
 def split_handle(item):
@@ -385,6 +401,47 @@ def validate(raw, ledger, strip=(), cast=()):
             "after": after, "replaces": replaces}
 
 
+USER_CITE_RE = re.compile(r"@([A-Za-z]+-\d+)(?::([a-z]+))?")
+
+
+def bind(action, user_text, known):
+    """The person's own citations, written into the action's "from".
+
+    A handle the person typed is a decision, not a suggestion to the model:
+    it goes into "from" whether or not the model repeated it, and a suffix the
+    person gave it wins over whatever the model wrote for the same handle. A
+    handle the ledger does not know is left alone — it is prose to the
+    compiler, and the prompt's own check says so.
+    """
+    if action.get("act") != ACT_RENDER:
+        return action
+    known = known if isinstance(known, dict) else {h: None for h in known}
+    wanted = []
+    for handle, scope in USER_CITE_RE.findall(user_text or ""):
+        if handle not in known or any(h == handle for h, _ in wanted):
+            continue
+        if scope and scope not in scopes_for(known.get(handle) or _media_kind(handle)):
+            # A suffix the file cannot wear is dropped; the citation stands.
+            scope = None
+        wanted.append((handle, scope or None))
+    if not wanted:
+        return action
+    out = []
+    seen = set()
+    for item in action.get("from") or []:
+        handle, scope = split_handle(item)
+        theirs = next((s for h, s in wanted if h == handle), False)
+        if theirs is not False and theirs:
+            scope = theirs
+        seen.add(handle)
+        out.append(f"{handle}:{scope}" if scope else handle)
+    for handle, scope in wanted:
+        if handle in seen:
+            continue
+        out.append(f"{handle}:{scope}" if scope else handle)
+    return {**action, "from": out}
+
+
 def known_handles(ledger):
     """The ledger -> `{handle: media kind}`, the two things a citation needs."""
     out = {}
@@ -463,6 +520,7 @@ def judge(reply, ledger, user_text, second=False, strip=(), cast=()):
         if second:
             return {"act": ACT_SAY, "say": spoken(reply)}
         return {"act": "reask", "sentence": str(problem)}
+    action = bind(action, user_text, known_handles(ledger))
 
     if action["act"] == ACT_SAY:
         if not second and asks_for_render(user_text):
@@ -874,33 +932,34 @@ def ledger_line(entry):
 
 
 def ledger_block(ledger):
-    """Every made thing, one per line, oldest first — and, apart from them,
-    what the node under the room already holds.
+    """Every made thing, one per line, oldest first, the latest of each kind
+    marked.
 
-    The two are not one list. What the room made is the model's to reach for:
-    "the same, as a shot" means the still it just made. What is on the node —
-    the start frame somebody attached on the canvas, the shelf's references —
-    was put there for the node's own render, and the room being opened over
-    it is not a request to use it. So those are named, since a person may
-    cite one and the citation has to mean something, but under a heading that
-    says whose they are and when to touch them; listed as made things they
-    were reached for, and a shot came back opening on a frame nobody in the
-    room had mentioned.
+    The room's own ledger and nothing else: what the conversation made and
+    what was attached to it. There is no node in this list — a chat renders
+    from its own piece, and a picture that is not in the ledger is not a
+    picture the model can reach.
+
+    The last still and the last clip wear a mark, because "it" and "that"
+    nearly always mean the newest thing, and a model reading twelve lines
+    otherwise has to work that out from the turn numbers.
     """
     entries = [entry for entry in ledger or []
                if isinstance(entry, dict) and entry.get("handle")]
-    made = [ledger_line(entry) for entry in entries if not entry.get("shelf")]
-    held = [ledger_line(entry) for entry in entries if entry.get("shelf")]
-    if made:
-        block = "\n".join(['WHAT HAS BEEN MADE — cite these by handle in "from"'] + made)
-    else:
-        block = "WHAT HAS BEEN MADE\nNothing yet."
-    if held:
-        block += "\n\n" + "\n".join([
-            "ON THE NODE — files the piece already holds. Cite one only when the "
-            "person names it or asks for what is on the node; never reach for "
-            "one on your own, and never make one a first frame unasked."] + held)
-    return block
+    if not entries:
+        return "WHAT HAS BEEN MADE\nNothing yet."
+    latest = {}
+    for entry in entries:
+        latest[entry.get("kind")] = entry["handle"]
+    marks = {"still": "the latest picture", "clip": "the latest clip"}
+    lines = []
+    for entry in entries:
+        line = ledger_line(entry)
+        kind = entry.get("kind")
+        if kind in marks and latest.get(kind) == entry["handle"]:
+            line += f" — {marks[kind]}"
+        lines.append(line)
+    return "\n".join(['WHAT HAS BEEN MADE — cite these by handle in "from"'] + lines)
 
 
 def strip_block(strip):
@@ -977,7 +1036,16 @@ def _rendered(message):
         # nulls is the same information at three times the length.
         kept = {key: action[key] for key in FIELDS
                 if action.get(key) not in (None, "", [])}
-        return "you: " + json.dumps(kept, ensure_ascii=False)
+        line = "you: " + json.dumps(kept, ensure_ascii=False)
+        # The handle the render landed under, so "it" on the next line has a
+        # name: the ledger says what exists, this says which of it was just
+        # made. A render that failed or was cut says so instead.
+        made = message.get("made")
+        if made:
+            line += f" → made {made}"
+        elif message.get("made") is None and message.get("failed"):
+            line += " → nothing was made"
+        return line
     return "you: " + " ".join(str(message.get("say") or message.get("text") or "").split())
 
 
@@ -1230,8 +1298,12 @@ def still_piece(action, ledger, rail, base=None, cast=None):
         if kind != "image":
             raise ActionError(
                 f"@{handle} is a {kind} and a still can only be given pictures.")
+        if scope in (ROLE_START, ROLE_END):
+            raise ActionError(
+                f"@{handle}:{scope} — a picture has no start or end frame; cite "
+                f"it plain, or ask for a clip.")
         refs.append({"handle": handle, "filename": filename,
-                     **({"takes": scope} if scope else {})})
+                     **({"takes": scope} if scope and scope != ROLE_REF else {})})
 
     piece = json.loads(json.dumps(base)) if isinstance(base, dict) else {}
     piece.update({
@@ -1295,47 +1367,16 @@ def _kept(strip, action):
     return out
 
 
-def _shelf(piece):
-    """The piece's reference shelf, with a one-shot piece's own row lifted onto it.
+def _pool(piece):
+    """The piece's reference pool: the files its cast is built from.
 
-    A piece of one shot keeps its references on that shot's row — the node
-    puts them there, cast members' files included, because a one-shot face
-    draws the row and not the shelf. The room replaces the row with the
-    chat's card, so what was on it moves up to the shelf, where a citation
-    (the member's name, or the handle itself) brings it back into any shot
-    that wants it. Keyframe roles come off on the way: a shelf holds
-    references, and the chat's own `from` says what opens a shot.
+    The chat's piece has no shot row of its own — every shot is the room's
+    card — so the pool is the whole shelf, and it holds nothing the model is
+    told about: a member's files come into a shot through the member's name,
+    which is the citation the compiler expands.
     """
-    pool = [dict(a) for a in piece.get("assets") or [] if isinstance(a, dict) and a.get("handle")]
-    segments = piece.get("segments") or []
-    if len(segments) == 1 and isinstance(segments[0], dict):
-        held = {a["handle"] for a in pool}
-        for asset in segments[0].get("assets") or []:
-            if isinstance(asset, dict) and asset.get("handle") and asset["handle"] not in held:
-                pool.append({**asset, "role": "reference"})
-                held.add(asset["handle"])
-    return pool
-
-
-def shelf_entries(piece):
-    """The shelf as ledger lines, so the model can cite what the piece holds.
-
-    The room sends these beside its own lines: a handle, the asset's kind in
-    the compiler's own word, the file, and the filename as the description —
-    the shelf keeps no words about a file beyond a member's note, and the
-    name is what the person picked it by.
-    """
-    out = []
-    for asset in _shelf(piece or {}):
-        filename = str(asset.get("filename") or "").strip()
-        if not filename:
-            continue
-        # Marked as the node's, so the model is told them apart from what the
-        # room made — see `ledger_block`.
-        out.append({"handle": asset["handle"], "kind": asset.get("kind") or "image",
-                    "filename": filename, "text": filename.rsplit("/", 1)[-1].split(" [")[0],
-                    "shelf": True})
-    return out
+    return [dict(a) for a in piece.get("assets") or []
+            if isinstance(a, dict) and a.get("handle")]
 
 
 def cast_entries(piece):
@@ -1363,10 +1404,11 @@ def cast_entries(piece):
 def video_piece(action, ledger, rail, base=None, strip=None):
     """A `render` of a clip -> the `creator_data` piece the Creator node runs.
 
-    Over `base`, the piece on the canvas: its family, its cast, its shelf,
-    its stack, its turbo block, its sampler row and its weights all stand.
-    The strip is the room's: the shots it has joined so far, each held with
-    its take, and this shot on the end of them (`after`) or in one's place
+    Over `base`, the chat's own piece: its cast and the pool their files are
+    on, its LoRA stack (the family's pins), its turbo block and its sampler
+    row — the room assembles that and nothing on the canvas reaches it. The
+    strip is the room's: the shots it has joined so far, each held with its
+    take, and this shot on the end of them (`after`) or in one's place
     (`replaces`) — or, with neither, a piece of one shot. Only the new card
     is sampled; the kept ones are spliced in as the footage they already are,
     which is what a held take is for, and the seam in front of the new card
@@ -1375,18 +1417,15 @@ def video_piece(action, ledger, rail, base=None, strip=None):
 
     The cast is the piece's own. `@anna` in the chat's prompt is the same
     citation it is in the node's box — `compile.cited_pool` brings her files
-    off the shelf into this shot, and the compiler writes her definition —
-    so nothing here builds a subject; it only keeps the shelf whole (see
-    `_shelf`). The chat's prompt is the segment's prompt as typed, and the
-    Refine pass is a switch in the rail rather than a step.
+    off the pool into this shot, and the compiler writes her definition — so
+    nothing here builds a subject. The chat's prompt is the segment's prompt
+    as typed, and the Refine pass is a switch in the rail rather than a step.
 
-    The first still cited becomes the shot's start frame, which is §5.2's rule
-    and the only resolution this does — unless it is one of a cited member's
-    own files, which rides as the reference the member is built from, since
-    a keyframe is a fact about one moment and not something somebody is made
-    of. A second still has nowhere to be a keyframe (a shot opens once) so it
-    rides as a reference, and a clip or a sound is a reference whatever its
-    position.
+    Where a cited picture goes is said on its handle or left to one rule.
+    `:start` and `:end` are the shot's keyframes, one of each; `:ref` and
+    every scope (`:style`, `:person`, …) make a reference; a picture cited
+    plain opens the shot if nothing else does, and rides as a reference
+    otherwise. A clip or a sound is a reference whatever it wears.
     """
     rail = rail or {}
     family = rail.get("video_family")
@@ -1394,22 +1433,32 @@ def video_piece(action, ledger, rail, base=None, strip=None):
         raise ActionError("this room has no video model set up yet.")
 
     piece = json.loads(json.dumps(base)) if isinstance(base, dict) else {}
-    cast = cast_entries(piece)
-    claimed = {h for m in _cited_members(action["prompt"], cast) for h in m["from"]}
-    shelf = {a["handle"]: a for a in _shelf(piece)}
-    assets, opened = [], False
+    assets, opened, closed = [], False, False
     for handle, kind, filename, scope in _cited(action, ledger):
-        role = "reference"
-        if kind == "image" and not opened and handle not in claimed:
+        role, takes = "reference", None
+        if scope in (ROLE_START, ROLE_END):
+            if kind != "image":
+                raise ActionError(f"@{handle} is a {kind}; only a picture can be a "
+                                  f"{'start' if scope == ROLE_START else 'end'} frame.")
+            if scope == ROLE_START:
+                if opened:
+                    raise ActionError("two pictures are cited as the start frame; a "
+                                      "shot opens on one.")
+                role, opened = "first_frame", True
+            else:
+                if closed:
+                    raise ActionError("two pictures are cited as the end frame; a "
+                                      "shot closes on one.")
+                role, closed = "last_frame", True
+        elif scope == ROLE_REF or scope:
+            takes = None if scope == ROLE_REF else scope
+        elif kind == "image" and not opened:
+            # The rule a person never has to say: the first picture cited
+            # plain is what the shot opens on. `:ref` is how to say otherwise.
             role, opened = "first_frame", True
-        # A shelf reference cited here rides as the shelf holds it — its
-        # size, its cut, its trim — with only the role and the scope the
-        # chat gave it written over; the ledger's line for it knows the file
-        # and nothing else.
-        asset = {**shelf[handle], "role": role} if handle in shelf \
-            else {"handle": handle, "kind": kind, "role": role, "filename": filename}
-        if scope and role == "reference":
-            asset["takes"] = scope
+        asset = {"handle": handle, "kind": kind, "role": role, "filename": filename}
+        if takes:
+            asset["takes"] = takes
         assets.append(asset)
 
     kept = _kept(strip, action)
@@ -1434,7 +1483,7 @@ def video_piece(action, ledger, rail, base=None, strip=None):
         "loras": piece.get("loras") or [],
         "turbo": piece.get("turbo") or {"on": False, "lora": None},
         "subjects": [s for s in piece.get("subjects") or [] if isinstance(s, dict)],
-        "assets": _shelf(piece),
+        "assets": _pool(piece),
         **_canvas(action, rail, "video"),
         "segments": kept + [card],
     })

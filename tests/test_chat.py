@@ -499,17 +499,58 @@ check("an empty ledger says so rather than showing a heading over nothing",
       chat.ledger_block([]), "WHAT HAS BEEN MADE\nNothing yet.")
 check("and a full one is one line per thing",
       chat.ledger_block(LEDGER).count("\n"), 2)
-# The node's own files are not things the room made. Listed apart, under a
-# heading that says not to reach for them — a start frame attached on the
-# canvas was being cited unasked and opening the room's shot.
-held = chat.ledger_block(LEDGER + [{"handle": "img-9", "kind": "image", "text": "a.png", "shelf": True}])
-check("what the node holds is listed under its own heading, after what was made",
-      held.index("WHAT HAS BEEN MADE") < held.index("ON THE NODE") < held.index("img-9"), True)
-check("and not among the made things",
-      held.split("ON THE NODE")[0].count("img-9"), 0)
-check("a node with files and a room that has made nothing still says nothing was made",
-      chat.ledger_block([{"handle": "img-1", "kind": "image", "shelf": True}]).startswith(
-          "WHAT HAS BEEN MADE\nNothing yet.\n\nON THE NODE"), True)
+# The room's own things and nothing else: there is no node in this list. The
+# last picture and the last clip wear a mark, because "it" nearly always means
+# the newest thing and a model should not have to work that out from turns.
+block = chat.ledger_block(LEDGER)
+check("the latest picture and the latest clip are marked as such",
+      ("img-1 · still · 16:9 · turn 1 · \"a red fox on a snowy ridge at dusk, low sun behind\" — the latest picture" in block,
+       block.endswith("— the latest clip")), (True, True))
+two = chat.ledger_block(LEDGER + [{"handle": "img-2", "kind": "still", "text": "bluer"}])
+check("only the newest of a kind is marked",
+      (two.count("the latest picture"), "img-2 · still · \"bluer\" — the latest picture" in two), (1, True))
+check("a line marked as the node's is an ordinary line now: the ledger is the room's",
+      "ON THE NODE" in chat.ledger_block([{"handle": "img-1", "kind": "image", "shelf": True}]), False)
+
+# What each turn made is said on the turn, so "it" on the next line has a
+# name — the ledger says what exists, this says which of it was just made.
+made = chat._rendered({"role": "assistant", "made": "pic-2",
+                       "action": {"act": "render", "kind": "still", "prompt": "a fox"}})
+check("an assistant turn says which handle its render became",
+      made.endswith("→ made pic-2"), True)
+check("a turn whose render never landed says so",
+      chat._rendered({"role": "assistant", "failed": True,
+                      "action": {"act": "render", "kind": "still", "prompt": "a fox"}})
+      .endswith("→ nothing was made"), True)
+check("and a turn still rendering says neither",
+      "→" in chat._rendered({"role": "assistant",
+                              "action": {"act": "render", "kind": "still", "prompt": "a fox"}}), False)
+
+# ---- the person's own citations are binding --------------------------------
+#
+# A handle the person typed is a decision. It goes into "from" whether or not
+# the model repeated it, and a suffix the person gave it wins over the model's.
+KNOWN = chat.known_handles(LEDGER)
+plain = {"act": "render", "kind": "video", "prompt": "she looks up", "from": [], "say": ""}
+check("a handle the person wrote is cited even when the model dropped it",
+      chat.bind(plain, "animate @img-1 please", KNOWN)["from"], ["img-1"])
+check("the person's role wins over the model's scope for the same handle",
+      chat.bind({**plain, "from": ["img-1:style"]}, "@img-1:start she looks up", KNOWN)["from"],
+      ["img-1:start"])
+check("the model's own citations stand beside the person's",
+      chat.bind({**plain, "from": ["vid-1:camera"]}, "like @img-1", KNOWN)["from"],
+      ["vid-1:camera", "img-1"])
+check("a handle the ledger does not know is prose, not a citation",
+      chat.bind(plain, "@img-9 please", KNOWN)["from"], [])
+check("a suffix a handle cannot wear is not written for it",
+      chat.bind(plain, "@vid-1:start", KNOWN)["from"], ["vid-1"])
+check("a say is left alone", chat.bind({"act": "say", "say": "hi"}, "@img-1", KNOWN),
+      {"act": "say", "say": "hi"})
+# And through the judge, which is where the room meets it.
+bound = chat.judge('Opening on it.\n```json\n{"act": "render", "kind": "video", "prompt": "she looks up"}\n```',
+                   LEDGER, "animate @img-1:start")
+check("the judge binds what the person cited onto the model's action",
+      bound["action"]["from"], ["img-1:start"])
 
 
 # ---- the context and its budget ---------------------------------------------
@@ -881,39 +922,65 @@ told = chat.context([], ROOM, "CARD",
 check("the strip is one line in order", "vid-1 (5 s)" in told, True)
 check("a member is one line", '@anna · person · from img-1 · "red coat"' in told, True)
 
-# The blob. The piece's cast and shelf stand; a one-shot piece's own row is
-# lifted onto the shelf, since the chat's card replaces the row; a shot named
-# "after" keeps the strip in front of it, held on its takes, and opens the
-# seam the node would open.
+# The blob. Over the chat's own piece: its cast and the pool their files are
+# on stand, nothing else is read off it, and a shot named "after" keeps the
+# strip in front of it, held on its takes, and opens the seam the node would.
 RAIL = {"video_family": "h3", "still_arch": "krea2", "aspect": "16:9"}
-NODE = {"family": "h3", "subjects": [{"handle": "anna", "takes": "person", "from": ["ref-1"],
-                                      "description": "red coat"}],
-        "assets": [{"handle": "ref-1", "kind": "image", "role": "reference", "filename": "shelf.png",
-                    "ref_size": "max"}],
-        "segments": [{"prompt": "old", "assets": [{"handle": "img-1", "kind": "image",
-                                                   "role": "first_frame", "filename": "a.png"}]}]}
+OWN = {"family": "h3", "subjects": [{"handle": "anna", "takes": "person", "from": ["img-7"],
+                                     "description": "red coat"}],
+       "assets": [{"handle": "img-7", "kind": "image", "role": "reference", "filename": "anna.png",
+                   "ref_size": "max"}],
+       "loras": [{"name": "pin.safetensors", "strength": 0.8}],
+       "turbo": {"on": True, "lora": "turbo.safetensors"},
+       "sampling": {"steps": 8}}
 check("the room reads the piece's cast off the blob, every file of theirs counted",
       chat.cast_entries({"subjects": [{"handle": "b", "from": ["ref-1"], "motion": "vid-1",
                                        "voice": "aud-1", "description": "x"}]}),
       [{"name": "b", "takes": "person", "from": ["ref-1", "vid-1", "aud-1"], "description": "x"}])
-check("and the shelf as ledger lines, the one-shot row lifted onto it",
-      [(e["handle"], e["kind"], e["text"]) for e in chat.shelf_entries(NODE)],
-      [("ref-1", "image", "shelf.png"), ("img-1", "image", "a.png")])
-check("each marked as the node's, so the model is told them apart",
-      all(e["shelf"] for e in chat.shelf_entries(NODE)), True)
 walk = chat.video_piece(chat.validate({"act": "render", "kind": "video",
                                        "prompt": "@anna walks past @img-2", "from": ["img-2"]},
-                                      ROOM, cast=["anna"]), ROOM, RAIL, base=NODE)
-check("the piece's cast stands", walk["subjects"], NODE["subjects"])
-check("the shelf holds the old row's file as a reference, beside its own",
-      [(a["handle"], a["role"]) for a in walk["assets"]], [("ref-1", "reference"), ("img-1", "reference")])
-check("a still cited beside the member is the start frame as ever",
+                                      ROOM, cast=["anna"]), ROOM, RAIL, base=OWN)
+check("the piece's cast stands", walk["subjects"], OWN["subjects"])
+check("and the pool their files are on, untouched",
+      walk["assets"], OWN["assets"])
+check("the stack, the turbo block and the sampler row ride through — they are the room's",
+      (walk["loras"], walk["turbo"], walk["sampling"]), (OWN["loras"], OWN["turbo"], OWN["sampling"]))
+check("a still cited plain beside the member opens the shot",
       walk["segments"][0]["assets"][0]["role"], "first_frame")
-own = chat.video_piece(chat.validate({"act": "render", "kind": "video",
-                                      "prompt": "@anna waves", "from": ["ref-1"]},
-                                     ROOM, cast=["anna"]), ROOM, RAIL, base=NODE)
-check("a member's own picture cited outright is a reference, as the shelf holds it",
-      own["segments"][0]["assets"][0], {**NODE["assets"][0], "role": "reference"})
+
+# Where a cited picture goes is on its handle. `:start` and `:end` are the
+# keyframes, `:ref` and every scope a reference, and a picture cited plain
+# opens the shot only if nothing else does.
+roles = chat.video_piece(chat.validate({"act": "render", "kind": "video", "prompt": "x",
+                                        "from": ["img-2:end", "img-1:start", "vid-1:camera"]},
+                                       ROOM), ROOM, RAIL)
+check("start and end land as the shot's keyframes wherever they were cited",
+      [(a["handle"], a["role"]) for a in roles["segments"][0]["assets"]],
+      [("img-2", "last_frame"), ("img-1", "first_frame"), ("vid-1", "reference")])
+check("a scope on a clip is what it is cited for",
+      roles["segments"][0]["assets"][2].get("takes"), "camera")
+asref = chat.video_piece(chat.validate({"act": "render", "kind": "video", "prompt": "x",
+                                        "from": ["img-1:ref", "img-2"]}, ROOM), ROOM, RAIL)
+check("a picture cited as ref is a reference, and the next plain one opens the shot",
+      [(a["handle"], a["role"], a.get("takes")) for a in asref["segments"][0]["assets"]],
+      [("img-1", "reference", None), ("img-2", "first_frame", None)])
+refuses("two start frames are refused",
+        lambda: chat.video_piece(chat.validate({"act": "render", "kind": "video", "prompt": "x",
+                                                "from": ["img-1:start", "img-2:start"]}, ROOM),
+                                 ROOM, RAIL), "two pictures", "start")
+refuses("a clip cannot be a start frame",
+        lambda: chat.validate({"act": "render", "kind": "video", "prompt": "x",
+                               "from": ["vid-1:start"]}, ROOM), "vid-1:start")
+refuses("a picture has no start frame",
+        lambda: chat.still_piece(chat.validate({"act": "render", "kind": "still", "prompt": "x",
+                                                "from": ["img-1:start"]}, ROOM), ROOM, RAIL),
+        "img-1:start", "no start")
+check("a picture cited as ref in a still is a plain reference",
+      chat.still_piece(chat.validate({"act": "render", "kind": "still", "prompt": "x",
+                                      "from": ["img-1:ref"]}, ROOM), ROOM, RAIL)["refs"],
+      [{"handle": "img-1", "filename": "a.png"}])
+check("what a picture may be cited as lists the roles after the scopes",
+      chat.scopes_for("image")[-3:], ["start", "end", "ref"])
 
 STRIP = [{"chat_handle": "vid-1", "prompt": "shot one", "assets": [], "duration_s": 5,
           "hold": True, "take": {"filename": "takes/one.mp4 [output]", "duration_s": 5}}]
@@ -970,9 +1037,9 @@ for field in chat.FIELDS:
 check("it asks for one line of plan then a fence",
       "one short line of plan" in SYSTEM and "``` fence" in SYSTEM, True)
 check("it carries the worked exchanges: a still, a clip, a member cited, a next shot, a say",
-      SYSTEM.count("Person:"), 5)
+      SYSTEM.count("Person:"), 6)
 check("and teaches the prompt box's own three marks",
-      all(mark in SYSTEM for mark in ("@pic-1", "{a|b}", "quoted words")), True)
+      all(mark in SYSTEM for mark in ("@pic-2", "{a|b}", "quoted words")), True)
 
 with_skill = chat.system_prompt("Write everything in the present tense.")
 check("a skill set to add lands after the contract, never over it",

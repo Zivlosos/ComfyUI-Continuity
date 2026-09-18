@@ -331,3 +331,25 @@ starts fresh. The renders stay, in the output folder.
   room should be honest about waiting rather than spin.
 - **Family defaults** for a plain "make me a picture" are a product choice;
   seed them from `settings.weights` and let the rail change them.
+
+## 9. Amendment, 2026-09-18: the chat's own piece
+
+The build between §5 and this note had the room render *with* the node on
+the canvas — its family, stack, passes and shelf — and told the model about
+the node's files under a heading. That put a picture the conversation no
+longer showed into a clip. The rule now is the simple one:
+
+- **A chat renders from its own piece.** Family, shape, seed, cast, the
+  files it made and attached, and the family's pinned LoRAs are the chat's.
+  Nothing on the canvas is in a chat render; nothing a chat renders is
+  written onto the canvas.
+- **Only how a render samples follows the node** — the sampler row and the
+  turbo switch — unless the room pins a row of its own. A node on another
+  family has nothing to follow.
+- **The model is told only what the chat made**, with the latest picture and
+  clip marked and each assistant turn carrying the handle its render became.
+  There is no node block and no rule about one.
+- **A handle the person writes is binding**, and what they say it is for
+  (`:start`, `:end`, `:ref`, or a scope) wins over the model. The chip in
+  the composer carries the suffix; a press on it offers the list.
+

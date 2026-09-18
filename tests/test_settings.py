@@ -262,15 +262,17 @@ check("an aspect is kept as written, whatever the family's table has",
 check("a field this build has never heard of is dropped",
       settings.clean({"chat": {**RAIL, "cast": ["anna"]}})["chat"], RAIL)
 
-# The room renders with the node on the canvas, so the fields a rail used to
-# hold about the render — families, seed, the turbo switches — are not the
-# room's any more. A rail written before that is read without them, not
-# refused: the settings file stays whole across the change.
-OLD = {"still_family": "qwenedit", "video_family": "h3", "turbo": True,
+# The room renders from its own piece, so the two families are the rail's —
+# `video_family` and `still_arch`, the pre-stage pill's name for an image
+# family. The turbo switches a rail once held are the node's row's now, and
+# `still_family` was the earlier spelling; a rail written with them is read
+# without them, not refused: the settings file stays whole across the change.
+OLD = {"still_family": "qwenedit", "video_family": "h3", "still_arch": "krea2", "turbo": True,
        "still_turbo": True, "still_turbo_lora": "",
        "video_turbo_lora": "h3_turbo.safetensors", "video_turbo_quality": "medium"}
-check("a rail's old render fields are dropped, not refused",
-      settings.clean({"chat": {**RAIL, **OLD}})["chat"], RAIL)
+check("a rail's old render fields are dropped, not refused, and the families kept",
+      settings.clean({"chat": {**RAIL, **OLD}})["chat"],
+      {**RAIL, "video_family": "h3", "still_arch": "krea2"})
 
 refuses("a fractional short edge", {"chat": {"short_edge": 768.5}}, "whole number")
 refuses("a boolean short edge", {"chat": {"short_edge": True}}, "whole number")
