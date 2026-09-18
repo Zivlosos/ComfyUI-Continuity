@@ -353,3 +353,20 @@ longer showed into a clip. The rule now is the simple one:
   (`:start`, `:end`, `:ref`, or a scope) wins over the model. The chip in
   the composer carries the suffix; a press on it offers the list.
 
+## 10. Amendment, 2026-09-18: no Refine door; a verbosity dial
+
+The Refine switch of §5.1 is withdrawn. It was a second model call on the
+way to the queue, and the room's reason for existing is that the model's
+prompt is the render's prompt; a family's own way of prompting is a skill
+appended to the system prompt (the `add` mode above), and the skills are
+where that grows. `chat/render` has no refine path, no `chat-render` job and
+no `refined` field, and a card never says *Refining…*.
+
+In the switch's place the rail carries **verbosity**, a number from 0 to 1:
+how much the model may add to a prompt beyond what the person said, without
+moving what they meant. The server cuts it into three blocks
+(`creator/prompts/chat/detail-N.txt`), each appended after the contract and
+before any skill: what may be added, what may never change, and one worked
+exchange at that length. At 0 nothing is appended, so the tuned prompt is
+untouched and the bench's baseline stands; `tools/chat_bench.py --verbosity`
+is where the blocks are tuned.

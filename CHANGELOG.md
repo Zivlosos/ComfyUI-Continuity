@@ -6,6 +6,24 @@ exactly as it was written, wall of text and all.
 
 ## Unreleased
 
+**The chat's Refine door is gone, and a verbosity dial takes its place.** The
+gear's Refine switch put a clip's prompt through the family's own prompting in
+a second model call before queueing, with the button's settings and a
+*Refining…* card while it ran. That is a second pass the room does not need:
+the model's prompt is the render's prompt, and a family's own way of prompting
+is a skill appended in the gear, which is where they will grow from here. In
+the switch's place is **Verbosity**, a dial from 0 to 1 for how much the model
+may add to a prompt beyond what you said. At 0 the room prompts exactly as it
+always has; each third of the way up appends one more fixed block to the
+system prompt — *a little*, *more*, *rich* — each saying what may be added
+(the light, the lens, textures, weather, sound, a small secondary motion) and
+what may never move (the subject, the action, the place, quoted words, every
+handle and every name), with a worked exchange at that length, since a small
+model copies an example far more readily than it follows a sentence about
+length. The number is what is saved, so the blocks can be recut without moving
+anybody's dial; a skill still lands after the block and wins over it. The
+bench takes `--verbosity` so the blocks are tuned where the system prompt is.
+
 **A chat render no longer shows up on the canvas's node 1.** ComfyUI files a
 finished render under the id of the node that made it, and the chat's one-node
 prompt — like the bench presses and refines before it — was node "1", which is

@@ -321,15 +321,17 @@ What is the room's own is in the composer's foot and behind the gear:
   schedule, the accelerators and the turbo switch — the node's own pills
   over the node's own blob while the room follows it, so a change on either
   side shows on the other, or the room's copy alone once pinned. Under
-  them, the room's own two: the **Refine** switch (off, the model's prompt
-  goes to the compiler as written; on, a clip's prompt goes through the
-  family's own prompting first — the Refine button's call, on the Refine
-  button's settings — and the card says *Refining…* while it does; a still
-  is never refined, since the families that draw one have no prompt
-  refiner) and a **skill** file appended to the room's own prompting. *Set
-  up again* asks the three questions afresh.
-- **The refiner model** is in the bar, the picker the Refine button uses —
-  this ComfyUI, or a server you already run.
+  them, the room's own two: the **Verbosity** dial and a **skill** file.
+  The model's prompt is the render's prompt — nothing rewrites it on the
+  way to the queue — and the dial is how much the model may add beyond
+  what you said: the light, the lens, the textures, the sound, without
+  changing what you meant. At the left it writes as it always has; each
+  step up is a fuller block of prompting, *a little*, *more*, *rich*. The
+  skill is a file from the node's skills folder appended to the room's own
+  prompting, which is where a family's own way of prompting goes, and it
+  wins over the dial where the two disagree. *Set up again* asks the three
+  questions afresh.
+- **The model** is in the bar — this ComfyUI, or a server you already run.
 
 The families, the shape, the seed, the sizes and any pinned row are
 remembered per machine; the cast and everything made are the chat's, saved

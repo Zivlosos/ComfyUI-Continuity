@@ -39,7 +39,7 @@ const done = {
   action: { act: "render", kind: "still", prompt: "a fox", aspect: "16:9" },
   state: "done", progress: 1, promptId: "p1", frameUrl: "blob:gone", stop: () => {},
   saved: { filename: "Krea2_00001_.png", subfolder: "continuity/stills/krea2", type: "output" },
-  isClip: false, piece: { version: 1 }, refined: null,
+  isClip: false, piece: { version: 1 },
   entry: { handle: "pic-1", kind: "still", aspect: "16:9", turn: 1,
            filename: "continuity/stills/krea2/Krea2_00001_.png [output]", text: "a fox" },
 };

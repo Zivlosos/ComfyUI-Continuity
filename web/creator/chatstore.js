@@ -126,7 +126,6 @@ function packCard(card) {
     isClip: Boolean(card.isClip),
     entry: card.entry ?? null,
     piece: card.piece ?? null,
-    refined: card.refined ?? null,
     error: card.error ?? null,
     // The slate's numbers. Absent on a card saved before it had a back.
     seed: card.seed ?? null,

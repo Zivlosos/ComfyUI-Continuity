@@ -99,33 +99,25 @@ except chat.ActionError:
     pass
 
 
-# ---- the refine request -------------------------------------------------------
+# ---- the verbosity dial -------------------------------------------------------
 #
-# The Refine switch sends the refiner's own settings alongside a render, in the
-# block the Refine button sends, and the server passes them to the refine route
-# by name: a field the room spells one way and the server reads another is a
-# dial that silently stays at its default. Read off `refine.js`, since the room
-# imports the builder from there rather than spelling the block a second time.
+# The rail's dial is a number from 0 to 1 that the server cuts into `chat.TIERS`
+# blocks of prompting. The room names the same count so the readout beside the
+# slider says which block a position lands in, and sends the number on the
+# turn's settings block, where the route reads it by name.
 
-with open(layout.js("refine.js"), encoding="utf-8") as handle:
-    REFINE = handle.read()
-
-builder = re.search(r"export function refineRequest\(.*?\n\}", REFINE, re.DOTALL)
-if not builder:
-    FAILURES.append("refine.js no longer exports refineRequest")
-    sent = set()
-else:
-    body = builder.group(0)[builder.group(0).index("return {"):]
-    sent = set(re.findall(r"(?:^|[,{\n])\s*(\w+)\s*(?=[:,}])", body))
-check("the room sends exactly the fields the server reads through",
-      sorted(sent), sorted(chat.REFINE_FIELDS))
-check("and the server hands each one to the refine route by the same name",
-      sorted(field for field in chat.refine_request(
-          {field: field for field in chat.REFINE_FIELDS}, {"segments": []})
-             if field not in ("kind", "data", "index")),
-      sorted(chat.REFINE_FIELDS))
-check("the room imports the builder rather than spelling a second block",
-      "refineRequest" in ROOM and "refineRequest(" in ROOM, True)
+tiers = re.search(r"const VERBOSITY_TIERS = (\d+)", ROOM)
+check("the room cuts the dial into as many blocks as the server",
+      tiers and int(tiers.group(1)), chat.TIERS)
+block = re.search(r"function requestBlock\(.*?\n\}", ROOM, re.DOTALL)
+check("the turn's settings block carries the dial",
+      bool(block) and "verbosity:" in block.group(0), True)
+check("and the rail starts at the bottom of it",
+      bool(re.search(r"function defaultRail\(.*?verbosity: 0,.*?\n\}", ROOM, re.DOTALL)), True)
+with open(os.path.join(layout.PY_ROOT, "routes", "chat.py"), encoding="utf-8") as handle:
+    ROUTE = handle.read()
+check("the route hands the dial to the system prompt by the same name",
+      'verbosity=block.get("verbosity")' in ROUTE, True)
 
 
 # ---- the node's id ------------------------------------------------------------

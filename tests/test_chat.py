@@ -794,82 +794,6 @@ check("which node runs which kind is answered in one place",
 check("the seed is nowhere in the blob", "seed" in json.dumps(clip), False)
 
 
-# ---- the Refine switch --------------------------------------------------------
-#
-# With the rail's switch on, a clip's prompt goes through the family's own
-# prompting before queueing — the button's call, on the button's settings — and
-# what comes back is written onto the piece the way the panel writes it, so the
-# compiler reads a chat render's rewrite exactly as it reads the button's.
-
-CLIP = chat.video_piece(
-    chat.validate({"act": "render", "kind": "video", "prompt": "the fox looks up",
-                   "from": ["img-1"], "seconds": 5}, LEDGER), LEDGER, RAIL)
-BLOCK = {"model": "qwen3-vl:4b", "backend": "remote", "temperature": 0.3, "seed": -1,
-         "language": "English", "max_tokens": 900, "skill": "", "skill_mode": "",
-         "eject": True, "not_a_field": "dropped"}
-
-request = chat.refine_request(BLOCK, CLIP)
-check("a refine asks for the Creator's own target, which is this one card",
-      (request["kind"], request["index"], request["data"] is CLIP), ("creator", 0, True))
-check("every refiner field rides through by name",
-      {field: request[field] for field in chat.REFINE_FIELDS},
-      {field: BLOCK[field] for field in chat.REFINE_FIELDS})
-check("and nothing else does", "not_a_field" in request, False)
-check("a field the room left out is left out, not written as None",
-      "language" in chat.refine_request({"model": "m"}, CLIP), False)
-check("no template travels — the route's auto is the derived mode",
-      "template" in request, False)
-
-RESULT = {"mode": "I2VA", "template": "I2VA", "derived": "I2VA", "forced": False,
-          "shots": [{"index": 0, "body": "<Picture 1> is the fox. She lifts her head…"}],
-          "soundscape": "wind over snow", "music": "", "sections": None,
-          "piece": None, "scope": "shot", "seen": "a fox on a ridge",
-          "problems": ["the rewrite never mentions @img-1 — …"]}
-
-piece = json.loads(json.dumps(CLIP))
-problems = chat.refine_into(piece, RESULT, "qwen3-vl:4b")
-refined = piece["segments"][0]["refined"]
-check("the rewrite lands on the shot as the panel would write it",
-      {key: refined[key] for key in ("body", "scope", "template", "forced", "model", "enabled")},
-      {"body": "<Picture 1> is the fox. She lifts her head…", "scope": "shot",
-       "template": "I2VA", "forced": False, "model": "qwen3-vl:4b", "enabled": True})
-check("what it was written from is kept, so the editor can say when the sentence moved",
-      refined["source"], "the fox looks up")
-check("the panel's undo bookkeeping is not invented for a blob with nothing to undo",
-      "replaced" in refined, False)
-check("a skill that did not write it is not named as having",
-      ("skill" in refined, "kind" in refined), (False, False))
-check("the soundscape the reply carried goes on the shot",
-      piece["segments"][0].get("soundscape"), "wind over snow")
-check("and an empty music field blanks nothing",
-      "music" in piece["segments"][0], False)
-check("the route's own problems come back for the card, advisory",
-      problems, ["the rewrite never mentions @img-1 — …"])
-check("the prompt itself is untouched — the rewrite stands beside it",
-      piece["segments"][0]["prompt"], "the fox looks up")
-
-# The replace path: a skill wrote one whole document, and the block says which.
-by_skill = json.loads(json.dumps(CLIP))
-chat.refine_into(by_skill, {"mode": "T2VA", "skill": "noir", "kind": "prompt",
-                            "shots": [{"index": 0, "body": "A DOCUMENT"}],
-                            "soundscape": "", "music": "", "sections": None,
-                            "seen": "", "problems": []}, "m")
-check("a skill's rewrite names the skill and what kind of file it was",
-      (by_skill["segments"][0]["refined"]["skill"], by_skill["segments"][0]["refined"]["kind"]),
-      ("noir", "prompt"))
-check("and carries no scope, because the document absorbed the join",
-      "scope" in by_skill["segments"][0]["refined"], False)
-
-# A reply with nothing in it: the prompt goes as the model wrote it, and the
-# blob is not left wearing a `refined` block that reads as typed text to the
-# compiler and as a rewrite to a person.
-empty = json.loads(json.dumps(CLIP))
-said = chat.refine_into(empty, {"shots": [{"index": 0, "body": "  "}], "problems": []}, "m")
-check("an empty rewrite is not written", "refined" in empty["segments"][0], False)
-check("and says so", any("wrote nothing" in p for p in said), True)
-refuses("a piece with no shot cannot be refined",
-        lambda: chat.refine_into({"segments": []}, RESULT, "m"), "no shot")
-
 # ---- scopes, the cast and the strip ----------------------------------------
 #
 # The three things an action may point at beyond a bare handle, each carried
@@ -1046,5 +970,31 @@ check("a skill set to add lands after the contract, never over it",
       with_skill.startswith(SYSTEM) and "present tense" in with_skill, True)
 check("and says out loud that the reply's shape is not its to move",
       "not theirs to move" in with_skill, True)
+
+# The verbosity dial: 0 is the prompt as tuned, byte for byte, and every third
+# of the way up is one more fixed block — never a number the model is shown.
+check("the dial's bottom is the system prompt untouched",
+      [chat.system_prompt(verbosity=v) == SYSTEM for v in (0, 0.0, -1, None, "", "x", "0")],
+      [True] * 7)
+check("the dial is cut into thirds, the top the last block",
+      [chat.verbosity_tier(v) for v in (0, 0.01, 1 / 3, 0.34, 2 / 3, 0.7, 1, 1.5, "0.5")],
+      [0, 1, 1, 2, 2, 3, 3, 3, 2])
+blocks = [chat.system_prompt(verbosity=tier / chat.TIERS) for tier in range(1, chat.TIERS + 1)]
+check("every block lands after the contract, never over it",
+      all(block.startswith(SYSTEM) for block in blocks), True)
+check("each block is its own wording", len(set(blocks)), chat.TIERS)
+check("every block fences what the person asked for",
+      all("Never change what the person asked for" in block
+          and '"say" stays one short' in block for block in blocks), True)
+check("and carries a worked exchange at its length, in the contract's own shape",
+      all(block.count("Person:") == SYSTEM.count("Person:") + 1
+          and block.count('"act": "render"') == SYSTEM.count('"act": "render"') + 1
+          for block in blocks), True)
+lengths = [len(chat.parse(block[len(SYSTEM):])[1]["prompt"]) for block in blocks]
+check(f"the worked prompts grow with the dial: {lengths}",
+      lengths == sorted(lengths) and len(set(lengths)) == chat.TIERS, True)
+both = chat.system_prompt("Write everything in the present tense.", verbosity=1)
+check("a skill lands after the block, so its say on length wins",
+      both.index("HOW MUCH TO WRITE") < both.index("present tense"), True)
 
 passed("the chat surface parses, refuses, re-asks and patches as specified")

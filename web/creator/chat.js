@@ -45,7 +45,7 @@ import { resolvedPreStage, PRESTAGE_CANVAS_MULTIPLE, PRESTAGE_MIN_EDGE, PRESTAGE
 import { openPicker } from "./picker.js";
 import { loadLoraPrefs, outputUrl, upload, uiSetting, patchSettings, primeSettings,
          viewUrl } from "./api.js";
-import { settings as refinerSettings, chosenModel, openSettings, listSkills, refineRequest } from "./refine.js";
+import { settings as refinerSettings, chosenModel, openSettings, listSkills } from "./refine.js";
 import { FAMILIES, STILL_ARCHES, VIDEO_FAMILIES, DEFAULT_VIDEO_FAMILY, DEFAULT_STILL_ARCH,
          videoFamily, stillFamily } from "./manifest.js";
 import { run, watch as watchQueue, dropQueued } from "./queue.js";
@@ -66,8 +66,8 @@ import { api } from "../../../scripts/api.js";
  *  so a picture brought into a conversation is findable afterwards as one. */
 const UPLOADS = "continuity/chat";
 
-/** The rail's choices, per machine: the shape, the two sizes, the Refine
- *  switch and a skill. Properties of this install rather than of any piece,
+/** The rail's choices, per machine: the shape, the two sizes, the verbosity
+ *  dial and a skill. Properties of this install rather than of any piece,
  *  so they go where the pack's other per-machine answers go. */
 const SETTING = "chat";
 
@@ -357,6 +357,21 @@ function fail(card, message) {
 
 // ---- the rail ---------------------------------------------------------------
 
+/** How many blocks of prompting the verbosity dial is cut into — `chat.TIERS`,
+ *  held together by `tests/test_chat_mirror.py`. The dial itself is a number
+ *  from 0 to 1, which is what is saved and sent; the server reads one block
+ *  or none off it, and this is only so the readout can name the block. */
+const VERBOSITY_TIERS = 3;
+
+/** What each block is called beside the slider, bottom first. */
+const TIER_NAMES = ["as written", "a little", "more", "rich"];
+
+/** `chat.verbosity_tier`: the dial -> which block, 0 to `VERBOSITY_TIERS`. */
+function verbosityTier(dial) {
+  if (!(dial > 0)) return 0;
+  return Math.min(VERBOSITY_TIERS, Math.ceil(Math.round(dial * VERBOSITY_TIERS * 1e9) / 1e9));
+}
+
 /** What the room keeps of its own. Everything a render is otherwise made with
  *  is the nodes' — see `chatnode.js` — unless a side is pinned, in which case
  *  the copy is here too. */
@@ -383,10 +398,11 @@ function defaultRail() {
     // family's trained edge. Each is the family's own default until touched.
     still_edge: PRESTAGE_DEFAULT_EDGE,
     video_edge: 0,
-    // The spec's §5.1: the chat's prompt goes through the family's own
-    // prompting before queueing. The route answers a sentence while it is on,
-    // and the switch is here so that sentence is reachable rather than hidden.
-    refine: false,
+    // How much the model may add to a prompt beyond what was said, 0 to 1.
+    // 0 is the room's prompting as tuned; up from there the server appends
+    // one of its fixed blocks. Read on the turn, never on the render: the
+    // model's prompt is the render's prompt, and nothing rewrites it between.
+    verbosity: 0,
     // A file under the node's skills/ folder, appended to the room's own
     // prompting. Only ever appended — the room's reply contract is what turns
     // an answer into a render, so replacing it would leave nothing to queue.
@@ -508,6 +524,7 @@ function requestBlock(sync) {
     // Always appended. The room offers no replace, so it says so rather than
     // letting a package's own declared mode decide and be refused.
     skill_mode: bar.skill ? "add" : "",
+    verbosity: Number(bar.verbosity) || 0,
     ...sync.families(),
   };
 }
@@ -1241,8 +1258,8 @@ class Room {
     const card = message.card;
     return JSON.stringify([
       message.say, message.bad, message.action?.kind, can,
-      card && [card.state, card.progress, card.frameUrl, card.frameIsClip, card.tokens?.value,
-               card.saved, card.refined, card.error, card.entry?.handle, card.isClip,
+      card && [card.state, card.progress, card.frameUrl, card.frameIsClip,
+               card.saved, card.error, card.entry?.handle, card.isClip,
                card.state === "queued" ? this.queue.remaining : 0],
     ]);
   }
@@ -1417,19 +1434,12 @@ class Room {
     const note = card.state === "failed" ? card.error
       : card.state === "done" ? null
       : card.state === "running" ? t("Rendering…")
-      : card.state === "refining"
-        ? (card.tokens?.value
-            ? t("Refining… {count} tokens", { count: card.tokens.value })
-            : t("Refining…"))
       : card.state === "starting" ? t("Starting…")
       : this.queue.remaining > 1
         ? t("Queued — {count} ahead", { count: this.queue.remaining - 1 })
         : t("Queued");
     if (note) body.push(el("div", { class: `mmc-ch-note${card.state === "failed" ? " mmc-ch-bad" : ""}`,
                                     text: note }));
-    for (const problem of (card.state === "done" && card.refined?.problems) || []) {
-      body.push(el("div", { class: "mmc-ch-note mmc-ch-bad", text: problem }));
-    }
     if (card.state === "running" || card.state === "queued") {
       body.push(el("div", { class: "mmc-ch-bar" },
                    [el("span", { class: "mmc-ch-fill",
@@ -1529,24 +1539,15 @@ class Room {
   /**
    * The back of a card: what was written on the back of a print.
    *
-   * The words first and largest — the prompt as asked, and under it what the
-   * refiner actually sent to the sampler, which used to live under a hover on
-   * a one-line note. Then the facts, in the pack's readout mono: what made
+   * The words first and largest — the prompt the model wrote, which is what
+   * the sampler read. Then the facts, in the pack's readout mono: what made
    * it, how long it took, its length, its size, its seed, what it opened
    * from and when it landed. The size is the file's own, read off the picture
    * when it decodes rather than off any number the request carried.
    */
   slate(card, media) {
-    const refined = card.piece?.segments?.at(-1)?.refined?.body || card.refined?.body || "";
-    const wrote = card.refined
-      ? (card.refined.skill
-          ? t("Refined by {model} with {skill}", { model: card.refined.model, skill: card.refined.skill })
-          : t("Refined by {model}", { model: card.refined.model }))
-      : "";
     const prompt = el("div", { class: "mmc-ch-prompt" }, [
       el("p", { text: card.action?.prompt || "" }),
-      ...(refined ? [el("p", { class: "mmc-ch-rewrite" },
-                       [el("b", { text: `${wrote} — ` }), document.createTextNode(refined)])] : []),
     ]);
     const facts = [];
     const fact = (key, value, cls) => {
@@ -1834,7 +1835,7 @@ class Room {
    * functions the faces mount over the node's own blob, so a step count
    * dialled here is on the node and a switch thrown on the node is lit here
    * — or the room's own once pinned. Under them, the room's own two: the
-   * Refine switch and a skill to append. Redrawn in place on every change,
+   * verbosity dial and a skill to append. Redrawn in place on every change,
    * and whenever either node redraws.
    */
   openMore(anchor) {
@@ -1856,11 +1857,7 @@ class Room {
         head(t("Clips"), "video"),
         this.sync.clipRow(draw),
         el("div", { class: "mmc-ch-rule" }),
-        this.toggle(t("Refine"), bar.refine, (on) => change({ refine: on }),
-                    t("Put the model's prompt for a clip through the family's own prompting "
-                      + "before queueing, as the Refine button does — a second model call "
-                      + "per render, with the refiner's own settings. A still goes as written: "
-                      + "the families that draw one have no prompt refiner.")),
+        this.verbosityRow(bar, change),
         this.row(t("Skill"), el("button", {
           class: "mmc-pill mmc-ch-value", text: bar.skill || t("none"),
           onclick: (event) => openChoicePopover(event.currentTarget, {
@@ -1899,13 +1896,29 @@ class Room {
     ]);
   }
 
-  toggle(label, on, onChange, title) {
-    return this.row(label, el("button", {
-      class: `mmc-pill mmc-ch-value${on ? " accel-on" : ""}`,
-      "aria-checked": Boolean(on),
-      text: on ? t("on") : t("off"),
-      onclick: () => onChange(!on),
-    }), title);
+  /** The verbosity dial: how much the model may add to a prompt beyond what
+   *  was said, 0 to 1, as a range with the name of the block it lands in
+   *  beside it. The number is what is saved, so the blocks can be recut on
+   *  the server without moving anybody's dial; the name is what the number
+   *  means. Painted on every move, saved on release — a save redraws the
+   *  whole gear, which is not something to do under a dragging thumb. */
+  verbosityRow(bar, change) {
+    const name = el("span", { class: "mmc-ch-tier" });
+    const slider = el("input", {
+      type: "range", min: 0, max: 1, step: 0.05, value: Number(bar.verbosity) || 0,
+      "aria-label": t("Verbosity"),
+      // The graph canvas reads a pointerdown as the start of a drag.
+      onpointerdown: (event) => event.stopPropagation(),
+    });
+    const paint = () => { name.textContent = t(TIER_NAMES[verbosityTier(Number(slider.value))]); };
+    slider.addEventListener("input", paint);
+    slider.addEventListener("change", () => change({ verbosity: Number(slider.value) }));
+    paint();
+    return this.row(t("Verbosity"), el("div", { class: "mmc-ch-verbosity" }, [slider, name]),
+                    t("How much the model may add to a prompt beyond what you said — the "
+                      + "light, the lens, the textures, the sound — without changing what "
+                      + "you meant. At the left it writes as it always has; each step up "
+                      + "is a fuller block of prompting. A skill you append still wins."));
   }
 
   /** Put a handle in the box. Citing is how an edit is asked for, and the
@@ -2072,34 +2085,23 @@ class Room {
   /**
    * Queue one render and hang a card off the turn that asked for it.
    *
-   * Through `run`, because the answer comes one of two ways and that helper
-   * already reads both: `{result}` when the render went straight onto the
-   * queue, or a job's `prompt_id` when the Refine switch is on and the in-
-   * process refiner has to rewrite the prompt first — GPU work, so the rewrite
-   * and the render ride the queue as one job and the object arrives on
-   * `executed`. The card exists from the first moment either way, so the wait
-   * for a rewrite has somewhere to show: the refine button's token counter,
-   * under "Refining…".
+   * Through `run`, the same door the turn goes through, so a `{result}` and
+   * a `{problem}` are read the one way. The card exists from the first
+   * moment, so the wait for the queue has somewhere to show.
    *
    * The render is the chat's own piece asked for this — see `renderBase` —
    * and the seed is the room's own: kept, or rolled on after the render the
    * way the frontend's control rolls a widget after a queue.
    *
    * `{problem}` is the assistant's line verbatim — a duration off the frame
-   * grid, a checkpoint nobody picked, a rewrite the compiler will not take —
-   * and is a bubble rather than an error: the model asked for something the
+   * grid, a checkpoint nobody picked — and is a bubble rather than an error: the model asked for something the
    * machine cannot do, which is a thing to say back, not a failure of the room.
    */
   async queueRender(action, message, over = {}) {
     const bar = railFor(this.sync);
     const kind = action.kind === "still" ? "still" : "video";
-    // Only a clip is refined — the families that draw a still have no prompt
-    // refiner, and the server says the same — so a still's card never says
-    // "Refining…" for a rewrite that is not going to happen.
-    const refining = Boolean(bar.refine) && action.kind === "video";
     message.action = action;
-    const card = { action, state: refining ? "refining" : "starting", progress: 0, tokens: null,
-                   home: home(), turn: state.turn };
+    const card = { action, state: "starting", progress: 0, home: home(), turn: state.turn };
     message.card = card;
     notify();
 
@@ -2119,12 +2121,6 @@ class Room {
       answer = await run("/continuity/chat/render", {
         action, ledger: state.ledger, strip: state.strip, rail: bar, base,
         piece: state.piece,
-        ...(refining ? { refine: refineRequest() } : {}),
-      }, {
-        onProgress: (_fraction, value, max) => {
-          card.tokens = { value, max };
-          notify();
-        },
       });
     } catch (error) {
       return said(String(error.message || error));
@@ -2135,8 +2131,6 @@ class Room {
     }
     card.promptId = answer.prompt_id;
     card.piece = answer.piece;
-    card.refined = answer.refined || null;
-    card.tokens = null;
     card.state = "queued";
     watchRender(card);
   }

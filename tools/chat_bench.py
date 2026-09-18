@@ -10,6 +10,7 @@ scripted conversation, and prints what the model said at every step.
 
     python3 tools/chat_bench.py --model qwen3-vl:4b
     python3 tools/chat_bench.py --url http://localhost:1234/v1 --dump
+    python3 tools/chat_bench.py --verbosity 1
 
 `SCRIPT` below is the conversation: a still, a clip made from that still, a
 change to it, a next shot on the strip with a cast member in it, and a
@@ -19,7 +20,9 @@ through. **Editing it is the point
 of this file** — the system prompt at `creator/prompts/chat/system.txt` is tuned
 per small model here rather than in the room, because BFCL's format sensitivity
 is real and a wording change has to be judged over a whole conversation rather
-than one lucky turn. `--dump` prints the system prompt and the user message
+than one lucky turn. The verbosity dial's blocks (`detail-N.txt` beside it) are
+tuned the same way: `--verbosity` is the rail's slider, and what to read is
+whether the prompt grew without the intent moving. `--dump` prints the system prompt and the user message
 before each reply, which is what to read when a turn goes wrong.
 
 Nothing is rendered and nothing is queued. A render action is taken at its word:
@@ -161,6 +164,9 @@ def main():
     parser.add_argument("--temperature", type=float, default=0.3)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--max-tokens", type=int, default=None)
+    parser.add_argument("--verbosity", type=float, default=0,
+                        help="the rail's dial, 0 to 1: how much the model may add "
+                             "beyond what was said (0 is the prompt as tuned)")
     parser.add_argument("--dump", action="store_true",
                         help="print the system prompt and the message before each reply")
     args = parser.parse_args()
@@ -174,7 +180,7 @@ def main():
     if args.still not in pkg.registry.IMAGE_FAMILIES:
         print(f"--still must be one of: {', '.join(pkg.registry.IMAGE_FAMILIES)}")
         return 1
-    system = chat.system_prompt()
+    system = chat.system_prompt(verbosity=args.verbosity)
     card = _machine(pkg, args.still, args.video)
     rail = {"still_family": args.still,
             "still_arch": next(arch for arch, owner in pkg.registry.STILL_ARCHES.items()

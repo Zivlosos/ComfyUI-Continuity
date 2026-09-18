@@ -219,11 +219,6 @@ export const css = `
    that scrolls says so. */
 .mmc-ch-prompt { mask-image: linear-gradient(black calc(100% - 18px), transparent); }
 .mmc-ch-prompt p { margin: 0; white-space: pre-wrap; }
-.mmc-ch-rewrite {
-  margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--mmc-line-3);
-  color: var(--mmc-dim); font-size: calc(12.5px * var(--mmc-type));
-}
-.mmc-ch-rewrite b { font-weight: 500; color: var(--mmc-faint); }
 .mmc-ch-facts {
   flex: none; margin: 0; display: grid; grid-template-columns: max-content 1fr;
   column-gap: 14px; row-gap: 3px; padding: 10px 16px 12px; border-top: 1px solid var(--mmc-line);
@@ -464,6 +459,11 @@ export const css = `
 .mmc-ch-label { flex: 1; min-width: 0; font-size: calc(12.5px * var(--mmc-type)); }
 .mmc-ch-value { max-width: 62%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mmc-ch-rule { height: 1px; margin: 8px 0; background: var(--mmc-line); }
+/* The verbosity dial: a range with the name of the block it lands in beside
+   it, the width of the gear's value pills so the rows line up. */
+.mmc-ch-verbosity { display: flex; align-items: center; gap: 8px; max-width: 62%; }
+.mmc-ch-verbosity input[type="range"] { width: 140px; accent-color: var(--mmc-blue); margin: 0; }
+.mmc-ch-tier { min-width: 5.5em; text-align: right; color: var(--mmc-dim); font-size: calc(12.5px * var(--mmc-type)); white-space: nowrap; }
 /* The composer's Pictures pill on a pre-stage the room cannot draw through. */
 .mmc-ch-pill-off { color: var(--mmc-warn); }
 
