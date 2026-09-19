@@ -67,6 +67,11 @@ TAKES = ("person", "object", "scene", "style")
 MARKERS = ("fully_preserved", "partially_preserved", "attribute_transfer",
            "weak_reference")
 
+# What a family is handed for a member's looks, where the member says. Absent
+# is "decide": the saved rendition where the picture carries one for that
+# family, the picture otherwise. See `Subject.send`.
+SENDS = ("pictures", "saved", "words")
+
 # Deliberately not the asset handles' shape. `compile.HANDLE_RE` matches
 # `name-digit` because that is what the handle allocator writes, and a subject is
 # named by the user rather than allocated — "anna" is the whole point, since a
@@ -154,12 +159,12 @@ class Subject:
 
     __slots__ = ("handle", "sources", "takes", "description", "features",
                  "motion", "voice", "replaces", "replaces_what", "marker",
-                 "seeded", "notes", "triggers", "loras")
+                 "seeded", "notes", "triggers", "loras", "wears", "send")
 
     def __init__(self, handle, sources, takes="person", description="",
                  features=(), motion=(), voice=None, replaces=(),
                  replaces_what="", marker=None, seeded=False, notes=None,
-                 triggers=None, loras=()):
+                 triggers=None, loras=(), wears=None, send=None):
         self.handle = handle
         self.sources = tuple(sources)      # asset handles defining its appearance
         self.takes = takes                 # one of TAKES
@@ -223,7 +228,22 @@ class Subject:
         # their trigger words go in front of that shot's prompt and no other.
         # A character LoRA is the fifth thing somebody can be made of, and
         # the one that is weights rather than a file (discussion #82).
+        #
+        # A LoRA is one family's — weights patched onto one architecture —
+        # so `loras` is what they wear *on the family this cast was parsed
+        # for*, and `wears` is the whole wardrobe by family id, carried so a
+        # segment's re-serialised cast (`compile._subject_dict`) loses no
+        # other family's row. `send` is that family's answer to what it is
+        # handed for their looks: None decides for itself (a saved rendition
+        # where the picture carries one, the picture otherwise), "pictures"
+        # encodes the picture even where a rendition exists, "words" hands
+        # the family their description and no file at all. Applied by
+        # `sent`, before the citations are read.
         self.loras = tuple(dict(entry) for entry in (loras or ()))
+        self.wears = {str(k): {"send": v.get("send"),
+                               "loras": tuple(dict(e) for e in v.get("loras") or ())}
+                      for k, v in (wears or {}).items()}
+        self.send = send if send in SENDS else None
 
     @property
     def changed(self):
@@ -289,12 +309,17 @@ class Subject:
         return out
 
 
-def parse(raw):
+def parse(raw, family=None):
     """The blob's `subjects` list -> `Subject`s. Shape only; see `check`.
 
     Validated without the assets in hand because the cast belongs to the piece
     and the assets belong to a generation: a subject nobody cites in this shot
     has no files here and is not an error, it is simply not in this shot.
+
+    `family` is the family this cast renders on, and it picks which row of
+    `wears` becomes the member's `loras` and `send`. A blob written before the
+    rows existed carries a flat `loras` list, which was the piece's family's
+    all along, and is read as that family's row.
     """
     cast = []
     seen = set()
@@ -331,7 +356,13 @@ def parse(raw):
         features = _parse_features(handle, item.get("features"))
         notes = _parse_notes(handle, item.get("notes"))
         triggers = _parse_triggers(handle, item.get("triggers"))
-        loras = _parse_loras(handle, item.get("loras"))
+        wears = _parse_wears(handle, item.get("wears"))
+        legacy = _parse_loras(handle, item.get("loras"))
+        if legacy and family and family not in wears:
+            wears[family] = {"send": None, "loras": legacy}
+        own = wears.get(family) if family else None
+        loras = own["loras"] if own else (legacy if not family else ())
+        send = own["send"] if own else None
         # A subject with nothing behind it defines nothing: the label would be
         # written into the prompt and the model would be told a name and no
         # appearance. Three things count as something behind it, and a cast entry
@@ -387,6 +418,8 @@ def parse(raw):
             notes=notes,
             triggers=triggers,
             loras=loras,
+            wears=wears,
+            send=send,
         ))
     return cast
 
@@ -428,6 +461,33 @@ def _parse_triggers(handle, raw):
         words = split_triggers(value)
         if str(key).strip() and words:
             out[str(key).strip()] = words
+    return out
+
+
+def _parse_wears(handle, raw):
+    """The blob's `wears` map -> `{family: {"send", "loras"}}`, shape-checked.
+
+    One row per family id. A row is `send` — one of `SENDS`, or absent — and
+    the LoRA entries `_parse_loras` reads. An unknown family id is kept as
+    written: a member saved on a machine with a family this install lacks is
+    still that member, and the row waits for the family.
+    """
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise SubjectError(f"@{handle}: wears must be a map of family to what they wear there")
+    out = {}
+    for family, row in raw.items():
+        if not isinstance(row, dict):
+            raise SubjectError(f"@{handle}: wears.{family} is not an object")
+        send = row.get("send")
+        if send is not None and send not in SENDS:
+            raise SubjectError(
+                f"@{handle}: wears.{family}.send must be one of {', '.join(SENDS)} (got {send!r})")
+        loras = _parse_loras(handle, row.get("loras"))
+        if send is None and not loras:
+            continue
+        out[str(family)] = {"send": send, "loras": loras}
     return out
 
 
@@ -497,8 +557,10 @@ def says(prose, word):
 
 def awake(cast, texts):
     """Every handle a cited member carries into the shot the prose describes:
-    what `claimed` says, minus what `asleep` holds back."""
-    return {h for subject in cast for h in subject.files
+    what `claimed` says, minus what `asleep` holds back — and none of a
+    member's who is sent to this family as words alone (`Subject.send`),
+    whose files are cut the way a sleeping plate is."""
+    return {h for subject in cast if subject.send != "words" for h in subject.files
             if h not in asleep(subject, texts)}
 
 
@@ -616,8 +678,37 @@ def here(cast, assets):
             motion=motion, voice=voice, replaces=replaces,
             replaces_what=subject.replaces_what if replaces else "",
             marker=subject.marker, seeded=subject.seeded,
-            notes=subject.notes, triggers=subject.triggers, loras=subject.loras))
+            notes=subject.notes, triggers=subject.triggers, loras=subject.loras,
+            wears=subject.wears, send=subject.send))
     return out
+
+
+def sent(cast, assets, space=None):
+    """Apply each member's `send` for this family -> `(cast, assets)`.
+
+    "pictures": the picture is encoded even where it carries a rendition in
+    `space` — the rendition is dropped off a copy of the asset. "words": the
+    member keeps their claim on their files, so the compiler's own cut takes
+    the files out of the request (`compile_request` counts them as not awake,
+    the way a plate waiting for a word is), and what is left has to stand on
+    its own — refused here where it cannot. "saved" and absent change nothing:
+    a rendition is read where there is one (`compile.Asset.mod_for`), the
+    picture otherwise.
+    """
+    from dataclasses import replace
+    fresh = list(assets)
+    for subject in cast:
+        if subject.send == "words" and not subject.description \
+                and not _described(subject.features) and not subject.lora_words:
+            raise SubjectError(
+                f"@{subject.handle} is sent as words alone to this family, and "
+                f"there are none — describe them, or send their pictures")
+        if subject.send == "pictures" and space:
+            theirs = set(subject.sources) | set(subject.motion)
+            fresh = [replace(a, mods={k: v for k, v in a.mods.items() if k != space})
+                     if a.handle in theirs and space in getattr(a, "mods", {}) else a
+                     for a in fresh]
+    return list(cast), fresh
 
 
 def check(cast, assets):

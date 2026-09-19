@@ -37,6 +37,8 @@ import { openChoicePopover, stepperPill, aspectGlyph, aspectGrid, edgeSlider, PI
          neuralPill } from "./pills.js";
 import { revealPreStage } from "./fullscreen.js";
 import { CreatorEditor } from "./editor.js";
+import { CastShelf } from "./cast.js";
+import { castFamilies, keepAsMod } from "./refmod.js";
 import { openPresetLibrary } from "./presetlib.js";
 import * as P from "./presets.js";
 import { PromptBox, focusEnd, openEditorSheet } from "./prompt.js";
@@ -139,6 +141,18 @@ export class PreStageEditor {
       },
       onAttach: (row) => this.attachFromMention(row),
       attachBlocked: () => this.refBlocked(),
+      // The cast, exactly as a shot's box wires it: the names it declares
+      // are chips, typing `@ann` offers the roster, and picking somebody
+      // casts them here with their pictures — onto this still's own lists.
+      getCast: () => this.state.subjects ?? [],
+      castFromLibrary: (member) => {
+        const subject = P.addSubjectToPiece(member, this.castPiece());
+        if (!subject) return null;
+        this.castOpen = true;
+        this.commit();
+        return subject.handle;
+      },
+      onCastChip: (handle) => this.openCastMember(handle),
       onOverflow: (over) => this.onPromptOverflow(over),
       // A `{day|night}` chooses on the node's seed, as card 1 — the same
       // choice `prestage.py` makes before it compiles, so the alternative the
@@ -165,6 +179,10 @@ export class PreStageEditor {
 
     this.railHost = el("div");
     this.assetsHost = el("div");
+    // The cast shelf, mounted once and folded like the shot's — see
+    // `CreatorEditor.renderCastShelf`.
+    this.castHost = el("div", { class: "mmc-cast-host" });
+    this.castOpen = null;
     this.loraHost = el("div");
     this.pillsHost = el("div");
     this.noticeHost = el("div");
@@ -181,6 +199,7 @@ export class PreStageEditor {
     this.root = el("div", { class: "mmc-root mmc-prestage" }, [
       this.railHost,
       this.assetsHost,
+      this.castHost,
       this.loraHost,
       this.panel = el("div", { class: "mmc-panel" }, [
         ...(this.onFace ? [this.expandHost] : []),
@@ -286,9 +305,132 @@ export class PreStageEditor {
     // grabbed to a frame first — which the rail's own tool does.
     if (row.kind && row.kind !== "image") return null;
     const handle = S.nextPreStageHandle(this.state);
-    this.state.refs.push({ handle, filename: row.path });
+    this.state.refs.push({ handle, filename: row.path, kind: "image", role: "reference" });
     this.commit();
     return handle;
+  }
+
+  // ---- the cast --------------------------------------------------------------
+  //
+  // The same cast a shot has, over the pictures attached here: a member's
+  // pictures are refs like any other, their name in the prompt is the
+  // citation, and `compile_image.cast_into_still` writes them into the still
+  // — the picture where the name stood, what they wear on this family onto
+  // the stack. The shelf is `cast.js`'s, handed this still's two lists.
+
+  /** This still as the piece a member is cast into: its refs are the assets. */
+  castPiece() {
+    return { assets: this.state.refs, subjects: (this.state.subjects ??= []) };
+  }
+
+  /** The VAE this arch's family encodes saved references through, or "". */
+  stillVae() {
+    return this.state.models?.[this.state.arch]?.vae ?? "";
+  }
+
+  shelfShown() {
+    if (this.castOpen != null) return this.castOpen;
+    return this.castDefaultOpen !== false && (this.state.subjects ?? []).length > 0;
+  }
+
+  toggleCast() {
+    this.castOpen = !this.shelfShown();
+    this.render();
+  }
+
+  renderCastShelf() {
+    if (!this.shelfShown()) { this.castHost.replaceChildren(); return; }
+    this.castShelf ??= new CastShelf({
+      getCast: () => this.state.subjects ?? [],
+      setCast: (list) => { this.state.subjects = list; },
+      family: () => S.preStageFamilyId(this.state.arch),
+      getAssets: () => this.state.refs,
+      addAsset: () => this.attachOneRef(),
+      whereCited: (subject) => {
+        const cited = S.citedCast(this.state).some((s) => s.handle === subject.handle);
+        return { cited, text: cited ? t("in the prompt") : "" };
+      },
+      cite: (subject) => this.citeName(subject.handle),
+      keep: (subject, assets) => P.keepSubject(subject, assets),
+      library: this.presetTarget
+        ? (options = {}) => openPresetLibrary({ target: this.presetTarget(), scope: "cast", ...options })
+            .then(() => this.render())
+        : null,
+      // Their pictures as saved latents, landing where the pictures are.
+      mod: (subject, assets, mode, onProgress, family = null) => keepAsMod(subject, assets, mode, {
+        vae: this.stillVae(),
+        family,
+        onProgress,
+        list: () => this.state.refs,
+        nextHandle: () => S.nextPreStageHandle(this.state),
+        texts: () => [this.state.prompt ?? ""],
+        cast: () => this.state.subjects ?? [],
+        drop: (handles) => {
+          this.state.refs = this.state.refs.filter((ref) => !handles.includes(ref.handle));
+        },
+      }).then((rows) => { this.commit(); return rows; }),
+      vae: () => this.stillVae(),
+      families: () => castFamilies(S.preStageFamilyId(this.state.arch), this.stillVae(), rememberedWeights()),
+      canvas: () => {
+        const geometry = S.resolvedPreStage(this.state, this.sourceSize());
+        return { width: geometry.width, height: geometry.height };
+      },
+      rename: (from, to) => {
+        S.renameSubjectCitations([this.state], from, to);
+        this.prompt.setValue(this.state.prompt ?? "");
+      },
+      dropAssets: (handles) => {
+        this.state.refs = this.state.refs.filter(
+          (ref) => !handles.includes(ref.handle) || S.handleWritten([this.state.prompt ?? ""], ref.handle));
+      },
+      touch: () => this.onCommit?.(),
+      commit: () => this.commit(),
+    });
+    if (this.castHost.firstChild !== this.castShelf.root) {
+      this.castHost.replaceChildren(this.castShelf.root);
+    }
+    this.castShelf.render();
+  }
+
+  /** Somebody's name in the sentence was clicked: show what they are made of. */
+  openCastMember(handle) {
+    const before = this.castOpen;
+    this.castOpen = true;
+    this.render();
+    if (!this.castShelf?.openMember(handle)) {
+      this.castOpen = before;
+      this.render();
+    }
+  }
+
+  /** Write a member's name into the prompt — see `CreatorEditor.citeName`. */
+  citeName(handle) {
+    if (!handle) return;
+    const current = this.state.prompt ?? "";
+    if (new RegExp(`@${handle}\\b`).test(current)) return;
+    const joiner = current && !/\s$/.test(current) ? " " : "";
+    this.state.prompt = `${current}${joiner}@${handle} `;
+    this.prompt.setValue(this.state.prompt);
+    this.commit();
+  }
+
+  /** One picture for the shelf's "+": attached as a reference, handed back
+   *  so the shelf can hang it on somebody — or null where refused. */
+  async attachOneRef() {
+    const blocked = this.refBlocked();
+    if (blocked) { this.notice = blocked; this.render(); return null; }
+    const room = S.preStageMaxRefs(this.state) - this.state.refs.length;
+    const chosen = await openPicker({
+      kinds: ["image", "renders", "refmods"], kind: "image",
+      aspect: this.pickerAspect(),
+      plate: this.plateSpec(),
+      capacity: () => ({ used: this.state.refs.length, max: S.PRESTAGE_MAX_REFS, filesLeft: room }),
+    });
+    if (!chosen?.length) return null;
+    const ref = applyPick({ handle: S.nextPreStageHandle(this.state), kind: "image", role: "reference" }, chosen[0]);
+    this.state.refs.push(ref);
+    this.commit();
+    return ref;
   }
 
   // ---- init image and style references --------------------------------------
@@ -354,7 +496,7 @@ export class PreStageEditor {
     }
     const [sheet] = result.paths;
     if (!this.refBlocked()) {
-      this.state.refs.unshift({ handle: S.nextPreStageHandle(this.state), filename: sheet });
+      this.state.refs.unshift({ handle: S.nextPreStageHandle(this.state), filename: sheet, kind: "image", role: "reference" });
     } else {
       this.state.init = { filename: sheet, denoise: this.state.init?.denoise ?? S.PRESTAGE_DEFAULT_DENOISE };
     }
@@ -377,7 +519,7 @@ export class PreStageEditor {
       if (!clip) return;
       const grabbed = await openFrameGrab({ path: clip[0].path });
       if (!grabbed) return;
-      this.state.refs.push({ handle: S.nextPreStageHandle(this.state), filename: grabbed.path });
+      this.state.refs.push({ handle: S.nextPreStageHandle(this.state), filename: grabbed.path, kind: "image", role: "reference" });
       return this.commit();
     }
     const chosen = await openPicker({
@@ -388,7 +530,7 @@ export class PreStageEditor {
     });
     if (!chosen) return;
     for (const asset of chosen.slice(0, room)) {
-      this.state.refs.push(applyPick({ handle: S.nextPreStageHandle(this.state) }, asset));
+      this.state.refs.push(applyPick({ handle: S.nextPreStageHandle(this.state), kind: "image", role: "reference" }, asset));
     }
     this.commit();
   }
@@ -643,6 +785,7 @@ export class PreStageEditor {
       ...state.refs.map((ref, slot) => this.renderRefChip(ref, slot)),
     ];
     this.assetsHost.replaceChildren(...(chips.length ? [keepScroll(el("div", { class: "mmc-assets" }, chips))] : []));
+    this.renderCastShelf();
     // The arch's pins go on before the row is read — and, since one stack
     // serves every arch on this node, a pin made for another arch comes off.
     if (settlePins(state, S.preStageFamilyId(state.arch), () => this.commit())) this.onCommit?.();
@@ -788,6 +931,20 @@ export class PreStageEditor {
              + "whole shot at once — and the same tool cuts the edited sheet back into "
              + "frames. Hand it a clip to lay one, or a sheet to split one."),
              () => this.contactSheet()),
+        // Who is in the picture, as on the video rail: lit while the shelf is
+        // up, wearing the head count either way.
+        el("button", {
+          class: `mmc-tool mmc-tool-cast${this.shelfShown() ? " on" : ""}`,
+          title: this.shelfShown()
+            ? t("Fold the cast shelf away. Who is in the picture stays as it is.")
+            : t("Who is in the picture: somebody from the cast library, or cast here — "
+              + "name them once, write @anna in the prompt, and their picture and what "
+              + "they wear on this model ride in with them."),
+          onclick: () => this.toggleCast(),
+        }, [el("span", { class: "mmc-tool-icon" }, [icon("face")]), el("span", { text: t("Cast") }),
+            ...((this.state.subjects ?? []).length ? [el("span", {
+              class: "mmc-tool-count", text: String((this.state.subjects ?? []).length),
+            })] : [])]),
         tool(t("Add LoRA"), "effect",
              t("Manage the LoRAs patched onto the image model. Krea LoRAs train on RAW and apply on Turbo too."),
              () => this.manageLoras()),
@@ -860,13 +1017,20 @@ export class PreStageEditor {
     // where the drawing is.
     const untrained = guide && ref.guide
       && !(refs.nativeControl ?? []).includes(ref.guide);
-    const edits = refs.editsFirst && slot === 0 && !this.state.init && !guide;
+    // A cast member's picture is theirs, whatever slot it sits in: the
+    // compile puts it after what was cited plain and never edits it
+    // (`compile_image.cast_into_still`), so the chip says whose it is
+    // rather than a slot number that is not where it will land.
+    const owner = (this.state.subjects ?? []).find((subject) => S.subjectFiles(subject).includes(ref.handle));
+    const edits = refs.editsFirst && slot === 0 && !this.state.init && !guide && !owner;
     const blank = S.preStageStartsBlank(this.state);
     const role = guide
       ? t("guide")
-      : refs.editsFirst
-        ? (edits && !blank ? t("editing") : t("Picture {n}", { n: slot + 1 }))
-        : t(refs.noun?.[0] ?? "style reference");
+      : owner
+        ? t("{who}'s", { who: owner.handle })
+        : refs.editsFirst
+          ? (edits && !blank ? t("editing") : t("Picture {n}", { n: slot + 1 }))
+          : t(refs.noun?.[0] ?? "style reference");
     // Past the cap, and drawn rather than dropped: the blob keeps every
     // reference it was given so the compile is the one place that decides, and
     // a chip that vanished when the edition pill moved would take two pictures
@@ -1949,7 +2113,7 @@ export class PreStageBody {
     }
     const first = this.state.refs[0];
     if (first) first.filename = filename;
-    else this.state.refs.unshift({ handle: S.nextPreStageHandle(this.state), filename });
+    else this.state.refs.unshift({ handle: S.nextPreStageHandle(this.state), filename, kind: "image", role: "reference" });
     this.commit();
     this.editor?.probeInit?.();
     this.reveal();

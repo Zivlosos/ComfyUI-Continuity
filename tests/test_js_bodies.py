@@ -428,10 +428,10 @@ try {
     voiceBound: piece.subjects?.[0]?.voice === shot.assets?.[1]?.handle,
     // The H3 still is a video generation with a piece of its own — the nested
     // request — so its box offers the roster and casting lands there, files as
-    // ordinary attachments. The image branches still offer none: an image
-    // architecture has no piece to cast her into.
+    // ordinary attachments. The image branches offer it too, over their own
+    // refs: a still has the cast a shot has (`compile_image.cast_into_still`).
     onTheStill: null,
-    notOnAnImagePreStage: null,
+    onAnImagePreStage: null,
   };
   const still = fakeNode("MiniMaxH3PreStage", "prestage_data",
                          JSON.stringify({ arch: "minimax" }));
@@ -454,8 +454,19 @@ try {
   }
   const image = fakeNode("MiniMaxH3PreStage", "prestage_data", "{}");
   await ext.nodeCreated(image);
-  out.castFromMention.notOnAnImagePreStage =
-    !image.mmcBody.editor?.prompt?.hooks?.castFromLibrary;
+  {
+    const hooks = image.mmcBody.editor?.prompt?.hooks;
+    const got = (await hooks?.castFromLibrary?.({
+      handle: "anna", takes: "person", description: "dark coat",
+      files: [{ slot: "from", filename: "anna/face.png", kind: "image" }],
+    })) ?? null;
+    const state = image.mmcBody.state;
+    out.castFromMention.onAnImagePreStage = {
+      handle: got, cast: (state.subjects ?? []).length,
+      attached: (state.refs ?? []).map((ref) => `${ref.handle}=${ref.filename}`).join(","),
+      offered: (hooks?.getCast?.() ?? []).map((subject) => subject.handle).join(","),
+    };
+  }
 } catch (error) {
   out.errors.push(`castFromMention: ${error.message}`);
 }
@@ -3339,8 +3350,11 @@ check("...as one subject on the request", on_still.get("cast"), 1)
 check("...with her file attached as an ordinary reference on it",
       on_still.get("attached"), "img-1=anna/face.png")
 check("...and the box's own cast hook seeing her", on_still.get("offered"), "anna")
-check("an image pre-stage is offered no roster — it has no piece to cast her into",
-      mention.get("notOnAnImagePreStage"), True)
+on_image = mention.get("onAnImagePreStage") or {}
+check("an image pre-stage is offered the roster too, and she lands on its refs",
+      (on_image.get("handle"), on_image.get("cast"), on_image.get("offered")), ("anna", 1, "anna"))
+check("...her picture among them, under the still's own handle",
+      on_image.get("attached"), "img-1=anna/face.png")
 
 wrote = report.get("wroteName", {})
 check("her name lands where the @ was typed, not on a lost caret",

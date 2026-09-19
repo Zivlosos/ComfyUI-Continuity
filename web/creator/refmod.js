@@ -31,10 +31,9 @@
 // are the host's: a shelf does not know whether a member's pictures live on a
 // card's row or in the piece's pool, and there are two hosts.
 
-import { isRefMod, listAssets, makeRefMod, refmodFileUrl, remakeRefMod, viewUrl } from "./api.js";
-import { el, icon } from "./dom.js";
+import { isRefMod, listAssets, makeRefMod, remakeRefMod, viewUrl } from "./api.js";
 import { t } from "./i18n.js";
-import { FAMILIES, family as familyManifest } from "./manifest.js";
+import { FAMILIES, VIDEO_FAMILIES, family as familyManifest } from "./manifest.js";
 import * as S from "./state.js";
 
 // ---- which families keep mods ---------------------------------------------------
@@ -46,27 +45,57 @@ export const DEFAULT_SPACE = "h3_video";
 /** A family's mod table (`capabilities.refmod`), or null where it keeps none. */
 export const refmodOf = (id) => familyManifest(id)?.capabilities?.refmod ?? null;
 
-/** The families a member's pictures can be saved for, the piece's first:
- *  `{id, label, space, vae, clips, grid}` each — `vae` the file that family's
- *  encoder would use here, by the piece's own weights for its family and the
- *  machine's remembered picks for the rest (`models.rememberedWeights`), or
- *  "" where none is picked, which the route then says. `pieceId` is the
- *  piece's family; `pieceVae` its VAE; `remembered` the settings' weights map. */
-export function modFamilies(pieceId, pieceVae, remembered = {}) {
+/**
+ * Every family a cast member can be sent to, the piece's own first — one
+ * entry per family in the catalog, whether or not it keeps mods. What the
+ * wears panel draws a tab for, and what `keepAsMod` is handed as `family`.
+ *
+ *   id, label     the family's
+ *   video         renders video (a piece's family) rather than a still
+ *   here          this is the piece's family
+ *   reads         `{pictures, clips, voice}` — which of a member's files the
+ *                 family reads at all: a video family's reference caps, a
+ *                 still family's `max_refs`. Mirrors `chat.ref_limit`.
+ *   adapter       reads pictures only through a LoRA in its stack (Krea 2 —
+ *                 `capabilities.refs.needs_lora`). Mirrors `chat.needs_adapter`.
+ *   refmod        keeps saved references; then `space`, `vae`, `clips`, `grid`
+ *                 as the family's mod table says — `vae` the file that
+ *                 family's encoder would use here, by the piece's own weights
+ *                 for its family and the machine's remembered picks for the
+ *                 rest (`models.rememberedWeights`), or "" where none is picked.
+ */
+export function castFamilies(pieceId, pieceVae, remembered = {}) {
   const out = [];
   for (const manifest of FAMILIES) {
-    const table = manifest.capabilities?.refmod;
-    if (!table) continue;
     const own = manifest.id === pieceId;
+    const video = VIDEO_FAMILIES.includes(manifest.id);
+    const max = manifest.reference?.max ?? {};
+    const stills = Number(manifest.prompt?.max_refs ?? 0);
+    const table = manifest.capabilities?.refmod ?? null;
     out.push({
-      id: manifest.id, label: manifest.label, space: table.space,
-      clips: Boolean(table.clips), grid: table.grid,
-      vae: own ? (pieceVae ?? "") : (remembered?.[manifest.id]?.vae ?? ""),
+      id: manifest.id, label: manifest.label, video, here: own,
+      reads: {
+        pictures: video ? (max.image ?? 0) > 0 : stills > 0,
+        clips: video && (max.video ?? 0) > 0,
+        voice: video && (max.audio ?? 0) > 0,
+      },
+      adapter: Boolean(manifest.capabilities?.refs?.needs_lora),
+      adapterHints: [...(manifest.capabilities?.refs?.adapter_hints ?? [])],
+      refmod: Boolean(table),
+      ...(table ? {
+        space: table.space, clips: Boolean(table.clips), grid: table.grid,
+        vae: own ? (pieceVae ?? "") : (remembered?.[manifest.id]?.vae ?? ""),
+      } : {}),
     });
   }
-  out.sort((a, b) => (a.id === pieceId ? -1 : b.id === pieceId ? 1 : 0));
+  out.sort((a, b) => (a.here ? -1 : b.here ? 1 : 0));
   return out;
 }
+
+/** The families a member's pictures can be saved for, the piece's first:
+ *  the `castFamilies` entries that keep mods. */
+export const modFamilies = (pieceId, pieceVae, remembered = {}) =>
+  castFamilies(pieceId, pieceVae, remembered).filter((family) => family.refmod);
 
 /** The mod an entry is read from in `space`: itself, or the rendition it
  *  carries — or null where the family would encode it. */
@@ -305,46 +334,41 @@ export function modeRows(entries, onPick, onKnown, family = null) {
   });
 }
 
-/** The whole menu: a section per family this member's pictures can be saved
- *  for — the piece's own first, headed by name where there is more than one —
- *  so a member on an H3 piece can carry a Klein rendition for the chat's
- *  stills. `onPick(mode, family)`. */
-export function familySections(entries, families, onPick, onKnown) {
-  const list = families?.length ? families : [null];
-  const sections = list.map((family) => {
-    const rows = modeRows(entries, onPick, onKnown, family);
-    if (!family?.vae && family && rows.length) {
-      // No VAE picked for that family on this machine: the rows are drawn
-      // and refused here rather than queued to be refused by the route.
-      const why = t("Pick the {family} VAE in its weights control first.", { family: family.label });
-      for (const row of rows) { row.disabled = true; row.note = `${row.note} ${why}`; }
-    }
-    return { head: list.length > 1 && family ? t("For {family}", { family: family.label }) : null, rows };
-  });
-  // One row for all of them, where more than one family could be encoded for
-  // right now: the same picture through each family's VAE, one job after the
-  // other. The per-picture modes only — a stack and a clip are H3's shapes.
-  const ready = list.filter((family) => family?.vae);
-  if (ready.length > 1) {
-    const rows = ["compressed", "full"].map((key) => {
-      const mode = MODES.find((m) => m.key === key);
-      const perFamily = ready.map((family) => {
-        const fresh = entries.filter((entry) => !modIn(entry, family.space) && entry.kind !== "video");
-        return fresh.reduce((sum, entry) => sum + modTokens(entry, key, onKnown, family.space), 0);
-      });
-      if (!perFamily.some(Boolean)) return null;
-      return {
-        label: t("{mode} — {tokens} tokens", {
-          mode: t(mode.label), tokens: `≈${perFamily.map(long).join(" + ")}` }),
-        note: t("For every family this machine can encode for: {families}. One job per family, in that order.",
-                { families: ready.map((family) => family.label).join(", ") }),
-        onPick: () => onPick(key, ready),
-        key,
-      };
-    }).filter(Boolean);
-    if (rows.length) sections.unshift({ head: t("Every family"), rows });
+/** One row for all of them, where more than one family could be encoded
+ *  for right now: the same picture through each family's VAE, one job after
+ *  the other, per-picture modes only — a stack and a clip are H3's shapes.
+ *  `onPick(mode, families)`. Empty where fewer than two are ready. */
+export function everyFamilyRows(entries, families, onPick, onKnown) {
+  const ready = (families ?? []).filter((family) => family?.refmod && family.vae);
+  if (ready.length < 2) return [];
+  return ["compressed", "full"].map((key) => {
+    const mode = MODES.find((m) => m.key === key);
+    const perFamily = ready.map((family) => {
+      const fresh = entries.filter((entry) => !modIn(entry, family.space) && entry.kind !== "video");
+      return fresh.reduce((sum, entry) => sum + modTokens(entry, key, onKnown, family.space), 0);
+    });
+    if (!perFamily.some(Boolean)) return null;
+    return {
+      label: t("{mode} — {tokens} tokens", {
+        mode: t(mode.label), tokens: `≈${perFamily.map(long).join(" + ")}` }),
+      note: t("For every family this machine can encode for: {families}. One job per family, in that order.",
+              { families: ready.map((family) => t(family.label)).join(", ") }),
+      onPick: () => onPick(key, ready),
+      key,
+    };
+  }).filter(Boolean);
+}
+
+/** The mode rows for one family, refused where that family has no VAE picked
+ *  on this machine: drawn and disabled here rather than queued to be refused
+ *  by the route. */
+export function familyModeRows(entries, family, onPick, onKnown) {
+  const rows = modeRows(entries, onPick, onKnown, family);
+  if (family?.refmod && !family.vae && rows.length) {
+    const why = t("Pick the {family} VAE in its weights control first.", { family: t(family.label) });
+    for (const row of rows) { row.disabled = true; row.note = `${row.note} ${why}`; }
   }
-  return sections;
+  return rows;
 }
 
 /** A listing row's aspect, long over short, off its own grid — exact, where a
@@ -403,141 +427,6 @@ export async function remakeMods(mods, mode, { vae = "", onProgress = null } = {
   if (!rows.length) throw new Error(t("the server wrote nothing"));
   await modRows();
   return rows;
-}
-
-/**
- * The ledger: one line under a member's looks that says what they cost and
- * what to do about it. Drawn by both hosts of the shelf and by the library
- * sheet, so the sentence is the same in all three places.
- *
- *   entries   their `from` stills, `{filename, kind, ref_size}`
- *   canvas    the generation's `{width, height}`, or null
- *   busy      `{count, mode, progress}` while their pictures are on the queue
- *   note      what went wrong the last time, or null
- *   onSave    called with the button as anchor; the host opens the mode menu
- *   onRemake  called with the button as anchor once their looks are saved; the
- *             host opens the re-encode menu (`remakeRows`), or null
- *   onLibrary open the library on the saved file, or null
- *   onKnown   redraw — a measure or the listing landed
- *
- *   family    the `modFamilies` entry the ledger counts for; absent is H3's
- *
- * -> an element, or null where they have no looks to account for.
- */
-export function ledger({ entries, canvas = null, busy = null, note = null,
-                         onSave = null, onRemake = null, onLibrary = null, onKnown = null,
-                         family = null }) {
-  const space = family?.space ?? DEFAULT_SPACE;
-  const c = cost(entries, canvas, onKnown, space);
-  if (!c.pictures && !c.mods && !busy) return null;
-  const root = el("div", { class: "mmc-cast-ledger" });
-  const what = el("span", { class: "mmc-cast-ledger-what" });
-  root.appendChild(what);
-  const say = (lead, ...rest) => {
-    what.replaceChildren(el("b", { text: lead }), ...rest.filter(Boolean).flatMap((part) => [
-      el("span", { class: "mmc-cast-ledger-dot", text: " · " }),
-      typeof part === "string" ? el("span", { text: part }) : part,
-    ]));
-  };
-  const n = (text) => el("span", { class: "mmc-cast-ledger-n", text });
-  const sizes = () => {
-    const kinds = new Set(entries.filter((e) => !modIn(e, space)).map((e) => S.refSize(e)));
-    return [...kinds].map((k) => t(k)).join("/");
-  };
-  const fresh = c.pictures + c.clips;
-  const pictureWords = (count) => t(count === 1 ? "{count} picture" : "{count} pictures", { count });
-  const clipWords = (count) => t(count === 1 ? "{count} clip" : "{count} clips", { count });
-  const modWords = (count) => t(count === 1 ? "{count} RefMod" : "{count} RefMods", { count });
-  // "1 picture", "2 pictures + 1 clip" — what is encoded fresh; and the same
-  // with the size it is encoded at.
-  const freshParts = () => [c.pictures ? pictureWords(c.pictures) : null,
-                            c.clips ? clipWords(c.clips) : null].filter(Boolean).join(" + ");
-  const freshWords = () => t("{what} at {size}", { what: freshParts(), size: sizes() });
-  const freshTokens = () => `≈${long(c.picTokens)}${c.clips ? "+" : ""} ${t("tokens")}`;
-
-  // The other mode, from the same picture: a compressed mod that stained, or
-  // a full one costing more than the shot can carry, used to be "take them
-  // off the cast, attach the picture again, save again". Wherever a mod is
-  // among their looks — alone, or beside a picture not yet saved.
-  const remakeButton = () => {
-    if (!onRemake || !remakeRows(c.rows, () => {}).length) return;
-    root.appendChild(el("button", {
-      class: "mmc-cast-ledger-act",
-      title: t("Encode their looks again in the other mode, from the pictures the "
-             + "files were made of. Same files, same names."),
-      onclick: (event) => onRemake(event.currentTarget),
-    }, [icon("cube", 12), el("span", { text: t("Re-encode ▾") })]));
-  };
-
-  if (busy) {
-    root.classList.add("busy");
-    const busySpace = busy.family?.space ?? space;
-    const stills = entries.filter((e) => !modIn(e, busySpace) && e.kind !== "video");
-    const after = busy.mode === "stack"
-      ? (stills.length + c.clips * STACK_CLIP_FRAMES) * STACK_FRAME_TOKENS
-      : busy.mode === "clip"
-        ? c.clips * modTokens({ kind: "video" }, "full", onKnown, busySpace)
-        : stills.reduce((sum, e) => sum + modTokens(e, busy.mode, onKnown, busySpace), 0);
-    say(t(busy.remake ? (busy.count === 1 ? "Re-encoding {count} RefMod…" : "Re-encoding {count} RefMods…")
-          : busy.mode === "stack" ? "Stacking {count} files into one…"
-          : busy.mode === "clip" ? (busy.count === 1 ? "Encoding {count} clip…" : "Encoding {count} clips…")
-          : busy.count === 1 ? "Encoding {count} picture…" : "Encoding {count} pictures…", { count: busy.count }),
-        busy.family ? busy.family.label : null,
-        t(busy.mode === "compressed" ? "compressed" : busy.mode === "stack" ? "stack"
-          : busy.mode === "clip" ? "clip" : "full"),
-        n(`${freshTokens().replace(` ${t("tokens")}`, "")} → ≈${long(after)} ${t("tokens")}`));
-    root.appendChild(el("span", { class: "mmc-cast-ledger-queued", text: t("on the queue") }));
-    const bar = el("span", { class: "mmc-cast-ledger-bar" },
-                   [el("i", { style: { width: `${Math.round((busy.progress ?? 0) * 100)}%` } })]);
-    root.appendChild(bar);
-  } else if (fresh && !c.mods) {
-    say(t("Encoded on every render"), family ? family.label : null, freshWords(), n(freshTokens()));
-    if (onSave) {
-      root.appendChild(el("button", {
-        class: "mmc-cast-ledger-act on",
-        title: t("Encode their looks once and save the result as a file the render "
-               + "reads instead — one stacked file, or one per picture. The menu "
-               + "offers every family this machine can encode for."),
-        onclick: (event) => onSave(event.currentTarget),
-      }, [icon("cube", 12), el("span", { text: t(fresh === 1 ? "Save as RefMod ▾" : "Save as RefMods ▾") })]));
-    }
-  } else if (fresh && c.mods) {
-    say(`${modWords(c.mods)} + ${freshParts()}`, n(`${long(c.modTokens)} + ${freshTokens()}`));
-    if (onSave) {
-      root.appendChild(el("button", {
-        class: "mmc-cast-ledger-act on",
-        onclick: (event) => onSave(event.currentTarget),
-      }, [icon("cube", 12), el("span", { text: t(fresh === 1 ? "Save the picture too ▾" : "Save the pictures too ▾") })]));
-    }
-    remakeButton();
-  } else {
-    root.classList.add("saved");
-    const modes = [...new Set(c.rows.map(modeWord))].join("/");
-    const folder = c.rows.length === 1
-      ? el("span", { class: "mmc-cast-ledger-path", text: c.rows[0].path.replace(/^refmod:/, "refmods/") })
-      : null;
-    say(t(c.mods === 1 ? "Saved as a RefMod" : "Saved as {count} RefMods", { count: c.mods }),
-        family ? family.label : null,
-        modes || null,
-        c.exact ? n(`${long(c.modTokens)} ${t("tokens")}`) : null,
-        folder);
-    remakeButton();
-    if (c.rows.length === 1) {
-      root.appendChild(el("a", {
-        class: "mmc-cast-ledger-act", href: refmodFileUrl(c.rows[0].path), download: "",
-        title: t("The .safetensors itself — drop it in another machine's models/refmods, "
-               + "or in the sibling pack's loader."),
-      }, [icon("download", 12), el("span", { text: t("Download") })]));
-    }
-    if (onLibrary) {
-      root.appendChild(el("button", {
-        class: "mmc-cast-ledger-act",
-        onclick: () => onLibrary(c.rows[0]?.path ?? null),
-      }, [el("span", { text: t("Show in library") })]));
-    }
-  }
-  if (note) root.appendChild(el("span", { class: "mmc-cast-ledger-note", text: note }));
-  return root;
 }
 
 // A member's `takes` word, as the mod format's `concept_type`. Metadata for

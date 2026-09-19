@@ -106,8 +106,8 @@ check("her LoRA rides into the shots that cite her, after the piece's",
        ["film_grain.safetensors", "people/anna_v3.safetensors"]])
 check("...at the strength she wears it",
       _payloads[0]["request"]["loras"][1]["strength"], 0.85)
-check("the cast dict the segment node re-parses carries the entry",
-      _payloads[0]["request"]["subjects"][0]["loras"], [ANNA_LORA])
+check("the cast dict the segment node re-parses carries the entry, filed under the piece's family",
+      _payloads[0]["request"]["subjects"][0]["wears"], {"h3": {"loras": [ANNA_LORA]}})
 
 _first = compiler.compile_segment(_payloads[0])
 _second = compiler.compile_segment(_payloads[1])
@@ -145,7 +145,7 @@ _plain = piece(shot("@anna walks in."), assets=[image("ref-1")],
                subjects=[{"handle": "anna", "from": ["ref-1"]}])
 check("a cast wearing nothing leaves the request as it was",
       (compiler.timeline_payloads(_plain)[0]["request"]["loras"],
-       "loras" in compiler.timeline_payloads(_plain)[0]["request"]["subjects"][0]),
+       "wears" in compiler.timeline_payloads(_plain)[0]["request"]["subjects"][0]),
       ([], False))
 
 # A muted entry rides along but is not patched, the same as on the piece.
@@ -154,5 +154,58 @@ _muted = piece(shot("@anna walks in."), assets=[image("ref-1")],
                           "loras": [dict(ANNA_LORA, enabled=False)]}])
 _muted_first = compiler.compile_segment(compiler.timeline_payloads(_muted)[0])
 check("a muted LoRA contributes no words", "ohwx" in _muted_first.body, False)
+
+# ---- one wardrobe, a row per family -----------------------------------------
+#
+# A LoRA is one family's weights, so a member wears one *per family*: the row
+# for the family a cast is parsed for is their `loras`, the others ride along
+# untouched, and a flat `loras` list from before the rows existed is read as
+# the piece's family's row.
+
+KLEIN_LORA = {"name": "anna_klein.safetensors", "strength": 0.7, "triggers": ["ann4"]}
+WARDROBE = {"h3": {"loras": [ANNA_LORA]}, "flux2klein": {"loras": [KLEIN_LORA], "send": "words"}}
+
+_dressed = subjects.parse([{"handle": "anna", "from": ["ref-1"], "wears": WARDROBE}], "h3")[0]
+check("parsed for H3, she wears H3's row", _dressed.loras, (ANNA_LORA,))
+check("...and says nothing about what H3 is sent", _dressed.send, None)
+_klein = subjects.parse([{"handle": "anna", "from": ["ref-1"], "wears": WARDROBE}], "flux2klein")[0]
+check("parsed for Klein, Klein's row", (_klein.loras, _klein.send), ((KLEIN_LORA,), "words"))
+check("the wardrobe rides whole either way", sorted(_dressed.wears), ["flux2klein", "h3"])
+_legacy = subjects.parse([{"handle": "anna", "from": ["ref-1"], "loras": [ANNA_LORA]}], "ltx25")[0]
+check("a flat list from before the rows is the parsing family's row",
+      (_legacy.loras, _legacy.wears), ((ANNA_LORA,), {"ltx25": {"send": None, "loras": (ANNA_LORA,)}}))
+try:
+    subjects.parse([{"handle": "anna", "from": ["ref-1"], "wears": {"h3": {"send": "maybe"}}}], "h3")
+    FAILURES.append("an unknown send word is accepted")
+except subjects.SubjectError as exc:
+    check("an unknown send word is refused by name", "maybe" in str(exc), True)
+
+_worn = piece(shot("@anna walks in."), assets=[image("ref-1")],
+              subjects=[{"handle": "anna", "from": ["ref-1"], "wears": WARDROBE}])
+check("on an H3 piece she wears the H3 LoRA and not the Klein one",
+      names(compiler.timeline_payloads(_worn)[0]), ["people/anna_v3.safetensors"])
+check("...and the segment's cast keeps both rows",
+      sorted(compiler.timeline_payloads(_worn)[0]["request"]["subjects"][0]["wears"]), ["flux2klein", "h3"])
+check("on a family with no row she wears nothing",
+      subjects.parse([{"handle": "anna", "from": ["ref-1"], "wears": WARDROBE}], "ltx25")[0].loras, ())
+
+# What a family is sent for their looks, where the member says.
+_words = compiler.compile_request({
+    "prompt": "@anna walks in.", "assets": [image("ref-1")],
+    "subjects": [{"handle": "anna", "from": ["ref-1"], "description": "a red coat",
+                  "wears": {"h3": {"send": "words"}}}]})
+check("sent as words, her picture is not in the request",
+      ([a.handle for a in _words.ref_images], "<Subject 1> is a red coat." in _words.prompt),
+      ([], True))
+_bound = dict(image("ref-1"), mods={"h3_video": "refmod:cast/anna"})
+_saved = compiler.compile_request({
+    "prompt": "@anna walks in.", "assets": [_bound],
+    "subjects": [{"handle": "anna", "from": ["ref-1"]}]})
+check("left to decide, the rendition is read", _saved.ref_images[0].mod_for("h3_video"), "refmod:cast/anna")
+_pictures = compiler.compile_request({
+    "prompt": "@anna walks in.", "assets": [_bound],
+    "subjects": [{"handle": "anna", "from": ["ref-1"], "wears": {"h3": {"send": "pictures"}}}]})
+check("sent as pictures, the rendition is passed over and the picture encoded",
+      _pictures.ref_images[0].mod_for("h3_video"), None)
 
 passed("a cast member's LoRA is patched onto their shots and worded there")

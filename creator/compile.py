@@ -1525,7 +1525,12 @@ def compile_request(data, image_size_lookup=None, continues=False, canvas_spec=N
     # error and costs nothing: the piece holds one cast and a shot carries the
     # part of it that walks on.
     try:
-        cast = subjects.parse(data.get("subjects"))
+        cast = subjects.parse(data.get("subjects"), family)
+        # What this family is handed for each member's looks, where the
+        # member said: their words alone, or the picture over its rendition.
+        # Before the citations are read, so a member sent as words has no
+        # files here to be claimed, counted or cut.
+        cast, assets = subjects.sent(cast, assets, _refmod_space(family))
     except subjects.SubjectError as exc:
         raise CompileError(str(exc)) from exc
     raw_body = refined_body(data) or str(data.get("prompt") or "")
@@ -2732,7 +2737,7 @@ def timeline_cast(data):
     cites, and `<Subject N>` is numbered off that.
     """
     try:
-        return subjects.parse(as_piece(data).get("subjects"))
+        return subjects.parse(as_piece(data).get("subjects"), piece_family(data))
     except subjects.SubjectError as exc:
         raise CompileError(str(exc)) from exc
 
@@ -2901,6 +2906,11 @@ def as_piece(data):
             piece[field] = shot.pop(field)
     piece["segments"] = [shot]
     return piece
+
+
+def _refmod_space(family):
+    """The latent space a family reads saved references in, or None."""
+    return (registry.REFMOD.get(family) or {}).get("space")
 
 
 def piece_family(data):
@@ -3743,6 +3753,8 @@ def _renamed(subject, rename):
         replaces_what=subject.replaces_what,
         marker=subject.marker,
         loras=subject.loras,
+        wears=subject.wears,
+        send=subject.send,
     )
 
 
@@ -3778,8 +3790,13 @@ def _subject_dict(subject):
         out["notes"] = dict(subject.notes)
     if subject.triggers:
         out["triggers"] = {h: ", ".join(words) for h, words in subject.triggers.items()}
-    if subject.loras:
-        out["loras"] = [dict(entry) for entry in subject.loras]
+    # The wardrobe whole, by family, so the family this segment renders on
+    # picks its own row again when the request is re-parsed — and every other
+    # family's row survives the round trip.
+    if subject.wears:
+        out["wears"] = {family: {**({"send": row["send"]} if row.get("send") else {}),
+                                 **({"loras": [dict(e) for e in row["loras"]]} if row.get("loras") else {})}
+                        for family, row in subject.wears.items()}
     for key, value in (("description", subject.description),
                        ("voice", subject.voice),
                        ("replaces_what", subject.replaces_what),

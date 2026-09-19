@@ -6,6 +6,63 @@ exactly as it was written, wall of text and all.
 
 ## Unreleased
 
+**A still has the cast a shot has, and Krea 2 reads a member's picture
+through the adapter they wear.** The image pre-stage had no cast at all —
+the image compilers knew pictures and a prompt, so `@anna` on a Krea or
+Klein still was prose — and the chat's room was the only surface that
+expanded a member into a still, with its own copy of the rule. Now the
+expansion is the image compiler's (`compile_image.cast_into_still`): a
+member's picture is a reference among the still's `refs`, their name in the
+prompt becomes that picture cited with their description after it (or the
+description alone where they are sent as words, or the family reads no
+picture), what they wear on this family goes onto the stack after the
+piece's own, and a member's pictures nobody names come off the render, as
+the video compile cuts them. On an edit family a member's picture is never
+the one changed: it follows what was cited plain, and where nothing was the
+render starts blank. The PreStage node's image body mounts the same cast
+shelf the shot has, over its own refs (`prestage_data.subjects`), the `@`
+menu offers the roster there, and a cast-scope preset lands on a pre-stage.
+The chat's `still_piece` calls the same expansion, so the room and the node
+cannot read a member differently. And a family that reads pictures only
+through an adapter (Krea 2) is no longer refused a picture by the room
+before anything is compiled: the adapter is a LoRA, a member can wear one
+for that family, and `check_refs` accepts one on the stack by its filename
+(`REF_LORA_HINTS`) with no field naming it. A picture cited *plain* on such
+a family still goes to the edit family — that is a picture to change, which
+only a family's own weights do — while a member's picture stays, as who
+they are.
+
+**A cast member says what each family gets.** A member is universal — a
+name, a description, the files they are made of — and everything derived
+from those is one family's: a saved reference is a latent in one VAE's
+space, a LoRA is weights for one architecture, and whether a family should
+be handed their pictures at all has a different answer on Ideogram (which
+reads none) and on Krea 2 (which reads them through an adapter). The card
+used to draw a ledger that counted for the piece's family, a submenu that
+offered the others, and a "wears" line that named no family at all — so a
+LoRA hung on somebody was silently H3's, never reached a Klein still from
+the chat, and a member could not be saved for Klein at all once their H3
+mods existed (the ledger's save button only drew while H3 had something
+unsaved). Now the derived half of a member is one row per family
+(`subject.wears[family] = {send, loras}`, mirrored by
+`subjects.Subject.wears`): the LoRAs they wear *there*, and `send` — what
+that family is handed for their looks: left to decide (the saved rendition
+where the picture carries one, the picture otherwise), their pictures even
+where a rendition exists, or their description alone. The compiler applies
+the piece's family's row (`subjects.sent`, `cast_loras`), the chat's still
+applies the still family's — its LoRAs on the still's stack, its send word
+on the reference — and a flat `loras` list from before the rows existed is
+read as the piece's family's row. On the card and on the library sheet the
+ledger and the wears line are one panel (`wears.js`): a tab per family, the
+piece's own first, and under the open tab one sentence saying what that
+family gets — "When Flux 2 Klein renders @anna it gets their 2 pictures
+wearing anna_klein" — where every noun is the control, and a status line
+with the one fact that changes what to do: save once for the token win,
+hang the adapter, or nothing to set up. Saving is never a one-time question
+any more: "Save as RefMod" at the head of the rail lists every family that
+keeps saved references with its state, and each tab offers its own save
+or re-encode, whatever has been saved already.
+
 **A RefMod is for one family, a picture carries one per family, and the
 family picks its own.** A latent belongs to one VAE: the H3 mod that made
 RefMods worth having is a tensor in the H3 video VAE's space, and it means

@@ -556,12 +556,6 @@ export const css = `
 .mmc-cast-sheet-enc b { font-weight: 500; color: var(--mmc-text); }
 .mmc-cast-sheet-enc.mod b { color: var(--mmc-accent); }
 .mmc-cast-sheet-more { color: var(--mmc-off); font-size: calc(16px * var(--mmc-type)); letter-spacing: 1px; }
-/* A LoRA they wear, in the same grid: the stack's glyph where a picture would
-   be, and the weight where the encoding is — both are what the model is
-   handed. Muted is struck, as the shelf's chip is. */
-.mmc-cast-sheet-lora.off .mmc-cast-sheet-filename { text-decoration: line-through; color: var(--mmc-off); }
-.mmc-cast-sheet-lora.off .mmc-cast-sheet-thumb { color: var(--mmc-off); }
-.mmc-cast-sheet-lora.off .mmc-cast-sheet-enc b { color: var(--mmc-off); }
 .mmc-cast-sheet-file-add {
   display: flex; gap: 8px; flex-wrap: wrap; padding: 8px 12px; background: var(--mmc-surface-2);
   border-top: 1px solid var(--mmc-line);

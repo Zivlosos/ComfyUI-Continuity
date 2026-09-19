@@ -150,8 +150,9 @@ try {
     files: lib.body?.cast?.files ?? null,
     row: fileRows.map((row) => [text(one(row, "mmc-cast-sheet-role")), one(row, "mmc-cast-sheet-filename")?.textContent,
                                 text(one(row, "mmc-cast-sheet-enc"))]),
-    ledger: text(one(sheet, "mmc-cast-ledger")),
-    saveOffered: all(sheet, "mmc-cast-ledger-act").map(text),
+    ledger: text(one(sheet, "mmc-wears-status")),
+    saveOffered: all(sheet, "mmc-wears-act").map(text),
+    tabs: all(sheet, "mmc-wears-tab").map(text),
     legends: all(sheet, "mmc-cast-sheet-legend").map((n) => n.textContent),
   };
   lib.closeSheet();
@@ -184,7 +185,7 @@ try {
   await lib.edit(saved);
   await settle();
   const page = one(modal, "mmc-cast-sheet");
-  out.pageBefore = { ledger: text(one(page, "mmc-cast-ledger")), acts: all(page, "mmc-cast-ledger-act").map(text),
+  out.pageBefore = { ledger: text(one(page, "mmc-wears-status")), acts: all(page, "mmc-wears-act").map(text),
                      stackable: lib.modSources(lib.body.cast).map((f) => f.filename) };
   await lib.keepAsMod(lib.body.cast, "stack");
   await settle();
@@ -193,7 +194,8 @@ try {
   out.pageAfter = {
     made: made && { sources: made.sources, mode: made.mode, description: made.description, vae: made.vae },
     files: lib.body.cast.files,
-    ledger: text(one(pageAfter, "mmc-cast-ledger")),
+    ledger: text(one(pageAfter, "mmc-wears-status")),
+    acts: all(pageAfter, "mmc-wears-act").map(text),
     rows: all(pageAfter, "mmc-cast-sheet-file").map((row) => [text(one(row, "mmc-cast-sheet-role")), text(one(row, "mmc-cast-sheet-enc"))]),
   };
   lib.closeSheet();
@@ -297,10 +299,13 @@ check("...with the file as their looks",
 check("...whose row says so", made.get("row"),
       [["looks", "refmods/vanellope_example", "RefMod · full 1,024 tokens"]])
 check("...and whose ledger is the receipt", made.get("ledger"),
-      "Saved as a RefMod · full · 1,024 tokens · refmods/vanellope_example Download Show in library")
-check("...with nothing to save and no node to save with", made.get("saveOffered"), ["Download", "Show in library"])
+      "✓ Saved as a RefMod for MiniMax H3 · full · 1,024 tokens Show in library")
+check("...with nothing to save and no node to save with, and a LoRA to hang for the family",
+      made.get("saveOffered"), ["+ LoRA", "Show in library"])
+check("...under a tab per family, the piece's first", (made.get("tabs") or [])[:3],
+      ["MiniMax H3 this piece", "LTX 2.5", "Krea 2"])
 check("the page's legends are sentences", made.get("legends"),
-      ["Who they are", "What a picture cannot say", "Made out of", "Wearing"])
+      ["Who they are", "What a picture cannot say", "Made out of"])
 
 card = report.get("card") or {}
 check("the card's facts name the file", card.get("facts"), ["refmod:vanellope_example"])
@@ -326,8 +331,9 @@ check("with a piece behind the window the page still opens, and casting is its b
 before = report.get("pageBefore") or {}
 check("a page with a node behind it offers to save, counting the clip",
       (before.get("ledger"), before.get("acts")),
-      ("Encoded on every render · 2 pictures + 1 clip at max · ≈8,192+ tokens Save as RefMods ▾",
-       ["Save as RefMods ▾"]))
+      ("2 pictures + 1 clip encoded every render — ≈8.2k+ tokens. Saving them once reads the file instead. "
+       "Save for MiniMax H3 ▾",
+       ["Save as RefMod ▾", "+ LoRA", "Save for MiniMax H3 ▾"]))
 check("...and a stack takes all three", before.get("stackable"), ["people/a.png", "people/b.png", "people/walk.mp4"])
 after = report.get("pageAfter") or {}
 check("the job is asked for one file, with the files' words in its header",
@@ -338,7 +344,11 @@ check("the stack stands where the three were; the voice stays",
                            {"slot": "voice", "filename": "people/v.wav", "kind": "audio"}])
 check("...and the page reads it as a stack",
       (after.get("ledger"), after.get("rows")),
-      ("Saved as a RefMod · stack · 448 tokens · refmods/cast/vera Download Show in library",
+      ("✓ Saved as a RefMod for MiniMax H3 · stack · 448 tokens Show in library",
        [["looks", "RefMod · stack 448 tokens"], ["voice", "voice"]]))
+# A stack took the pictures' place, so there is nothing left to encode for
+# another family: the head offers no save, and the tab offers the LoRA.
+check("...and with the pictures gone into the stack nothing is offered to save",
+      after.get("acts"), ["+ LoRA", "Show in library"])
 
 passed("the roster's Saved references panel lists, casts, hangs and renames RefMods")

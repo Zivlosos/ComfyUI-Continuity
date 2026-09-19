@@ -188,12 +188,18 @@ def check_refs(data, refs, loras):
 
     adapter = data.get(REF_LORA_FIELD)
     adapter = adapter.strip() if isinstance(adapter, str) else ""
-    if not adapter:
-        raise CompileError(REFS_NEED_ADAPTER)
     # `loras` has already been reduced to the entries that will be patched on,
     # so "not in it" covers removed, unticked and turned down to zero alike.
-    if adapter not in {entry["name"] for entry in loras}:
-        raise CompileError(REFS_ADAPTER_GONE.format(name=adapter))
+    names = {entry["name"] for entry in loras}
+    if adapter:
+        if adapter not in names:
+            raise CompileError(REFS_ADAPTER_GONE.format(name=adapter))
+    elif not any(hint in name.lower() for name in names for hint in REF_LORA_HINTS):
+        # Nothing named, and nothing on the stack that is one by its filename
+        # — the same needles the picker pre-selects from. A cast member who
+        # wears the adapter puts it on the stack without a field to name it
+        # in, and that is a reference read, not a picture going nowhere.
+        raise CompileError(REFS_NEED_ADAPTER)
 
     if turbo_block(data, ARCH).get("on") and asks_for_removal(data.get("prompt")):
         raise CompileError(REMOVAL_NEEDS_RAW)

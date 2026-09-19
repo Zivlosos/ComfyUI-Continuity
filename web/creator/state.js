@@ -6,7 +6,7 @@ import { VIDEO_RULES, featherGrid, framesForSeconds, secondsForFrames,
          matchSeconds, resolveCanvas, rulesFor } from "./canvas.js";
 import { resolve as resolveVariations } from "./variations.js";
 import { DEFAULT_STILL_ARCH, DEFAULT_VIDEO_FAMILY, STILL_ARCHES,
-         UPSCALERS, VIDEO_FAMILIES, stillFamily, upscaler, videoFamily } from "./manifest.js";
+         UPSCALERS, VIDEO_FAMILIES, family as anyFamily, stillFamily, upscaler, videoFamily } from "./manifest.js";
 import { t } from "./i18n.js";
 // Where files land is not in the blob any more — it is a preference of this
 // machine, in `settings.js`, so a shared workflow does not carry one person's
@@ -68,7 +68,12 @@ export const FAMILY_DESCRIPTION = Object.fromEntries(
 // from a family" stays a list rather than a habit of reaching into `.manifest`
 // from wherever the question came up.
 export const referenceOf = (id) => videoFamily(id).reference;
-export const weightsOf = (id) => videoFamily(id).weights;
+/** Any family's, not only a video family's: a LoRA on a cast member is filed
+ *  under the family it was hung for, and a still family's slots have to
+ *  answer "which checkpoints" with their own (none routed) rather than with
+ *  H3's through `videoFamily`'s forgiveness. */
+export const weightsOf = (id) =>
+  (VIDEO_FAMILIES.includes(id) ? videoFamily(id) : anyFamily(id)).weights ?? [];
 
 /** What a family with one checkpoint routes between: nothing. A `routes` block
  *  describes a standing choice among a family's *routed* slots, and LTX 2.5
@@ -1724,7 +1729,7 @@ export function emptyState() {
 /** A blob's cast list, stripped to what the shelf and compile.py read. Shared
  *  by the timeline and by a still's request — the two places a cast is stored,
  *  and the same shape in both. */
-function parseSubjects(raw) {
+function parseSubjects(raw, family = DEFAULT_VIDEO_FAMILY) {
   if (!Array.isArray(raw)) return [];
   return raw
     .filter((s) => s && typeof s.handle === "string")
@@ -1746,19 +1751,49 @@ function parseSubjects(raw) {
       ...(SUBJECT_MARKERS.includes(s.relationship) ? { relationship: s.relationship } : {}),
       ...(Object.keys(subjectNotes(s)).length ? { notes: subjectNotes(s) } : {}),
       ...(Object.keys(subjectTriggers(s)).length ? { triggers: subjectTriggers(s) } : {}),
-      ...(subjectLoras(s).length ? { loras: subjectLoras(s) } : {}),
+      ...parseWears(s, family),
     }));
+}
+
+/** A blob's `wears`, and the flat `loras` list a blob written before the rows
+ *  existed carries — which was the piece's family's all along, and is read as
+ *  that family's row. Mirrors `subjects.parse`. */
+function parseWears(s, family) {
+  const wears = { ...subjectWears(s) };
+  const legacy = Array.isArray(s.loras) ? s.loras.filter((e) => e && typeof e.name === "string" && e.name.trim()) : [];
+  if (legacy.length && !wears[family]) wears[family] = { loras: legacy };
+  for (const [id, row] of Object.entries(wears)) {
+    const kept = { ...(row.send ? { send: row.send } : {}),
+                   ...(Array.isArray(row.loras) && row.loras.length ? { loras: row.loras } : {}) };
+    if (Object.keys(kept).length) wears[id] = kept; else delete wears[id];
+  }
+  return Object.keys(wears).length ? { wears } : {};
 }
 
 /** The cast as the blob stores it. A subject is written as it is held, bar
  *  the LoRAs they wear, which go through the stack's own serializer so an
  *  entry on a person and the same entry on the piece are the same bytes. */
-function serializeSubjects(subjects, family = DEFAULT_VIDEO_FAMILY) {
+function serializeSubjects(subjects) {
   return subjects.map((subject) => {
-    const loras = subjectLoras(subject);
-    const { loras: _dropped, ...rest } = subject;
-    return loras.length ? { ...rest, loras: serializeLoras(loras, family) } : rest;
+    const { wears: _dropped, loras: _legacy, ...rest } = subject;
+    const wears = serializeWears(subject);
+    return wears ? { ...rest, wears } : rest;
   });
+}
+
+/** The wardrobe as the blob stores it: a row per family that says something,
+ *  each family's LoRAs through the stack's own serializer *for that family*
+ *  — a checkpoint claim means nothing on a family that routes between none.
+ *  Exported for the library, whose stored member is the same bytes. */
+export function serializeWears(subject) {
+  const out = {};
+  for (const [family, row] of Object.entries(subjectWears(subject))) {
+    const loras = Array.isArray(row.loras) ? row.loras : [];
+    const kept = { ...(row.send ? { send: row.send } : {}),
+                   ...(loras.length ? { loras: serializeLoras(loras, family) } : {}) };
+    if (Object.keys(kept).length) out[family] = kept;
+  }
+  return Object.keys(out).length ? out : null;
 }
 
 export function parseState(raw) {
@@ -1800,7 +1835,7 @@ export function parseState(raw) {
       normalizeCheckpoint(state);
       // The cast, on the same terms a timeline's is read — a still's request
       // holds one of its own, there being no piece above it to hold it.
-      state.subjects = parseSubjects(state.subjects);
+      state.subjects = parseSubjects(state.subjects, pieceFamily(state));
       for (const asset of state.assets) {
         if (asset?.kind !== "video") continue;
         // Workflows saved before the picture/sound split carry the two-state
@@ -1984,7 +2019,7 @@ export function serializeState(state) {
     // Not in serializeCommon: a segment's cast is the piece's, mirrored down,
     // and writing the mirror back would store every subject once per card.
     ...(state.subjects?.length
-      ? { subjects: serializeSubjects(state.subjects, pieceFamily(state)) } : {}),
+      ? { subjects: serializeSubjects(state.subjects) } : {}),
     // Not in serializeCommon: the weights belong to the node, and a timeline
     // segment goes through that function too. The turbo switch likewise.
     ...serializeModels(state.models),
@@ -3286,7 +3321,7 @@ export function parseTimeline(raw) {
       // hand-edited blob can hold anything; kept as written otherwise, because
       // whether a subject's files are still attached is the band's readout
       // rather than a reason to drop somebody the user cast.
-      timeline.subjects = parseSubjects(timeline.subjects);
+      timeline.subjects = parseSubjects(timeline.subjects, pieceFamily(timeline));
       timeline.assets = timeline.assets.filter(
         (asset) => asset && typeof asset.handle === "string" && typeof asset.filename === "string");
       for (const asset of timeline.assets) {
@@ -3501,7 +3536,7 @@ export function serializeTimeline(timeline) {
     // The cast, on the same terms: absent when nobody was cast, so a piece
     // without one round-trips to the bytes it always did.
     ...(timeline.subjects?.length
-      ? { subjects: serializeSubjects(timeline.subjects, pieceFamily(timeline)) } : {}),
+      ? { subjects: serializeSubjects(timeline.subjects) } : {}),
     audio_tail_s: clampTail(timeline.audio_tail_s),
     // The storyboard. Absent when off, so a piece that never asked for one
     // round-trips to the bytes it always did.
@@ -4230,8 +4265,12 @@ export function emptyPreStage() {
     short_edge: PRESTAGE_DEFAULT_EDGE,
     // {"filename", "denoise"} for img2img, or null.
     init: null,
-    // [{handle, filename}] — style references, Krea 2 only.
+    // [{handle, filename}] — the attached pictures, on the families that read
+    // them; a cast member's pictures among them, by handle.
     refs: [],
+    // Who is in the picture: the same cast a shot has, over the pictures
+    // above. `compile_image.cast_into_still` writes them into the still.
+    subjects: [],
     loras: [],
     // The turbo pill, per arch the way `models` is: it does not mean the same
     // thing on both sides, so one shared block would carry Krea's distilled
@@ -4280,7 +4319,7 @@ export function emptyPreStage() {
  *  canvas, LoRAs, turbo, the checkpoints — stays, the line the piece's Clear
  *  draws. `ref_lora` names a LoRA in the stack, so it is machine and stays;
  *  with no references it reads nothing. */
-const PRESTAGE_CLEARED_KEYS = ["prompt", "init", "refs"];
+const PRESTAGE_CLEARED_KEYS = ["prompt", "init", "refs", "subjects"];
 const STILL_CLEARED_KEYS = ["prompt", "soundscape", "music", "refined", "assets"];
 
 export function preStageWritten(state) {
@@ -4365,8 +4404,17 @@ export function parsePreStage(raw) {
         .map((ref) => (ref.role === "guide"
           ? { handle: ref.handle, filename: ref.filename, role: "guide",
               guide: typeof ref.guide === "string" ? ref.guide : null }
-          : { handle: ref.handle, filename: ref.filename }));
+          // Every other slot is a reference picture — said so on the entry,
+          // because the cast shelf reads a file's kind and role to know what
+          // it may lend somebody, and the saved renditions it carries by
+          // latent space (`mods`) are what the family reads it from.
+          : { handle: ref.handle, filename: ref.filename, kind: "image", role: "reference",
+              ...(ref.mods && typeof ref.mods === "object" && Object.keys(ref.mods).length
+                ? { mods: { ...ref.mods } } : {}) }));
       if (!Array.isArray(state.loras)) state.loras = [];
+      // The cast, on the same terms the piece's is read — the still family's
+      // row is what a flat list from before the rows existed would mean here.
+      state.subjects = parseSubjects(state.subjects, preStageFamilyId(state.arch));
       // UI-only, never serialized: the LoRA manager and `promptTriggers` walk
       // the video-state accessors (`checkpoint`, `references`), which want
       // these two fields to exist even though an image render has neither.
@@ -4443,9 +4491,11 @@ export function serializePreStage(state) {
     ...(state.init ? { init: { filename: state.init.filename, denoise: round2(state.init.denoise) } } : {}),
     ...(state.refs.length ? { refs: state.refs.map((r) => ({
       handle: r.handle, filename: r.filename,
-      ...(r.role ? { role: r.role } : {}),
+      ...(r.role === "guide" ? { role: r.role } : {}),
       ...(r.guide ? { guide: r.guide } : {}),
+      ...(r.mods && Object.keys(r.mods).length ? { mods: { ...r.mods } } : {}),
     })) } : {}),
+    ...(state.subjects?.length ? { subjects: serializeSubjects(state.subjects) } : {}),
     loras: serializeLoras(state.loras),
     ...serializePreStageTurbo(state.turbo),
     ...serializeNeural(state.neural),
@@ -4544,11 +4594,19 @@ export function guessPreStageModels(models, byFolder) {
  *  way — see `compile_image.compile_prestage`. */
 export function preStageSource(state) {
   if (state.init) return state.init.filename;
-  if (PRESTAGE_REFS[state.arch]?.editsFirst && state.refs?.length
-      && !state.start_blank) {
-    return state.refs[0].filename;
+  if (PRESTAGE_REFS[state.arch]?.editsFirst && !state.start_blank) {
+    return preStagePlainRefs(state)[0]?.filename ?? null;
   }
   return null;
+}
+
+/** The attached pictures no cast member is built out of, in slot order — the
+ *  ones an edit family changes. A member's picture is put after them and
+ *  never edited (`compile_image.cast_into_still`), so the first picture a
+ *  render starts from is the first of these. */
+export function preStagePlainRefs(state) {
+  const claimed = new Set((state.subjects ?? []).flatMap((subject) => subjectFiles(subject)));
+  return (state.refs ?? []).filter((ref) => !claimed.has(ref.handle));
 }
 
 /** Does this render read a ControlNet guide as one of its pictures?
@@ -4587,8 +4645,10 @@ export function preStageLoadsBranch(state) {
  *  second name for the same state. */
 export function preStageStartsBlank(state) {
   const refs = PRESTAGE_REFS[state?.arch];
-  return Boolean(refs?.editsFirst && state?.refs?.length && state.start_blank
-                 && !state.init);
+  if (!refs?.editsFirst || !state?.refs?.length || state.init) return false;
+  // Asked for — or nothing cited plain, only members' pictures, which the
+  // compile puts on as references and starts blank in front of.
+  return Boolean(state.start_blank) || !preStagePlainRefs(state).length;
 }
 
 /** The resolved image canvas, mirroring compile_image.resolve_canvas: /16 grid,
@@ -4778,7 +4838,7 @@ export function activeLoras(state, family = DEFAULT_VIDEO_FAMILY) {
   const target = checkpoint(state, family);
   // What the cast this state cites wears, under the state's own — the order
   // `compile.cast_loras` merges them in, so a shot naming the same file wins.
-  return mergeLoras(castLoras(state), state.loras).filter((entry) =>
+  return mergeLoras(castLoras(state, family), state.loras).filter((entry) =>
     entry.enabled !== false && round2(entry.strength) !== 0
     && (!target || loraModes(entry, family).includes(target)));
 }
@@ -5351,32 +5411,83 @@ export function subjectTriggers(subject) {
 }
 
 /**
- * The LoRAs a subject wears, as stack entries — the shape the manager edits
- * in place and `compile.merge_loras` reads. Normalised on the way in like the
- * stack itself (`parseState`): a name is required, a strength is a number,
- * words are a list. Mirrors `subjects._parse_loras`.
+ * What a subject wears and is sent, by family — `subject.wears[family]` is
+ * `{send, loras}` (mirrors `subjects.Subject.wears`). A LoRA is one family's
+ * weights, so it is filed under the family it was hung for; `send` is that
+ * family's answer to what it gets for their looks. Normalised in place, like
+ * the stack: the manager and the chip's menu edit the objects they are
+ * handed, and a copy would be a slider that moves nothing.
  */
-export function subjectLoras(subject) {
-  const raw = subject?.loras;
-  if (!Array.isArray(raw)) return [];
-  // The live entries, put right in place rather than copied: the chip's menu
-  // and the manager both edit the object they are handed, and a copy would
-  // be a slider that moves nothing.
-  const live = raw.filter((entry) => entry && typeof entry.name === "string" && entry.name.trim());
-  for (const entry of live) {
+export function subjectWears(subject) {
+  const raw = subject?.wears;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  for (const [family, row] of Object.entries(raw)) {
+    if (!row || typeof row !== "object") { delete raw[family]; continue; }
+    if (!SUBJECT_SENDS.includes(row.send)) delete row.send;
+    if (row.loras !== undefined && !Array.isArray(row.loras)) delete row.loras;
+    if (Array.isArray(row.loras)) tidyLoraEntries(row.loras);
+  }
+  return raw;
+}
+
+/** What a family may be sent for a member's looks. Absent means decide:
+ *  the saved rendition where the picture carries one, the picture otherwise.
+ *  Mirrors `subjects.SENDS`. */
+export const SUBJECT_SENDS = ["pictures", "saved", "words"];
+
+function tidyLoraEntries(list) {
+  for (let at = list.length - 1; at >= 0; at -= 1) {
+    const entry = list[at];
+    if (!entry || typeof entry.name !== "string" || !entry.name.trim()) { list.splice(at, 1); continue; }
     entry.name = entry.name.trim();
     entry.strength = Number.isFinite(Number(entry.strength)) ? Number(entry.strength) : 1;
     entry.triggers = typeof entry.triggers === "string"
       ? entry.triggers.split(",").map((w) => w.trim()).filter(Boolean)
       : Array.isArray(entry.triggers) ? entry.triggers.map((w) => String(w).trim()).filter(Boolean) : [];
   }
-  return live;
 }
+
+/** The subject's row for `family`, made where there is none — what the LoRA
+ *  manager is handed as its `state`, so it pushes onto the row's own list. */
+export function wearOn(subject, family) {
+  const wears = subjectWears(subject);
+  if (!subject.wears) subject.wears = wears;
+  const row = (subject.wears[family] ??= {});
+  row.loras ??= [];
+  return row;
+}
+
+/** Drop the rows that say nothing, and the map when none is left, so a
+ *  member who tried a LoRA and took it off is the bytes they were before. */
+export function tidyWears(subject) {
+  const wears = subjectWears(subject);
+  for (const [family, row] of Object.entries(wears)) {
+    if (Array.isArray(row.loras) && !row.loras.length) delete row.loras;
+    if (!row.send && !row.loras) delete wears[family];
+  }
+  if (subject.wears && !Object.keys(subject.wears).length) delete subject.wears;
+}
+
+/** The LoRAs a subject wears *on this family*, as the live stack entries the
+ *  manager edits in place and `compile.merge_loras` reads. */
+export function subjectLoras(subject, family = DEFAULT_VIDEO_FAMILY) {
+  const row = subjectWears(subject)[family];
+  return Array.isArray(row?.loras) ? row.loras : [];
+}
+
+/** Every LoRA they wear on any family — for the marks and counts that ask
+ *  whether they wear anything at all. */
+export function allSubjectLoras(subject) {
+  return Object.values(subjectWears(subject)).flatMap((row) => (Array.isArray(row.loras) ? row.loras : []));
+}
+
+/** What this family is sent for their looks, or null to decide. */
+export const sendFor = (subject, family) => subjectWears(subject)[family]?.send ?? null;
 
 /** The LoRAs the members `state` cites wear, in cast order — what rides into
  *  this shot's stack beside its own. Mirrors `compile.cast_loras`. */
-export function castLoras(state) {
-  return citedCast(state).flatMap((subject) => subjectLoras(subject));
+export function castLoras(state, family = DEFAULT_VIDEO_FAMILY) {
+  return citedCast(state).flatMap((subject) => subjectLoras(subject, family));
 }
 
 /** Two stacks as one, the second's entry winning where both name a file.
@@ -5761,11 +5872,11 @@ export function subjectProblem(scope, subject) {
   // the name can mean. Mirrors the same relaxation in `subjects.parse`.
   // A LoRA with a trigger word counts too: the word is how the prompt names
   // them, and the definition line is bound to it.
-  const worded = subjectLoras(subject).some((entry) => entry.triggers.length);
+  const worded = allSubjectLoras(subject).some((entry) => entry.triggers.length);
   if (!files.length && !replacesOf(subject).length
       && !String(subject.description ?? "").trim()
       && !subjectFeatures(subject).length && !worded) {
-    return subjectLoras(subject).length
+    return allSubjectLoras(subject).length
       ? "their LoRA has no trigger word — give it one, or describe them in words"
       : "nothing behind them yet — hang a file on them, or describe them in words";
   }

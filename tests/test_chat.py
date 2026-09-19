@@ -782,23 +782,27 @@ plain = chat.video_piece(
 check("a bare clip has an empty stack and the switch off",
       (plain["loras"], plain["turbo"]), ([], {"on": False, "lora": None}))
 
-# A family whose references arrive through an adapter cannot be given one here:
-# the adapter is an entry in the pre-stage's LoRA stack, and this room has no
-# stack. Refused in the room's own words rather than relayed from the compiler,
-# whose sentence names a control the person cannot see from the chat.
-NO_PICTURES = {**RAIL, "still_pictures": chat.still_pictures(KREA2, CATALOG)}
-refuses("a family that reads pictures only through an adapter refuses one",
-        lambda: chat.still_piece(
-            chat.validate({"act": "render", "kind": "still", "prompt": "bluer",
-                           "from": ["img-1"]}, LEDGER), LEDGER, NO_PICTURES),
-        "Krea 2 draws from words alone", "no stack to put one in")
-check("and the refusal names the families that do read pictures",
-      "Qwen Image Edit do read pictures" in NO_PICTURES["still_pictures"]["refusal"],
-      True)
+# A family whose references arrive through an adapter is given the picture:
+# the adapter is a LoRA, a cast member can wear one for the family, and
+# whether it is on the stack is the compiler's question (`check_refs`),
+# refused there in the family's own words where it is not. The room used to
+# refuse here, which made the adapter a thing nobody could ever hang.
+ADAPTED = {**RAIL, "still_pictures": chat.still_pictures(KREA2, CATALOG)}
+check("a family that reads pictures through an adapter takes one, though not as its own",
+      {k: ADAPTED["still_pictures"][k] for k in ("takes", "native", "refusal")},
+      {"takes": True, "native": False, "refusal": ""})
+check("...and a picture cited to it rides in as a reference",
+      chat.still_piece(chat.validate({"act": "render", "kind": "still", "prompt": "bluer",
+                                      "from": ["img-1"]}, LEDGER), LEDGER, ADAPTED)["refs"],
+      [{"handle": "img-1", "filename": "continuity/chat/fox.png"}])
+check("a family that reads none at all still refuses, naming the ones that do",
+      "do read pictures" in chat.still_pictures(
+          {"id": "ideogram4", "label": "Ideogram 4", "produces": ["still"], "prompt": {"max_refs": 0}},
+          CATALOG)["refusal"], True)
 check("a still with nothing cited is made on that family all the same",
       chat.still_piece(chat.validate(
           {"act": "render", "kind": "still", "prompt": "a fox"}, LEDGER),
-          LEDGER, NO_PICTURES)["refs"], [])
+          LEDGER, ADAPTED)["refs"], [])
 # The other way of reading no pictures: weights that take none at all.
 check("a family whose weights read no picture says so differently",
       chat.refs_refusal({"label": "Ideogram 4", "prompt": {"max_refs": 0}}),
@@ -833,8 +837,10 @@ check("whatever the picture is cited for",
       where({"act": "render", "kind": "still", "prompt": "a fox", "from": ["img-1:style"]}), "qwenedit")
 check("a clip cited is not a picture, and stays",
       where({"act": "render", "kind": "still", "prompt": "a fox", "from": ["vid-1"]}), "krea2")
-check("a cast member with a picture is a picture cited",
-      where({"act": "render", "kind": "still", "prompt": "@anna at dusk"}, cast=CAST), "qwenedit")
+# A member's picture is who they are, which a family reading through an
+# adapter does read — a plain picture is one to change, which it cannot.
+check("a cast member's picture stays on a family that reads it through its adapter",
+      where({"act": "render", "kind": "still", "prompt": "@anna at dusk"}, cast=CAST), "krea2")
 check("a family that reads pictures itself keeps them",
       where({"act": "render", "kind": "still", "prompt": "bluer", "from": ["img-1"]},
             {**EDIT_RAIL, "still_pictures": chat.still_pictures(QWENEDIT, CATALOG)}), "krea2")
@@ -915,6 +921,40 @@ check("...and one in another family's stays their words",
       chat.still_piece(chat.validate({"act": "render", "kind": "still", "prompt": "@lee at dusk"},
                                      MOD_LEDGER, cast=["kim", "lee"]), MOD_LEDGER,
                        {**ON_KLEIN, "still_space": "h3_video"}, cast=klein_cast)["refs"], [])
+
+# What the still family is sent for a member, and what they wear there: the
+# member's row for that family and no other's (`subjects.Subject.wears`).
+WORN_PIECE = {"family": "h3",
+              "subjects": [{"handle": "kim", "from": ["img-9"], "description": "a green coat",
+                            "wears": {"qwenedit": {"loras": [{"name": "kim_qwen.safetensors", "strength": 0.7,
+                                                              "triggers": ["k1m"]}]},
+                                      "h3": {"loras": [{"name": "kim_h3.safetensors", "strength": 1}]}}},
+                           {"handle": "lee", "from": ["img-8"], "description": "tall",
+                            "loras": [{"name": "lee_h3.safetensors", "strength": 1}]}],
+              "assets": MOD_PIECE["assets"]}
+WORN_CAST = chat.cast_entries(WORN_PIECE)
+check("the room reads the wardrobe off the piece, a flat list filed under the piece's family",
+      (sorted(WORN_CAST[0]["wears"]), WORN_CAST[1]["wears"]),
+      (["h3", "qwenedit"], {"h3": {"loras": [{"name": "lee_h3.safetensors", "strength": 1}]}}))
+worn_still = chat.still_piece(
+    chat.validate({"act": "render", "kind": "still", "prompt": "@kim and @lee at dusk"}, MOD_LEDGER,
+                  cast=["kim", "lee"]), MOD_LEDGER, ON_EDIT,
+    base={"loras": [{"name": "pin.safetensors", "strength": 0.8}]}, cast=WORN_CAST)
+check("a still wears the cited members' LoRAs for its own family, after the stack's",
+      [e["name"] for e in worn_still["loras"]], ["pin.safetensors", "kim_qwen.safetensors"])
+SENT_CAST = chat.cast_entries({**MOD_PIECE, "subjects": [
+    {**MOD_PIECE["subjects"][0], "wears": {"qwenedit": {"send": "words"}}},
+    {**MOD_PIECE["subjects"][0], "handle": "kay", "wears": {"qwenedit": {"send": "pictures"}}}]})
+as_words = chat.still_piece(
+    chat.validate({"act": "render", "kind": "still", "prompt": "@kim at dusk"}, MOD_LEDGER,
+                  cast=["kim", "kay"]), MOD_LEDGER, ON_EDIT, cast=SENT_CAST)
+check("sent as words, a member with pictures is their description in a still",
+      (as_words["refs"], as_words["prompt"]), ([], "a green coat at dusk"))
+as_pictures = chat.still_piece(
+    chat.validate({"act": "render", "kind": "still", "prompt": "@kay at dusk"}, MOD_LEDGER,
+                  cast=["kim", "kay"]), MOD_LEDGER, ON_EDIT, cast=SENT_CAST)
+check("sent as pictures, the picture rides in without its renditions",
+      as_pictures["refs"], [{"handle": "img-9", "filename": "kim.png"}])
 
 check("the picture cited plain leads whatever order it was cited in",
       [r["handle"] for r in ordered["refs"]], ["img-2", "img-1"])

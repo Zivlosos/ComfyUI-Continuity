@@ -370,7 +370,9 @@ export const SECTION = Object.fromEntries(SECTIONS.map((s) => [s.key, s]));
 export const SCOPE_SECTIONS = {
   piece: ["look", "weights", "speed", "prompt", "loras", "refs", "strip", "style", "cast"],
   shot: ["prompt", "refs", "loras", "shot", "speed", "style"],
-  prestage: ["look", "weights", "speed", "prompt", "loras", "refs", "style"],
+  // A still has a cast the way a shot has one: the same members, over the
+  // pictures attached to it. See `applyToPreStage`.
+  prestage: ["look", "weights", "speed", "prompt", "loras", "refs", "style", "cast"],
   // A style is a source and never a target: you apply one to a node, and there
   // is no node a style could be captured off. It is the one scope whose tab is a
   // catalogue rather than a shelf of your own work.
@@ -712,11 +714,11 @@ export function captureSubject(subject, assets) {
         ...(subject.replaces_what ? { replaces_what: subject.replaces_what } : {}),
         ...(subject.relationship ? { relationship: subject.relationship } : {}),
         files,
-        // What they wear. A LoRA is named by its file under models/loras
-        // already, so it travels as it is — with the weight and the words,
-        // which are the part that took the trying (discussion #82).
-        ...(S.subjectLoras(subject).length
-          ? { loras: S.serializeLoras(S.subjectLoras(subject)) } : {}),
+        // What they wear and what each family is sent, by family. A LoRA is
+        // named by its file under models/loras already, so it travels as it
+        // is — with the weight and the words, which are the part that took
+        // the trying (discussion #82) — filed under the family it is for.
+        ...(S.serializeWears(subject) ? { wears: S.serializeWears(subject) } : {}),
       },
     },
     cover: null,
@@ -1005,7 +1007,7 @@ export function factsOf(body, scope) {
       voice: files.some((file) => file.slot === "voice"),
       replaces: files.some((file) => file.slot === "replaces"),
       described: Boolean(String(member.description ?? "").trim()),
-      loras: S.subjectLoras(member).length,
+      loras: S.allSubjectLoras(member).length,
       // What somebody wrote about them, which is not every row: a card is
       // seeded with a row per attribute of its `takes`, and an untouched one is
       // the baseline every person reference carries rather than a fact about
@@ -1480,7 +1482,7 @@ export function addSubjectToPiece(stored, timeline, { pool = false } = {}) {
     ...(stored.seeded ? { seeded: true } : {}),
     ...(Object.keys(notes).length ? { notes } : {}),
     ...(Object.keys(triggers).length ? { triggers } : {}),
-    ...(S.subjectLoras(stored).length ? { loras: S.subjectLoras(stored) } : {}),
+    ...(S.serializeWears(stored) ? { wears: S.serializeWears(stored) } : {}),
   };
   // A member kept before the rows existed gets them here, on the way into a
   // piece — the same repair `parseSubjects` does for a piece written then.
@@ -1685,6 +1687,17 @@ export function applyToPreStage(body, keys, state, io, { from = "prestage" } = {
   }
   if (chosen.has("style")) {
     state.prompt = leadWithStyle(state.prompt, body.style?.text);
+  }
+  if (chosen.has("cast")) {
+    // Onto the still's own lists: its pictures are the `refs`, and a member's
+    // land there under the still's handles. The piece's rule otherwise — a
+    // look leads the sentence, somebody from the roster is written in by
+    // the `@` menu where you asked for them.
+    const piece = { assets: state.refs, subjects: state.subjects, prompt: state.prompt };
+    const cast = castIntoPiece(body.cast, piece);
+    state.refs = piece.assets;
+    state.subjects = piece.subjects;
+    if (cast?.takes === "style") state.prompt = leadWithName(piece.prompt, cast.handle);
   }
   if (chosen.has("loras")) {
     state.loras = JSON.parse(JSON.stringify(body.loras ?? []));

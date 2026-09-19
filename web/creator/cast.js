@@ -56,8 +56,9 @@ import { refmodFileUrl, viewUrl } from "./api.js";
 import { dismissable, el, icon, placeNear } from "./dom.js";
 import { t } from "./i18n.js";
 import { loraBase, openLoras } from "./loras.js";
-import { DEFAULT_SPACE, SUBFOLDER as MOD_FOLDER, costMark, familySections, keepable, ledger, looks, modIn, modRow, remakeMods, remakeRows } from "./refmod.js";
+import { DEFAULT_SPACE, costMark, keepable, looks, modIn, remakeMods } from "./refmod.js";
 import * as S from "./state.js";
+import { WearsPanel } from "./wears.js";
 
 /** The four things a file can lend a subject, and what tells them apart on
  *  sight. `from` takes several files; the other three take one each, which is
@@ -430,24 +431,6 @@ function weightField({ entry, touch, done }) {
  *  it is a number the model is handed — and a muted entry is struck rather
  *  than hidden, since muting is the way to ask whether it was the LoRA.
  *  Exported for the library sheet's row, which says the same things. */
-export function loraChip(entry, onclick) {
-  const off = entry.enabled === false;
-  const words = (entry.triggers ?? []).join(", ");
-  return el("button", {
-    class: `mmc-cast-lora${off ? " off" : ""}`,
-    title: (off ? t("{name} — muted, and kept as it was set up.\n", { name: entry.name })
-                : `${entry.name}\n`)
-         + (words ? t("Trigger words: {words}\n", { words }) : t("No trigger words.\n"))
-         + t("Click to change its words or its weight, mute it, or take it off them."),
-    onclick,
-  }, [
-    icon("effect", 12),
-    el("span", { class: "mmc-cast-lora-name", text: loraBase(entry) }),
-    el("span", { class: "mmc-cast-lora-weight", text: Number(entry.strength ?? 1).toFixed(2) }),
-    ...(words ? [el("span", { class: "mmc-cast-lora-words", text: words })] : []),
-  ]);
-}
-
 /**
  * The shelf itself. Built once, redrawn in place, and told nothing about where
  * it is mounted beyond the six things it cannot work out for itself.
@@ -541,6 +524,26 @@ export class CastShelf {
     this.kept = null;
     this.note = null;
     this.root = el("div", { class: "mmc-cast" });
+    // What each family gets when it renders them — the derived half of a
+    // member, drawn per family. The panel owns which tab is open; everything
+    // it does lands through these callbacks, because where a member's files
+    // live and where an encode lands are the host's business.
+    this.wears = new WearsPanel({
+      families: () => this.modFamilies(),
+      looks: (subject) => this.looks(subject),
+      canvas: () => this.canvas?.() ?? null,
+      busy: () => this.encoding,
+      note: (subject) => (this.modNote?.subject === subject ? this.modNote.text : null),
+      canSave: () => Boolean(this.mod && this.vae),
+      save: (subject, mode, family) => this.keepAsMod(subject, mode, family),
+      remake: (subject, mode, mods, family) => this.remake(subject, mode, mods, family),
+      library: this.library ? (path) => this.library({ reveal: path }) : null,
+      hangLora: (subject, family, reveal) => this.addLora(subject, family, reveal),
+      loraMenu: (anchor, subject, family, entry) => this.pickLora(anchor, subject, family, entry),
+      touch: () => this.touch?.(),
+      commit: () => this.save(),
+      redraw: () => this.renderSoon(),
+    });
   }
 
   /**
@@ -824,14 +827,11 @@ export class CastShelf {
         ]),
       ]),
       this.refStrip(subject),
-      // What their looks cost a render, and the way to change it. Under the
-      // tiles it is about, where the cube that used to do this sat in the
-      // header with nothing to say for itself.
-      ...this.ledgerRow(subject),
-      // What they wear: weights rather than files, and the fifth thing a
-      // member can be made of. After the files and their cost, before the
-      // words — it is still the "what they are made of" half of the card.
-      this.wearsRow(subject),
+      // What each family gets when it renders them: the saved reference or
+      // the pictures, and the LoRA they wear there. Under the tiles it is
+      // about, before the words — it is still the "what they are made of"
+      // half of the card, and the half of it that is one family's.
+      ...[this.wears.render(subject)].filter(Boolean),
       this.featureBlock(subject),
       ...this.placeRow(subject),
       ...(problem ? [el("div", { class: "mmc-cast-bad", text: t(problem) })] : []),
@@ -844,10 +844,11 @@ export class CastShelf {
   /** Their looks as the ledger reads them: every still in `from`, mod or not. */
   looks(subject) { return looks(subject, this.getAssets()); }
 
-  /** The families a member can be saved for, the piece's own first — or
-   *  H3's alone where the host names none. */
+  /** Every family a member can be sent to (`refmod.castFamilies`), the
+   *  piece's own first — or none where the host names none, and the card
+   *  draws no family tabs at all. */
   modFamilies() { return this.families?.() ?? []; }
-  /** The family the ledger and the tiles count for: the piece's. */
+  /** The family the shut line and the tiles count for: the piece's. */
   ownFamily() { return this.modFamilies()[0] ?? null; }
 
   /** What they cost, on their shut line. Amber once every look is a mod. */
@@ -861,28 +862,6 @@ export class CastShelf {
              + "it is a picture and exact where it is a RefMod."),
       text: mark.text,
     })];
-  }
-
-  ledgerRow(subject) {
-    const busy = this.encoding?.subject === subject ? this.encoding : null;
-    // Something is left to save where any family this machine encodes for
-    // has a picture (or a clip) of theirs without a rendition yet.
-    const families = this.modFamilies();
-    const unsaved = (families.length ? families : [null]).some(
-      (family) => keepable(subject, this.getAssets(), "stack", family?.space ?? DEFAULT_SPACE).length);
-    const row = ledger({
-      entries: this.looks(subject),
-      canvas: this.canvas?.(),
-      busy,
-      family: this.ownFamily(),
-      note: this.modNote?.subject === subject ? this.modNote.text : null,
-      onSave: this.mod && !this.encoding && unsaved
-        ? (anchor) => this.pickMod(anchor, subject) : null,
-      onRemake: this.vae && !this.encoding ? (anchor) => this.pickRemake(anchor, subject) : null,
-      onLibrary: this.library ? (path) => this.library({ reveal: path }) : null,
-      onKnown: () => this.renderSoon(),
-    });
-    return row ? [row] : [];
   }
 
   /** The two things a finished member is for, said in words: keeping them in
@@ -1033,45 +1012,17 @@ export class CastShelf {
     this.render();
   }
 
-  /** The ways to save somebody's pictures, as a menu on the ledger's button:
-   *  a section per family this machine can encode for, each row naming what
-   *  it would cost. Everything that could go is offered — stills and clips —
-   *  and each row says which of them it takes. */
-  pickMod(anchor, subject) {
-    const sources = looks(subject, this.getAssets()).filter((a) => !S.isRefMod(a) && !S.isPlate(a));
-    openMenu(anchor, {
-      title: t(sources.length === 1
-        ? "Save {count} file as a RefMod → refmods/{folder}/{handle}"
-        : "Save {count} files as RefMods → refmods/{folder}/{handle}",
-        { count: sources.length, folder: MOD_FOLDER, handle: subject.handle }),
-      sections: familySections(sources, this.modFamilies(),
-                               (mode, family) => this.keepAsMod(subject, mode, family),
-                               () => this.renderSoon()),
-    });
-  }
-
-  /** The other mode for their saved looks, as a menu on the ledger's button:
-   *  the mods they are built out of, written again from their pictures. */
-  pickRemake(anchor, subject) {
-    const space = this.ownFamily()?.space ?? DEFAULT_SPACE;
-    const rows = this.looks(subject).map((a) => modIn(a, space))
-      .filter(Boolean).map((path) => modRow(path)).filter(Boolean);
-    openMenu(anchor, {
-      title: t("Re-encode @{handle}'s saved looks", { handle: subject.handle }),
-      sections: [{ rows: remakeRows(rows, (mode, mods) => this.remake(subject, mode, mods)) }],
-    });
-  }
-
-  /** Write their mods again. In place — nothing to attach, nothing to move —
-   *  so the shelf only has to say how it is going and then draw the new cost. */
-  async remake(subject, mode, mods) {
+  /** Write their mods again, for one family. In place — nothing to attach,
+   *  nothing to move — so the shelf only has to say how it is going and then
+   *  draw the new cost. */
+  async remake(subject, mode, mods, family = null) {
     if (!this.vae || this.encoding) return;
-    this.encoding = { subject, mode, count: mods.length, progress: 0, remake: true };
+    this.encoding = { subject, mode, count: mods.length, progress: 0, remake: true, family };
     this.modNote = null;
     this.render();
     try {
       await remakeMods(mods, mode, {
-        vae: this.ownFamily()?.vae ?? this.vae(),
+        vae: family?.vae ?? this.vae(),
         onProgress: (fraction) => {
           if (this.encoding?.subject !== subject) return;
           this.encoding.progress = fraction;
@@ -1087,12 +1038,12 @@ export class CastShelf {
     this.render();
   }
 
-  /** Encode them. The host does the work and the attaching; the ledger says
-   *  how it is going, and afterwards it says what it became. */
+  /** Encode them for one family — or, handed a list, for each in turn: the
+   *  "every family" row, the bar walking through them, the note naming the
+   *  first that failed. The host does the work and the attaching; the panel
+   *  says how it is going, and afterwards what it became. */
   async keepAsMod(subject, mode, family = null) {
     if (!this.mod || this.encoding) return;
-    // Several families is the "every family" row: one job after the other,
-    // the bar walking through them, the note naming the first that failed.
     const families = Array.isArray(family) ? family : [family];
     const count = families.reduce((sum, one) =>
       sum + keepable(subject, this.getAssets(), mode, one?.space ?? DEFAULT_SPACE).length, 0);
@@ -1391,21 +1342,18 @@ export class CastShelf {
    */
   // ---- what they wear --------------------------------------------------------
   //
-  // A LoRA hung on a person (discussion #82). Not a tile in the strip above:
-  // a tile is a file the tokenizer is shown, and a LoRA is weights patched
-  // onto the transformer — in every shot their name is written into, with
-  // its trigger words in front of that shot's prompt. So it is the row's own
-  // sentence, in the idiom of "takes the place of": a verb, then what they
-  // wear, dim until they wear something so an empty row reads as an offer.
-  //
-  // The entries are the stack's own shape and the LoRA manager edits them in
-  // place, the way it edits the piece's — one editor for strength, checkpoint
-  // and words, wherever a LoRA is. The chip's menu holds the two things
-  // worth changing without leaving the card: the words, and the weight.
+  // A LoRA hung on a person (discussion #82) is one family's weights, so it
+  // is filed under the family it was hung for (`state.wearOn`) and drawn on
+  // that family's tab of the wears panel. The entries are the stack's own
+  // shape and the LoRA manager edits them in place, the way it edits the
+  // piece's — one editor for strength, checkpoint and words, wherever a LoRA
+  // is. The chip's menu holds the two things worth changing without leaving
+  // the card: the words, and the weight.
 
-  /** The one mark a shut line makes about this: they wear something. */
+  /** The one mark a shut line makes about this: they wear something, on any
+   *  family. */
   wearsMark(subject) {
-    const worn = S.subjectLoras(subject);
+    const worn = S.allSubjectLoras(subject);
     if (!worn.length) return [];
     return [el("span", {
       class: "mmc-cast-line-wears",
@@ -1413,86 +1361,44 @@ export class CastShelf {
     }, [icon("effect", 11), ...(worn.length > 1 ? [el("span", { text: String(worn.length) })] : [])])];
   }
 
-  wearsRow(subject) {
-    const worn = S.subjectLoras(subject);
-    return el("div", { class: `mmc-cast-line mmc-cast-wears${worn.length ? " on" : ""}` }, [
-      el("span", { class: "mmc-cast-of", text: t("wears") }),
-      ...worn.map((entry) => this.loraChip(subject, entry)),
-      el("button", {
-        class: "mmc-cast-wear-add",
-        title: t("Hang a LoRA on @{handle}. It goes on the model in every shot their "
-               + "name is in, and its trigger words go in front of that shot's prompt.",
-               { handle: subject.handle }),
-        onclick: () => this.addLora(subject),
-      }, [el("span", { text: "+" }), el("span", { text: t("LoRA") })]),
-    ]);
-  }
-
-  loraChip(subject, entry) {
-    return loraChip(entry, (event) => this.pickLora(event.currentTarget, subject, entry));
-  }
-
-  /** Hang another one on them: the manager, opened on their own stack. It
-   *  writes straight through to the entry, so the card only has to redraw. */
-  async addLora(subject) {
-    subject.loras ??= [];
-    const family = this.family();
+  /** Hang one on them for `family`: the manager, opened on their row for it
+   *  — and on `reveal`, where there is an entry to open on. It writes
+   *  straight through to the row, so the card only has to redraw. */
+  async addLora(subject, family, reveal = null) {
+    const row = S.wearOn(subject, family.id);
     await openLoras({
-      state: subject,
-      family,
+      state: row,
+      family: family.id,
       // A member with pictures behind them puts a shot on the reference
-      // checkpoint; one made of words alone can land on either.
-      targets: S.subjectFiles(subject).length && S.routing(family)
-        ? [S.routesOf(family).reference] : [...S.checkpointsOf(family)],
+      // checkpoint; one made of words alone can land on either. A family
+      // that routes between none has nothing to claim.
+      targets: S.subjectFiles(subject).length && S.routing(family.id)
+        ? [S.routesOf(family.id).reference] : [...S.checkpointsOf(family.id)],
       scope: "piece",
+      reveal,
       // Only touched while the window is up: the manager pushes onto the
       // array it was handed, so the key stays until it shuts.
       onChange: () => this.touch?.(),
     });
-    this.tidyLoras(subject);
+    S.tidyWears(subject);
     this.save();
-  }
-
-  /** No key at all where they wear nothing, so a member who tried a LoRA and
-   *  took it off again is the bytes they were before. */
-  tidyLoras(subject) {
-    if (Array.isArray(subject.loras) && !subject.loras.length) delete subject.loras;
   }
 
   /** The chip's menu — shared with the library's sheet, see `openLoraMenu`. */
-  pickLora(anchor, subject, entry) {
+  pickLora(anchor, subject, family, entry) {
     openLoraMenu(anchor, {
-      handle: subject.handle, entry, family: this.family(),
+      handle: subject.handle, entry, family: family.id,
       touch: () => this.touch?.(),
       done: () => this.save(),
       settle: () => this.renderSoon(),
-      onManage: () => this.manageLora(subject, entry),
+      onManage: () => this.addLora(subject, family, entry.name),
       onRemove: () => {
-        subject.loras = S.subjectLoras(subject).filter((worn) => worn.name !== entry.name);
-        this.tidyLoras(subject);
+        const row = S.wearOn(subject, family.id);
+        row.loras = row.loras.filter((worn) => worn.name !== entry.name);
+        S.tidyWears(subject);
         this.save();
       },
     });
-  }
-
-  /** The manager on their stack, opened on this entry — the way to the full
-   *  card: the wide weight span, the checkpoint claim, the sidecar's words. */
-  async manageLora(subject, entry) {
-    subject.loras ??= [];
-    const family = this.family();
-    await openLoras({
-      state: subject,
-      family,
-      targets: S.subjectFiles(subject).length && S.routing(family)
-        ? [S.routesOf(family).reference] : [...S.checkpointsOf(family)],
-      scope: "piece",
-      reveal: entry.name,
-      // Only touched while the window is up: the manager pushes onto the
-      // array it was handed, so the key stays until it shuts.
-      onChange: () => this.touch?.(),
-    });
-    this.tidyLoras(subject);
-    this.save();
   }
 
   placeRow(subject) {

@@ -62,7 +62,7 @@ API = layout.STUBS["api.js"].replace(
 SCRIPT = layout.DOMSHIM if hasattr(layout, "DOMSHIM") else ""
 SCRIPT = __import__("domshim").DOM + """
 import * as S from "./web/creator/state.js";
-import { cost, costMark, familySections, keepable, keepAsMod, ledger, modFamilies, modRows, modeRows } from "./web/creator/refmod.js";
+import { castFamilies, cost, costMark, everyFamilyRows, familyModeRows, keepable, keepAsMod, modFamilies, modRows, modeRows } from "./web/creator/refmod.js";
 import { CastShelf } from "./web/creator/cast.js";
 import { openPicker } from "./web/creator/picker.js";
 
@@ -114,21 +114,26 @@ await keepAsMod(piece.subjects[0], list, "full", {
 });
 out.madeKlein = { family: globalThis.__made.family, vae: globalThis.__made.vae, mode: globalThis.__made.mode };
 out.bothMods = piece.assets[0].mods;
-out.sections = familySections(
-  [{ filename: "c.png", kind: "image", ref_size: "max" }],
-  modFamilies("h3", "h3_vae.safetensors", {}), () => {}).map((section) => [
-    section.head, section.rows.map((row) => [row.label, Boolean(row.disabled)])]);
-out.everyRow = familySections(
+// The rows per family, refused where that family has no VAE picked; and
+// the "every family" row where more than one is ready.
+const sectionsOf = (entries, families, onPick = () => {}) => [
+  ...(everyFamilyRows(entries, families, onPick, () => {}).length
+    ? [["Every family", everyFamilyRows(entries, families, onPick, () => {}).map((row) => row.label)]] : []),
+  ...families.map((family) => [family.label, familyModeRows(entries, family, onPick, () => {})
+    .map((row) => [row.label, Boolean(row.disabled)])]),
+];
+out.sections = sectionsOf([{ filename: "c.png", kind: "image", ref_size: "max" }],
+                          modFamilies("h3", "h3_vae.safetensors", {}));
+out.everyRow = sectionsOf(
   [{ filename: "c.png", kind: "image", ref_size: "max" }, { filename: "w.mp4", kind: "video" }],
-  modFamilies("h3", "h3_vae.safetensors", { flux2klein: { vae: "flux2-vae.safetensors" } }),
-  (mode, family) => { out.everyPicked = [mode, Array.isArray(family) ? family.map((f) => f.id) : family]; },
-  () => {}).map((section) => [section.head, section.rows.map((row) => row.label)]);
-out.everyRow.flat().length;  // drawn
-const everySections = familySections(
-  [{ filename: "c.png", kind: "image", ref_size: "max" }],
-  modFamilies("h3", "h3_vae.safetensors", { flux2klein: { vae: "flux2-vae.safetensors" } }),
-  (mode, family) => { out.everyPicked = [mode, Array.isArray(family) ? family.map((f) => f.id) : family]; }, () => {});
-everySections[0].rows[0].onPick();
+  modFamilies("h3", "h3_vae.safetensors", { flux2klein: { vae: "flux2-vae.safetensors" } }))
+  .map(([head, rows]) => [head, rows.map((row) => (Array.isArray(row) ? row[0] : row))]);
+everyFamilyRows([{ filename: "c.png", kind: "image", ref_size: "max" }],
+                modFamilies("h3", "h3_vae.safetensors", { flux2klein: { vae: "flux2-vae.safetensors" } }),
+                (mode, family) => { out.everyPicked = [mode, family.map((f) => f.id)]; }, () => {})[0].onPick();
+// Every family a member can be sent to, not only the ones that keep mods.
+out.castFamilies = castFamilies("h3", "h3_vae.safetensors", {}).map((f) => [
+  f.id, f.here, f.video, f.reads.pictures, f.reads.clips, f.adapter, f.refmod]);
 // A new frame forgets the renditions: they were latents of the old window.
 const framed = { handle: "img-5", kind: "image", role: "reference", filename: "d.png",
                  mods: { h3_video: "refmod:cast/d" } };
@@ -214,21 +219,8 @@ out.cost = {
           [c7.pictures, c7.mods, c7.picTokens]],
   marks: [costMark([maxPic], canvas), costMark([modEntry], canvas), costMark([], canvas)],
 };
-const text = (node) => node.text.replace(/\\s+/g, " ").trim();
-const acts = (node) => (node.children ?? []).filter((k) => String(k.className).includes("mmc-cast-ledger-act")).map(text);
-const before = ledger({ entries: [maxPic], canvas, onSave: () => {} });
-const busy = ledger({ entries: [maxPic], canvas, busy: { count: 1, mode: "compressed", progress: .4 } });
-const saved = ledger({ entries: [modEntry], canvas, onLibrary: () => {} });
-const mixed = ledger({ entries: [matchPic, modEntry], canvas, onSave: () => {} });
-out.ledger = {
-  before: [text(before), acts(before), before.className],
-  busy: [text(busy), busy.className],
-  saved: [text(saved), acts(saved), saved.className,
-          saved.children.find((k) => k.tagName === "A")?.getAttribute("href") ?? null],
-  mixed: [text(mixed), acts(mixed)],
-  none: ledger({ entries: [], canvas }),
-  modes: modeRows([maxPic], () => {}).map((row) => row.label),
-};
+const text = (node) => node.text.replace(/\\s+/g, " ").replace(/ \\./g, ".").trim();
+out.modes = modeRows([maxPic], () => {}).map((row) => row.label);
 
 // The card: the ledger under the tiles, the verbs in a footer, no cube.
 const shelfPiece = S.parseState(JSON.stringify({
@@ -243,20 +235,47 @@ const shelf = new CastShelf({
   whereCited: () => ({ text: "in the prompt", cited: true }), cite: () => {},
   touch: () => {}, commit: () => {},
   keep: async () => {}, library: async () => {}, mod: async () => [],
-  canvas: () => canvas,
+  canvas: () => canvas, vae: () => "h3_vae.safetensors",
+  families: () => castFamilies("h3", "h3_vae.safetensors", { flux2klein: { vae: "flux2-vae.safetensors" } }),
 });
 shelf.render();
 const classes = [];
 const walkAll = (node) => { classes.push(...String(node.className ?? "").split(" ")); (node.children ?? []).forEach(walkAll); };
 walkAll(shelf.root);
 const has = (cls) => classes.includes(cls);
-out.shutCard = { cost: has("mmc-cast-line-cost"), ledger: has("mmc-cast-ledger") };
+out.shutCard = { cost: has("mmc-cast-line-cost"), panel: has("mmc-wears") };
 shelf.openMember("anna");
 classes.length = 0; walkAll(shelf.root);
+const found2 = (cls) => { const hits = []; const walk = (node) => {
+  if (String(node.className ?? "").split(" ").includes(cls)) hits.push(node); (node.children ?? []).forEach(walk); };
+  walk(shelf.root); return hits; };
 out.openCard = {
-  ledger: has("mmc-cast-ledger"), foot: has("mmc-cast-foot"), cube: has("mmc-cast-modme"),
+  panel: has("mmc-wears"), foot: has("mmc-cast-foot"), cube: has("mmc-cast-modme"),
   star: has("mmc-cast-keepme"), swap: has("mmc-cast-swapme"),
+  tabs: found2("mmc-wears-tab").map((n) => [text(n), n.getAttribute("aria-selected")]),
+  sentence: text(found2("mmc-wears-sentence")[0]),
+  status: text(found2("mmc-wears-status")[0]),
+  acts: found2("mmc-wears-act").map(text),
 };
+// The Klein tab: the same picture, unsaved there, offered for saving there.
+shelf.wears.open = "flux2klein";
+shelf.render();
+out.kleinTab = {
+  sentence: text(found2("mmc-wears-sentence")[0]),
+  status: text(found2("mmc-wears-status")[0]),
+  acts: found2("mmc-wears-act").map(text),
+};
+// A family that reads no pictures says so, and the sentence's noun is fixed.
+shelf.wears.open = "ideogram4";
+shelf.render();
+out.ideogramTab = { sentence: text(found2("mmc-wears-sentence")[0]), status: text(found2("mmc-wears-status")[0]),
+                    fixed: String(found2("mmc-wears-choice")[0]?.className).includes("fixed") };
+// Sent as words to H3: the status says so, and the blob carries the choice.
+shelf.wears.open = "h3";
+S.wearOn(shelfPiece.subjects[0], "h3").send = "words";
+shelf.render();
+out.wordsTab = { sentence: text(found2("mmc-wears-sentence")[0]),
+                 blob: JSON.parse(S.serializeTimeline({ ...shelfPiece, segments: [] })).subjects[0].wears };
 
 // The picker: a tab, rows off the listing, an import where upload sits, no organize.
 document.body.children.length = 0;
@@ -330,17 +349,22 @@ check("saving for Klein asks for that family and its VAE",
       got["madeKlein"], {"family": "flux2klein", "vae": "flux2-vae.safetensors", "mode": "full"})
 check("...and the picture carries both renditions",
       got["bothMods"], {"h3_video": "refmod:cast/anna", "flux2": "refmod:cast/anna.flux2"})
-check("the menu is a section per family, and a family with no VAE picked is offered disabled",
+check("the rows are per family, and a family with no VAE picked is offered disabled",
       got["sections"],
-      [["For MiniMax H3", [["Compressed — ≈576 tokens", False], ["Full — ≈1,024 tokens", False]]],
-       ["For Flux 2 Klein", [["Compressed — ≈1,024 tokens", True], ["Full — ≈4,096 tokens", True]]]])
+      [["MiniMax H3", [["Compressed — ≈576 tokens", False], ["Full — ≈1,024 tokens", False]]],
+       ["Flux 2 Klein", [["Compressed — ≈1,024 tokens", True], ["Full — ≈4,096 tokens", True]]]])
+check("every family a member can be sent to is listed, the piece's first, with what each reads",
+      got["castFamilies"],
+      [["h3", True, True, True, True, False, True], ["ltx25", False, True, True, False, False, False],
+       ["krea2", False, False, True, False, True, False], ["ideogram4", False, False, False, False, False, False],
+       ["qwenedit", False, False, True, False, False, False], ["flux2klein", False, False, True, False, False, True]])
 check("a new frame forgets the renditions", got["dropped"], None)
 check("with two families ready the menu leads with one row for all of them, per-picture modes only",
       got["everyRow"],
       [["Every family", ["Compressed — ≈576 + 1,024 tokens", "Full — ≈1,024 + 4,096 tokens"]],
-       ["For MiniMax H3", ["One file — everything stacked — ≈448 tokens", "Compressed — ≈576 tokens",
-                           "Full — ≈1,024 tokens", "Each clip — its own file — ≈2,016 tokens"]],
-       ["For Flux 2 Klein", ["Compressed — ≈1,024 tokens", "Full — ≈4,096 tokens"]]])
+       ["MiniMax H3", ["One file — everything stacked — ≈448 tokens", "Compressed — ≈576 tokens",
+                       "Full — ≈1,024 tokens", "Each clip — its own file — ≈2,016 tokens"]],
+       ["Flux 2 Klein", ["Compressed — ≈1,024 tokens", "Full — ≈4,096 tokens"]]])
 check("...and picking it names every ready family, the piece's first",
       got["everyPicked"], ["compressed", ["h3", "flux2klein"]])
 
@@ -381,26 +405,28 @@ check("a picture carrying a rendition costs the rendition, in each family's own 
       got["cost"]["bound"], [[1, 64, True], [1, 1024, True], [1, 0, 4096]])
 check("the shut line's mark is ≈ for a picture, plain and amber for a mod, absent for nobody",
       got["cost"]["marks"], [{"text": "≈4.1k tok", "saved": False}, {"text": "64 tok", "saved": True}, None])
-check("before: the line says what it costs and offers to save",
-      got["ledger"]["before"],
-      ["Encoded on every render · 1 picture at max · ≈4,096 tokens Save as RefMod ▾",
-       ["Save as RefMod ▾"], "mmc-cast-ledger"])
-check("busy: the same line, with the arithmetic and a bar",
-      got["ledger"]["busy"],
-      ["Encoding 1 picture… · compressed · ≈4,096 → ≈576 tokens on the queue", "mmc-cast-ledger busy"])
-check("saved: the receipt — mode, tokens, where the file is, and the two doors out",
-      got["ledger"]["saved"],
-      ["Saved as a RefMod · compressed · 64 tokens · refmods/cast/anna Download Show in library",
-       ["Download", "Show in library"], "mmc-cast-ledger saved",
-       "/continuity/refmod/file?filename=refmod%3Acast%2Fanna"])
-check("mixed: both counted, and the picture offered", got["ledger"]["mixed"],
-      ["1 RefMod + 1 picture · 64 + ≈558 tokens Save the picture too ▾", ["Save the picture too ▾"]])
-check("nobody: no line", got["ledger"]["none"], None)
-check("the mode menu names what each would cost", got["ledger"]["modes"],
+check("the mode menu names what each would cost", got["modes"],
       ["Compressed — ≈576 tokens", "Full — ≈1,024 tokens"])
-check("a shut line wears the cost and no ledger", got["shutCard"], {"cost": True, "ledger": False})
-check("an open card has the ledger and the footer, and none of the three icons",
-      got["openCard"], {"ledger": True, "foot": True, "cube": False, "star": False, "swap": False})
+check("a shut line wears the cost and no panel", got["shutCard"], {"cost": True, "panel": False})
+opened = got["openCard"]
+check("an open card has the panel and the footer, and none of the three icons",
+      {k: opened[k] for k in ("panel", "foot", "cube", "star", "swap")},
+      {"panel": True, "foot": True, "cube": False, "star": False, "swap": False})
+check("a tab per family, the piece's own open", opened["tabs"][:3],
+      [["MiniMax H3 this piece", "true"], ["LTX 2.5", "false"], ["Krea 2", "false"]])
+check("the sentence says what H3 gets", opened["sentence"], "When MiniMax H3 renders @anna it gets their picture.")
+check("...and the status says what it costs, and offers to save for that family",
+      (opened["status"], opened["acts"]),
+      ("1 picture encoded every render — ≈4.1k tokens. Saving them once reads the file instead. Save for MiniMax H3 ▾",
+       ["Save as RefMod ▾", "+ LoRA", "Save for MiniMax H3 ▾"]))
+check("the Klein tab offers the same picture for Klein", got["kleinTab"]["acts"][-1], "Save for Flux 2 Klein ▾")
+check("a family that reads no pictures gets the words, and says so",
+      got["ideogramTab"],
+      {"sentence": "When Ideogram 4.0 renders @anna it gets their description only.",
+       "status": "Ideogram 4.0 takes no reference pictures. Their description is all it can be told.", "fixed": True})
+check("sent as words, the sentence says so and the blob carries the choice",
+      got["wordsTab"],
+      {"sentence": "When MiniMax H3 renders @anna it gets their description only.", "blob": {"h3": {"send": "words"}}})
 
 check("the picker has a RefMod tab", got["picker"]["tabs"], ["Image", "RefMod"])
 check("...whose cells say what a mod costs, and whose it is when not H3's", got["picker"]["cells"],

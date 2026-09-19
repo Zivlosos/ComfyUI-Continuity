@@ -786,7 +786,8 @@ try {
     // A member is refused by a card, with a reason rather than a silence.
     refusedByShot: P.crossable("cast", "cast", "shot").ok === false
                 && !!P.crossable("cast", "cast", "shot").why,
-    refusedByPreStage: P.crossable("cast", "cast", "prestage").ok === false,
+    // A still has the cast a shot has, so a pre-stage takes her too.
+    takenByPreStage: P.crossable("cast", "cast", "prestage").ok === true,
     takenByPiece: P.crossable("cast", "cast", "piece").ok === true,
   };
 } catch (error) {
@@ -1148,7 +1149,7 @@ check("...on the files already attached, not a second copy of them",
       cast.get("reused"), True)
 check("...and whoever was already cast is still cast", cast.get("added"), True)
 check("a card refuses her, and says why", cast.get("refusedByShot"), True)
-check("...so does a pre-stage", cast.get("refusedByPreStage"), True)
+check("...a pre-stage takes her, as a piece does", cast.get("takenByPreStage"), True)
 check("...and a piece takes her", cast.get("takenByPiece"), True)
 
 keep = report.get("keep", {})

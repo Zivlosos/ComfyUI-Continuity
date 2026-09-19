@@ -1,9 +1,11 @@
 """A LoRA on a cast member, on every surface that draws them (discussion #82).
 
-The shelf's open card wears it as a chip on the "wears" line, the chip's menu
-edits its words and its weight in place, the blob round-trips it through the
-stack's own serializer, the library keeps it with the member and hands it back,
-and the library's sheet draws it as a row. Driven through the real modules
+A LoRA is one family's weights, so it is filed under the family it was hung
+for (`state.wearOn`) and drawn on that family's tab of the wears panel
+(`wears.js`). The row's menu edits its words and its weight in place, the blob
+round-trips the wardrobe through the stack's own serializer, the library keeps
+it with the member and hands it back, and the library's sheet draws the same
+panel. Driven through the real modules
 against the DOM shim, the way test_cast_role_notes.py and test_cast_editor.py
 are.
 
@@ -58,6 +60,7 @@ export const api = {
 CHECK = r"""
 await import("./dom.mjs");
 const { CastShelf } = await import("./web/creator/cast.js");
+const { castFamilies } = await import("./web/creator/refmod.js");
 const S = await import("./web/creator/state.js");
 const P = await import("./web/creator/presets.js");
 const { openPresetLibrary } = await import("./web/creator/presetlib.js");
@@ -75,6 +78,7 @@ function all(root, cls) {
   return found;
 }
 const one = (root, cls) => all(root, cls)[0] ?? null;
+const text = (node) => (node ? node.text.replace(/\s+/g, " ").replace(/ \./g, ".").trim() : null);
 const press = (node) => node?.listeners?.click?.[0]?.({
   currentTarget: node, target: node, stopPropagation() {}, preventDefault() {},
 });
@@ -85,6 +89,7 @@ function type(field, value) {
 
 const img = (handle) => ({ handle, kind: "image", role: "reference", filename: `${handle}.png` });
 const ANNA = { name: "people/anna_v3.safetensors", strength: 0.85, triggers: ["ohwx anna"] };
+const KLEIN = { name: "people/anna_klein.safetensors", strength: 0.7, triggers: ["ann4"] };
 
 function host({ cast, assets }) {
   const state = { cast, assets, touched: 0, committed: 0 };
@@ -97,56 +102,71 @@ function host({ cast, assets }) {
     cite: () => {},
     touch: () => { state.touched += 1; },
     commit: () => { state.committed += 1; },
+    families: () => castFamilies("h3", "h3_vae", {}),
+    vae: () => "h3_vae",
   });
   return state;
 }
 
 try {
-  // ---- the shelf: the line, the chip, the menu ---------------------------------
+  // ---- the shelf: the tab, the row, the menu -----------------------------------
   {
-    const ana = { handle: "ana", takes: "person", from: ["img-1"], loras: [{ ...ANNA, triggers: [...ANNA.triggers] }] };
+    // A flat list from before the rows existed, read as the piece's family's.
+    const ana = S.parseState(JSON.stringify({
+      prompt: "@ana", assets: [img("img-1")],
+      subjects: [{ handle: "ana", takes: "person", from: ["img-1"], loras: [{ ...ANNA, triggers: [...ANNA.triggers] }] }],
+      duration_s: 6, aspect: "16:9", short_edge: 768,
+    })).subjects[0];
+    out.migrated = JSON.parse(JSON.stringify(ana.wears));
+    S.wearOn(ana, "flux2klein").loras.push({ ...KLEIN, triggers: [...KLEIN.triggers] });
     const bare = { handle: "ben", takes: "person", description: "a tall man" };
     const state = host({ cast: [ana, bare], assets: [img("img-1")] });
     state.shelf.render();
-    // The shut line marks that Ana wears one and Ben wears nothing.
+    // The shut line marks that Ana wears something and Ben wears nothing.
     out.shutMarks = all(state.shelf.root, "mmc-cast-row").map((row) => Boolean(one(row, "mmc-cast-line-wears")));
     state.shelf.opened = ana;
     state.shelf.render();
     const root = state.shelf.root;
-    const wears = one(root, "mmc-cast-wears");
-    out.wearsLine = { drawn: Boolean(wears), on: String(wears?.className).includes(" on") };
-    const chip = one(wears, "mmc-cast-lora");
-    out.chip = {
-      name: one(chip, "mmc-cast-lora-name")?.text,
-      weight: one(chip, "mmc-cast-lora-weight")?.text,
-      words: one(chip, "mmc-cast-lora-words")?.text,
-    };
-    out.addOffered = Boolean(one(wears, "mmc-cast-wear-add"));
+    out.tabs = all(root, "mmc-wears-tab").map((tab) => [text(tab), all(tab, "mmc-wears-dot").map((d) => d.className)]);
+    out.sentence = text(one(root, "mmc-wears-sentence"));
+    const row = one(root, "mmc-wears-lora");
+    out.row = { lead: text(one(row, "mmc-wears-row-lead")), note: text(one(row, "mmc-wears-row-note")),
+                weight: text(one(row, "mmc-wears-weight")) };
+    out.addOffered = all(root, "mmc-wears-act").map(text).includes("+ LoRA");
+    // The Klein tab wears the Klein one, and only that one.
+    state.shelf.wears.open = "flux2klein";
+    state.shelf.render();
+    out.kleinSentence = text(one(root, "mmc-wears-sentence"));
+    out.kleinRows = all(root, "mmc-wears-lora").map((r) => text(one(r, "mmc-wears-row-lead")));
+    state.shelf.wears.open = "h3";
+    state.shelf.render();
 
-    // The chip's menu: words and weight at its head, written to the entry as
+    // The row's menu: words and weight at its head, written to the entry as
     // typed and dragged; a row takes it off.
-    press(chip);
+    press(one(root, "mmc-wears-lora"));
     await wait();
     const menu = one(globalThis.document.body, "mmc-cast-menu");
     const wordsField = one(one(menu, "mmc-cast-menu-wear"), "mmc-cast-menu-field");
     type(wordsField, "OHWX anna, film still ");
     const slider = one(menu, "mmc-cast-menu-weight");
     type(slider, "0.6");
-    out.edited = { triggers: ana.loras[0].triggers, strength: ana.loras[0].strength,
+    const worn = () => S.subjectLoras(ana, "h3")[0];
+    out.edited = { triggers: worn().triggers, strength: worn().strength,
                    touched: state.touched > 0, committed: state.committed };
     const mute = all(menu, "mmc-opt").find((b) => /^Mute\b/.test(b.text.replace(/\s+/g, " ").trim()));
     press(mute);
     await wait();
-    out.muted = { enabled: ana.loras[0].enabled, committed: state.committed };
+    out.muted = { enabled: worn().enabled, committed: state.committed };
     // Struck on the redraw, not gone.
-    out.mutedChip = String(one(state.shelf.root, "mmc-cast-lora")?.className).includes("off");
-    press(one(state.shelf.root, "mmc-cast-lora"));
+    out.mutedRow = String(one(state.shelf.root, "mmc-wears-lora")?.className).includes("off");
+    press(one(state.shelf.root, "mmc-wears-lora"));
     await wait();
     const menu2 = all(globalThis.document.body, "mmc-cast-menu").pop();
     const off = all(menu2, "mmc-opt").find((b) => /Take it off/.test(b.text));
     press(off);
     await wait();
-    out.takenOff = { loras: ana.loras ?? null, line: String(one(state.shelf.root, "mmc-cast-wears")?.className).includes(" on") };
+    out.takenOff = { h3: ana.wears?.h3 ?? null, klein: S.subjectLoras(ana, "flux2klein").map((e) => e.name),
+                     rows: all(state.shelf.root, "mmc-wears-lora").length };
   }
 
   // ---- the blob: through the stack's own serializer and back -----------------
@@ -156,8 +176,8 @@ try {
       subjects: [{ handle: "ana", from: ["ref-1"],
                    loras: [{ ...ANNA, enabled: true, modes: ["fl2va", "ref2va"], triggers: "ohwx anna, Blue" }] }],
     }));
-    const stored = JSON.parse(S.serializeTimeline(timeline)).subjects[0].loras;
-    out.roundTrip = stored;
+    const stored = JSON.parse(S.serializeTimeline(timeline)).subjects[0];
+    out.roundTrip = { loras: stored.loras ?? null, wears: stored.wears };
     // The mirror of `compile.cast_loras`: her LoRA counts on the shot that
     // cites her, under the shot's own entry for the same file.
     S.syncTimeline?.(timeline);
@@ -165,23 +185,53 @@ try {
     shot.loras = [{ name: ANNA.name, strength: 0.4, enabled: true, modes: ["fl2va", "ref2va"], triggers: [] }];
     out.active = S.activeLoras(shot).map((e) => [e.name, e.strength]);
     out.activeOff = S.activeLoras({ ...shot, prompt: "an empty room.", loras: [] }).length;
+    // A wardrobe with a row for a still family round-trips whole, and a
+    // checkpoint claim is not written for a family that routes between none.
+    const dressed = S.parseTimeline(JSON.stringify({
+      version: 2, prompt: "", segments: [{ prompt: "@ana", duration_s: 6 }],
+      subjects: [{ handle: "ana", from: ["ref-1"], wears: {
+        h3: { loras: [{ ...ANNA, modes: ["ref2va"] }] },
+        flux2klein: { send: "words", loras: [{ ...KLEIN, modes: ["ref2va"] }] } } }],
+    }));
+    out.wardrobe = JSON.parse(S.serializeTimeline(dressed)).subjects[0].wears;
+    out.wornOnKlein = S.subjectLoras(dressed.subjects[0], "flux2klein").map((e) => e.name);
+  }
+
+  // ---- a still's blob: the same cast, over its refs --------------------------
+  {
+    const still = S.parsePreStage(JSON.stringify({
+      version: 1, arch: "flux2klein", prompt: "@ana at dusk",
+      refs: [{ handle: "img-1", filename: "a.png", mods: { flux2: "refmod:cast/ana.flux2" } }],
+      subjects: [{ handle: "ana", from: ["img-1"], loras: [{ ...KLEIN, triggers: [...KLEIN.triggers] }] }],
+    }));
+    const back = JSON.parse(S.serializePreStage(still));
+    out.still = {
+      refs: still.refs.map((r) => [r.handle, r.kind, r.role, r.mods ?? null]),
+      wears: back.subjects?.[0]?.wears ?? null,
+      backRefs: back.refs,
+      // Its LoRAs count on the still's own family, as the compiler's do.
+      active: S.activeLoras(still, "flux2klein").map((e) => e.name),
+      triggers: S.promptTriggers(still, "flux2klein"),
+      cited: S.citedCast(still).map((s) => s.handle),
+    };
   }
 
   // ---- the library: kept with them, handed back ------------------------------
   {
     const ana = { handle: "ana", takes: "person", from: ["img-1"],
-                  loras: [{ ...ANNA, triggers: [...ANNA.triggers], enabled: false }] };
+                  wears: { h3: { loras: [{ ...ANNA, triggers: [...ANNA.triggers], enabled: false }] },
+                           flux2klein: { send: "pictures" } } };
     const captured = P.captureSubject(ana, [img("img-1")]);
-    out.kept = captured.data.cast.loras;
+    out.kept = captured.data.cast.wears;
     out.facts = P.castFactsLine(P.factsOf(captured.data, "cast"));
     const landed = P.addSubjectToPiece(captured.data.cast, { assets: [], subjects: [], segments: [] });
-    out.landed = landed.loras;
+    out.landed = landed.wears;
     // A member wearing nothing writes no key.
-    out.plainKept = "loras" in P.captureSubject({ handle: "ben", from: ["img-1"] }, [img("img-1")]).data.cast;
+    out.plainKept = "wears" in P.captureSubject({ handle: "ben", from: ["img-1"] }, [img("img-1")]).data.cast;
     // ...and a LoRA with a word is enough to stand behind a name; one without is not.
     out.problem = [
-      S.subjectProblem({ subjects: [], assets: [] }, { handle: "ben", loras: [{ ...ANNA }] }),
-      S.subjectProblem({ subjects: [], assets: [] }, { handle: "ben", loras: [{ name: "x", triggers: [] }] }),
+      S.subjectProblem({ subjects: [], assets: [] }, { handle: "ben", wears: { h3: { loras: [{ ...ANNA }] } } }),
+      S.subjectProblem({ subjects: [], assets: [] }, { handle: "ben", wears: { h3: { loras: [{ name: "x", triggers: [] }] } } }),
     ];
   }
 
@@ -194,17 +244,18 @@ try {
     press(newButton);
     await wait(); await wait(); await wait();
     const lib = globalThis.__lib;
-    lib.body.cast.loras = [{ ...ANNA, triggers: [...ANNA.triggers] }];
+    lib.body.cast.wears = { h3: { loras: [{ ...ANNA, triggers: [...ANNA.triggers] }] } };
     lib.renderSheet();
     const sheet = one(modal, "mmc-cast-sheet");
-    const row = one(sheet, "mmc-cast-sheet-lora");
+    const row = one(sheet, "mmc-wears-lora");
     out.sheetRow = {
       drawn: Boolean(row),
-      name: one(row, "mmc-cast-sheet-filename")?.text,
-      note: one(row, "mmc-cast-sheet-filenote")?.text,
-      weight: one(row, "mmc-cast-sheet-enc")?.text?.replace(/\s+/g, " ").trim(),
+      name: text(one(row, "mmc-wears-row-lead")),
+      note: text(one(row, "mmc-wears-row-note")),
+      weight: text(one(row, "mmc-wears-weight")),
     };
-    out.sheetOffers = Boolean(all(sheet, "mmc-cast-sheet-addfile").find((b) => /Hang a LoRA/.test(b.text)));
+    out.sheetTabs = all(sheet, "mmc-wears-tab").length;
+    out.sheetOffers = all(sheet, "mmc-wears-act").map(text).includes("+ LoRA");
     press(row);
     await wait();
     const menu = all(globalThis.document.body, "mmc-cast-menu").pop();
@@ -212,7 +263,7 @@ try {
     await lib.flushSave();
     const rows = (await P.listPresets({ force: true })).filter((r) => r.scope === "cast");
     const body = await P.loadBody(rows[0]);
-    out.sheetStored = body.cast.loras;
+    out.sheetStored = body.cast.wears;
     out.sheetFacts = rows[0].facts?.loras;
   }
 } catch (error) {
@@ -260,41 +311,72 @@ report = json.loads(result.stdout.strip().splitlines()[-1])
 from harness import FAILURES, check, passed  # noqa: E402
 
 FAILURES.extend(report["errors"])
+ANNA_ENTRY = {"name": "people/anna_v3.safetensors", "strength": 0.85, "triggers": ["ohwx anna"]}
 
 # ---- the shelf --------------------------------------------------------------
 
-check("the open card has a wears line, lit while they wear something",
-      report.get("wearsLine"), {"drawn": True, "on": True})
-check("the chip says the file, the weight and the words",
-      report.get("chip"), {"name": "anna_v3", "weight": "0.85", "words": "ohwx anna"})
+check("a flat list from before the rows existed is the piece's family's row",
+      report.get("migrated"), {"h3": {"loras": [ANNA_ENTRY]}})
+check("the open card has a tab per family; hers wear a LoRA dot on H3 and on Klein",
+      [tab for tab in (report.get("tabs") or []) if "lora" in " ".join(tab[1])],
+      [["MiniMax H3 this piece", ["mmc-wears-dot pic", "mmc-wears-dot lora"]],
+       ["Flux 2 Klein", ["mmc-wears-dot pic", "mmc-wears-dot lora"]]])
+check("the sentence says what H3 gets and what she wears there",
+      report.get("sentence"), "When MiniMax H3 renders @ana it gets their picture wearing anna_v3 “ohwx anna”.")
+check("the row says the file, the words and the weight",
+      report.get("row"), {"lead": "anna_v3", "note": "trigger words ohwx anna", "weight": "0.85 weight"})
 check("...and the way to hang another beside it", report.get("addOffered"), True)
+check("the Klein tab wears the Klein one and only that one",
+      (report.get("kleinSentence"), report.get("kleinRows")),
+      ("When Flux 2 Klein renders @ana it gets their picture wearing anna_klein “ann4”.", ["anna_klein"]))
 check("the shut line marks who wears something", report.get("shutMarks"), [True, False])
 check("the menu writes the words as typed and the weight as dragged, without committing",
       report.get("edited"),
       {"triggers": ["OHWX anna", "film still"], "strength": 0.6, "touched": True, "committed": 0})
 check("muting is a row, and a commit", report.get("muted"), {"enabled": False, "committed": 1})
-check("...and the chip is struck, not gone", report.get("mutedChip"), True)
-check("taking it off drops the key and dims the line",
-      report.get("takenOff"), {"loras": None, "line": False})
+check("...and the row is struck, not gone", report.get("mutedRow"), True)
+check("taking it off drops H3's row and leaves Klein's",
+      report.get("takenOff"), {"h3": None, "klein": ["people/anna_klein.safetensors"], "rows": 0})
 
 # ---- the blob ---------------------------------------------------------------
 
-check("the blob writes the entry through the stack's serializer — no modes where both are claimed",
+check("the blob writes the entry under the piece's family through the stack's serializer — no modes where both are claimed",
       report.get("roundTrip"),
-      [{"name": "people/anna_v3.safetensors", "strength": 0.85, "triggers": ["ohwx anna", "Blue"]}])
+      {"loras": None, "wears": {"h3": {"loras": [{"name": "people/anna_v3.safetensors", "strength": 0.85,
+                                                  "triggers": ["ohwx anna", "Blue"]}]}}})
 check("the shot's active stack mirrors compile: hers under the shot's own for the same file",
       report.get("active"), [["people/anna_v3.safetensors", 0.4]])
 check("...and nothing where she is not cited", report.get("activeOff"), 0)
+check("a wardrobe round-trips whole, a claim kept on H3 and dropped on a family that routes between none",
+      report.get("wardrobe"),
+      {"h3": {"loras": [{"name": "people/anna_v3.safetensors", "strength": 0.85, "triggers": ["ohwx anna"],
+                         "modes": ["ref2va"]}]},
+       "flux2klein": {"send": "words", "loras": [{"name": "people/anna_klein.safetensors", "strength": 0.7,
+                                                  "triggers": ["ann4"]}]}})
+check("...and she wears Klein's row on Klein", report.get("wornOnKlein"), ["people/anna_klein.safetensors"])
+
+# ---- a still's blob ---------------------------------------------------------
+
+check("a still's references are pictures the shelf can read, carrying their renditions",
+      (report.get("still") or {}).get("refs"), [["img-1", "image", "reference", {"flux2": "refmod:cast/ana.flux2"}]])
+check("...its flat list from before the rows is the still family's row, and the blob keeps neither kind nor role",
+      ((report.get("still") or {}).get("wears"), (report.get("still") or {}).get("backRefs")),
+      ({"flux2klein": {"loras": [{"name": "people/anna_klein.safetensors", "strength": 0.7, "triggers": ["ann4"]}]}},
+       [{"handle": "img-1", "filename": "a.png", "mods": {"flux2": "refmod:cast/ana.flux2"}}]))
+check("...and her LoRA counts on the still, with its word in front",
+      ((report.get("still") or {}).get("active"), (report.get("still") or {}).get("triggers"),
+       (report.get("still") or {}).get("cited")),
+      (["people/anna_klein.safetensors"], ["ann4"], ["ana"]))
 
 # ---- the library ------------------------------------------------------------
 
-check("the library keeps what they wear, muted or not",
+check("the library keeps the wardrobe, muted or not, send words included",
       report.get("kept"),
-      [{"name": "people/anna_v3.safetensors", "strength": 0.85, "enabled": False, "triggers": ["ohwx anna"]}])
+      {"h3": {"loras": [{"name": "people/anna_v3.safetensors", "strength": 0.85, "enabled": False,
+                         "triggers": ["ohwx anna"]}]},
+       "flux2klein": {"send": "pictures"}})
 check("...and the card says so", report.get("facts"), "person · 1 picture · 1 LoRA")
-check("...and hands it back onto a piece",
-      report.get("landed"),
-      [{"name": "people/anna_v3.safetensors", "strength": 0.85, "enabled": False, "triggers": ["ohwx anna"]}])
+check("...and hands it back onto a piece", report.get("landed"), report.get("kept"))
 check("a member wearing nothing writes no key", report.get("plainKept"), False)
 check("a LoRA with a word stands behind a name; one without does not",
       report.get("problem"),
@@ -302,12 +384,13 @@ check("a LoRA with a word stands behind a name; one without does not",
 
 # ---- the sheet --------------------------------------------------------------
 
-check("the sheet draws them as a row", report.get("sheetRow"),
+check("the sheet draws them as a row on the family's tab", report.get("sheetRow"),
       {"drawn": True, "name": "anna_v3", "note": "trigger words ohwx anna", "weight": "0.85 weight"})
-check("...and offers to hang one", report.get("sheetOffers"), True)
+check("...with a tab per family and a way to hang one",
+      (report.get("sheetTabs"), report.get("sheetOffers")), (6, True))
 check("the row's menu writes the words to the member on disk",
       report.get("sheetStored"),
-      [{"name": "people/anna_v3.safetensors", "strength": 0.85, "triggers": ["ohwx anna", "portrait"]}])
+      {"h3": {"loras": [{"name": "people/anna_v3.safetensors", "strength": 0.85, "triggers": ["ohwx anna", "portrait"]}]}})
 check("...and the index counts it", report.get("sheetFacts"), 1)
 
 passed("a cast member wears a LoRA on the card, in the blob, in the library and on the sheet")

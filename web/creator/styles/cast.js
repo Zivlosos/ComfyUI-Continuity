@@ -130,47 +130,104 @@ export const css = `
 }
 .mmc-cast-shut:hover { background: var(--mmc-surface-3); color: var(--mmc-text); }
 
-/* --- the ledger ------------------------------------------------------------ */
-/* One line under their tiles: what their looks cost a render, and the one
-   thing that changes it. The number is the argument for a RefMod, so it is
-   drawn where the pictures are rather than hinted at by a cube in the header.
-   Shared with the library sheet, which draws the same line under its rows. */
-.mmc-cast-ledger {
-  display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; min-width: 0;
-  margin-left: 58px; padding: 6px 10px; border-radius: 9px;
-  background: var(--mmc-surface); border: 1px solid var(--mmc-line);
-  font-size: calc(11.5px * var(--mmc-type)); color: var(--mmc-dim);
+/* --- what each family gets --------------------------------------------------- */
+/* The derived half of a member, drawn per family: a rail of tabs, and under
+   the open one a sentence saying what that family is handed, the LoRAs they
+   wear there, and the one fact that changes what to do. Shared with the
+   library sheet, which draws the same panel over stored files. The number
+   is the argument for a RefMod, so it is in the status line where the
+   pictures are, rather than hinted at by a cube in the header. */
+.mmc-wears { margin-left: 58px; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.mmc-wears-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.mmc-wears-legend { font-size: calc(11.5px * var(--mmc-type)); color: var(--mmc-faint); }
+.mmc-wears-rail { display: flex; gap: 4px; flex-wrap: wrap; }
+.mmc-wears-tab {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px 3px 7px;
+  border-radius: 999px; border: 1px solid var(--mmc-line); background: none;
+  color: var(--mmc-dim); font: inherit; font-size: calc(11px * var(--mmc-type)); cursor: pointer;
+  white-space: nowrap;
 }
-.mmc-cast-ledger-what { flex: 1; min-width: 16ch; }
-.mmc-cast-ledger-what b { font-weight: 500; color: var(--mmc-text); }
-.mmc-cast-ledger-dot { color: var(--mmc-off); }
-.mmc-cast-ledger-n {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-variant-numeric: tabular-nums; color: var(--mmc-text);
+.mmc-wears-tab:hover { border-color: var(--mmc-line-3); color: var(--mmc-text); }
+.mmc-wears-tab[aria-selected="true"] { background: var(--mmc-surface-2); border-color: var(--mmc-surface-2); color: var(--mmc-text); }
+.mmc-wears-tab:focus-visible { outline: 2px solid var(--mmc-accent); outline-offset: 1px; }
+.mmc-wears-here { font-size: calc(10px * var(--mmc-type)); color: var(--mmc-accent); }
+/* One dot per thing the family is sent: a picture, a saved reference, words
+   alone, or nothing until an adapter is hung; a second dot where they wear a
+   LoRA there. Read at a glance across the rail, which is the point of it. */
+.mmc-wears-dot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: var(--mmc-off); }
+.mmc-wears-dot.pic { background: var(--mmc-role-motion); }
+.mmc-wears-dot.mod { background: var(--mmc-accent); }
+.mmc-wears-dot.lora { background: var(--mmc-role-voice); }
+.mmc-wears-dot.words { background: var(--mmc-off); }
+.mmc-wears-dot.off { background: var(--mmc-bad); }
+.mmc-wears-panel {
+  border: 1px solid var(--mmc-line); border-radius: 9px; background: var(--mmc-surface); min-width: 0;
 }
-.mmc-cast-ledger-path {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--mmc-off);
-  overflow-wrap: anywhere;
+.mmc-wears-sentence {
+  padding: 8px 10px; font-size: calc(12px * var(--mmc-type)); line-height: 1.7; color: var(--mmc-text);
+  border-bottom: 1px solid var(--mmc-line);
 }
-/* Saved: the line is the receipt, and the only amber on the card. */
-.mmc-cast-ledger.saved { border-color: color-mix(in srgb, var(--mmc-accent) 35%, transparent); }
-.mmc-cast-ledger.saved .mmc-cast-ledger-what b { color: var(--mmc-accent); }
-.mmc-cast-ledger-act {
+.mmc-wears-sentence .k { color: var(--mmc-dim); }
+/* A noun in the sentence that is the control: the same pill as a takes word. */
+.mmc-wears-choice {
+  display: inline-flex; align-items: baseline; gap: 4px; max-width: 100%; vertical-align: baseline;
+  appearance: none; cursor: pointer; font: inherit; font-size: calc(11.5px * var(--mmc-type));
+  border: 0; border-radius: 999px; padding: 1px 9px; margin: 0 1px;
+  background: var(--mmc-surface-2); color: var(--mmc-text);
+}
+.mmc-wears-choice:not(.fixed)::after { content: " ▾"; font-size: 9px; color: var(--mmc-dim); }
+.mmc-wears-choice:hover:not(.fixed) { background: var(--mmc-surface-3); }
+.mmc-wears-choice:focus-visible { outline: 2px solid var(--mmc-accent); outline-offset: 1px; }
+.mmc-wears-choice.fixed { cursor: default; color: var(--mmc-dim); }
+.mmc-wears-choice.saved { color: var(--mmc-accent); }
+.mmc-wears-choice.lora { color: var(--mmc-role-voice); }
+.mmc-wears-choice.lora .words { color: var(--mmc-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 14em; }
+.mmc-wears-choice.off span:first-child { text-decoration: line-through; color: var(--mmc-off); }
+.mmc-wears-rows { display: flex; flex-direction: column; }
+.mmc-wears-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 7px 10px; border-bottom: 1px solid var(--mmc-line); min-width: 0;
+  background: none; border-left: 0; border-right: 0; border-top: 0; color: inherit; font: inherit; text-align: left;
+}
+.mmc-wears-lora { cursor: pointer; }
+.mmc-wears-lora:hover { background: var(--mmc-surface-2); }
+.mmc-wears-lora:focus-visible { outline: 2px solid var(--mmc-accent); outline-offset: -2px; }
+.mmc-wears-lora.off .mmc-wears-row-lead { text-decoration: line-through; color: var(--mmc-off); }
+.mmc-wears-row-what { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.mmc-wears-row-lead { font-size: calc(12px * var(--mmc-type)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mmc-wears-row-lead.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.mmc-wears-row-note { font-size: calc(11px * var(--mmc-type)); color: var(--mmc-dim); line-height: 1.4; }
+/* The weight in the marker's monospace: across the card that face means "this
+   is the number the model is handed". */
+.mmc-wears-weight {
+  display: flex; flex-direction: column; align-items: flex-end; flex: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-variant-numeric: tabular-nums;
+  font-size: calc(11px * var(--mmc-type)); color: var(--mmc-dim); line-height: 1.3;
+}
+.mmc-wears-weight b { font-weight: 500; color: var(--mmc-text); }
+.mmc-wears-status {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 7px 10px;
+  font-size: calc(11.5px * var(--mmc-type)); color: var(--mmc-dim); line-height: 1.45;
+}
+.mmc-wears-status .ok { color: var(--mmc-role-voice); }
+.mmc-wears-status .warn { color: var(--mmc-accent); }
+.mmc-wears-status .amber { color: var(--mmc-accent); }
+.mmc-wears-act {
   display: inline-flex; align-items: center; gap: 5px; flex: none;
   padding: 3px 9px; border-radius: 999px; border: 1px solid var(--mmc-line-2);
   background: none; color: var(--mmc-text); font: inherit; font-size: calc(11.5px * var(--mmc-type));
-  cursor: pointer; text-decoration: none; white-space: nowrap;
+  cursor: pointer; white-space: nowrap;
 }
-.mmc-cast-ledger-act:hover { border-color: var(--mmc-line-3); background: var(--mmc-surface-2); }
-.mmc-cast-ledger-act.on { border-color: color-mix(in srgb, var(--mmc-accent) 60%, transparent); color: var(--mmc-accent); }
-.mmc-cast-ledger-act.on:hover { background: color-mix(in srgb, var(--mmc-accent) 10%, transparent); }
-.mmc-cast-ledger-queued { font-size: calc(11px * var(--mmc-type)); color: var(--mmc-off); flex: none; }
-/* Encoding: the same line grows a bar across its foot and nothing else moves. */
-.mmc-cast-ledger-bar {
-  flex-basis: 100%; height: 3px; border-radius: 2px; background: var(--mmc-surface-3); overflow: hidden;
-}
-.mmc-cast-ledger-bar i { display: block; height: 100%; background: var(--mmc-accent); transition: width .3s ease; }
-.mmc-cast-ledger-note { flex-basis: 100%; color: var(--mmc-bad); line-height: 1.45; }
+.mmc-wears-act:hover { border-color: var(--mmc-line-3); background: var(--mmc-surface-2); }
+.mmc-wears-act:focus-visible { outline: 2px solid var(--mmc-accent); outline-offset: 1px; }
+.mmc-wears-act.amber { border-color: color-mix(in srgb, var(--mmc-accent) 60%, transparent); color: var(--mmc-accent); }
+.mmc-wears-act.amber:hover { background: color-mix(in srgb, var(--mmc-accent) 10%, transparent); }
+.mmc-wears-act.quiet { border-color: transparent; color: var(--mmc-dim); }
+.mmc-wears-act.quiet:hover { color: var(--mmc-text); border-color: var(--mmc-line-2); }
+/* Encoding: the status line grows a bar across its foot and nothing else moves. */
+.mmc-wears-bar { flex-basis: 100%; height: 3px; border-radius: 2px; background: var(--mmc-surface-3); overflow: hidden; }
+.mmc-wears-bar i { display: block; height: 100%; background: var(--mmc-accent); transition: width .3s ease; }
+.mmc-wears-note { flex-basis: 100%; color: var(--mmc-bad); line-height: 1.45; }
 
 /* --- the footer -------------------------------------------------------------- */
 /* The two verbs a finished member is for, with their words on: keeping them in
@@ -479,52 +536,6 @@ export const css = `
 
 /* --- what they wear ---------------------------------------------------------- */
 
-/* A LoRA on a person, as the same offered sentence the place they take is:
-   "wears", then the chips, dim until there is one. The chip is not the stack's
-   chip — that one carries a swap and a checkpoint claim, which belong to a
-   piece — but it wears the stack's glyph, so "this is a LoRA" reads the same
-   wherever one is drawn. */
-.mmc-cast-wears { flex-wrap: wrap; row-gap: 5px; opacity: .62; }
-.mmc-cast-wears:hover, .mmc-cast-wears:focus-within, .mmc-cast-wears.on { opacity: 1; }
-.mmc-cast-lora {
-  display: inline-flex; align-items: baseline; gap: 6px; flex: none; max-width: 100%;
-  appearance: none; cursor: pointer; font: inherit; text-align: left;
-  border: 1px solid var(--mmc-line); border-radius: 7px; padding: 3px 8px 3px 7px;
-  background: var(--mmc-surface-2); color: var(--mmc-text);
-}
-.mmc-cast-lora svg { align-self: center; flex: none; color: var(--mmc-dim); }
-.mmc-cast-lora:hover { border-color: var(--mmc-accent); }
-.mmc-cast-lora:focus-visible { outline: 2px solid var(--mmc-accent); outline-offset: 1px; }
-.mmc-cast-lora-name {
-  font-size: calc(12px * var(--mmc-type)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-/* The weight in the marker's monospace: across the card that face means "this
-   is the number the model is handed". */
-.mmc-cast-lora-weight {
-  flex: none; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: calc(10.5px * var(--mmc-type)); color: var(--mmc-dim); font-variant-numeric: tabular-nums;
-}
-/* The words go in front of the prompt, so they read as prose on the chip —
-   quiet, after the number, and cut short before they take the row. */
-.mmc-cast-lora-words {
-  color: var(--mmc-off); font-size: calc(11px * var(--mmc-type));
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 16em;
-}
-/* Muted: struck rather than hidden. The question a mute answers is "was it
-   this one", and the chip has to stay where the eye left it to be unmuted. */
-.mmc-cast-lora.off { color: var(--mmc-off); }
-.mmc-cast-lora.off .mmc-cast-lora-name { text-decoration: line-through; }
-.mmc-cast-lora.off svg, .mmc-cast-lora.off .mmc-cast-lora-weight { color: var(--mmc-off); }
-/* The way to hang one on them: dashed like the strip's "+" tile, but a word
-   wide — a 38px square that opens a window of a thousand files would say "a
-   picture" to anyone who has used the row above it. */
-.mmc-cast-wear-add {
-  display: inline-flex; align-items: center; gap: 4px; flex: none;
-  appearance: none; cursor: pointer; font: inherit; font-size: calc(11.5px * var(--mmc-type));
-  border: 1px dashed var(--mmc-line); border-radius: 7px; padding: 3px 9px 3px 7px;
-  background: none; color: var(--mmc-off); white-space: nowrap;
-}
-.mmc-cast-wear-add:hover { border-color: var(--mmc-accent); color: var(--mmc-accent); }
 /* On the shut line: the glyph, and a count where there is more than one. */
 .mmc-cast-line-wears {
   display: inline-flex; align-items: center; gap: 2px; flex: none;

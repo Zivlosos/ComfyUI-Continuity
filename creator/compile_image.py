@@ -29,11 +29,13 @@ prompt reads better than the schema — so the schema is deliberately not
 modelled here at all.
 """
 
+import re
 from dataclasses import dataclass, field
 
 from . import neural, refmod
-from .compile import HANDLE_RE, CompileError, collect_triggers
+from .compile import HANDLE_RE, CompileError, collect_triggers, merge_loras
 from .families import registry
+from .families.h3 import subjects
 
 # The architectures this shared half serves: the families that render nothing
 # but stills, asked of the registry rather than written down — H3's still branch
@@ -366,6 +368,101 @@ def _cite_refs(prompt, refs, noun=REFS_NOUN):
     return HANDLE_RE.sub(lambda m: labels.get(m.group(1), m.group(0)), prompt)
 
 
+def cast_into_still(data, family_id, space=None, takes_pictures=True):
+    """Expand the cast members the prompt names into the still's own terms.
+
+    The image compilers know pictures and a prompt, so a member is written in
+    those: `@anna` becomes her first picture cited where her name stood, with
+    her description after it — or her description alone where the family is
+    sent no picture — and what she wears on this family goes onto the stack
+    after the piece's own. One expansion for the two surfaces that draw a
+    still with a cast, the PreStage node and the chat's room, so the two
+    cannot read a member differently.
+
+    `data` is the still's blob: `subjects` in the cast's shape (`wears` and
+    all), `refs` the attached pictures — a member's pictures among them, by
+    the handles their `from` lists — and `loras` the stack. `family_id` picks
+    the member's row (`subjects.Subject.wears`), `space` the latent space
+    the family reads saved references in. -> the blob with the prompt, the
+    refs and the stack rewritten; the same dict where there is no cast.
+
+    Which picture: the first of their looks that is attached here and is a
+    picture — never a saved reference unless it is in this family's own
+    space (`ref["space"]`, which the route stamps off the file's header),
+    because a still family loads pictures by name and a latent is not one.
+    Sent as pictures, the picture's rendition for this family is passed
+    over; sent as words, no picture at all. A member's pictures that nobody
+    cites come off the list, the way the video compile cuts them: a picture
+    of somebody the prompt never names conditions the render exactly as hard
+    as one it does. And on a family that changes the first picture cited,
+    a member's picture is never the one changed — it is put after the ones
+    cited plain, and where nothing was cited plain the render starts blank.
+    `takes_pictures` off is a family that reads none at all: every member is
+    their words, and the refusal for the pictures is the family's to give.
+    """
+    raw = [s for s in data.get("subjects") or [] if isinstance(s, dict) and s.get("handle")]
+    if not raw:
+        return data
+    try:
+        cast = subjects.parse(raw, family_id)
+    except subjects.SubjectError as exc:
+        raise CompileError(str(exc)) from exc
+    prompt = str(data.get("prompt") or "")
+    cited = subjects.cited(cast, [prompt])
+    refs = [dict(r) for r in data.get("refs") or [] if isinstance(r, dict) and r.get("handle")]
+    by_handle = {str(r["handle"]): r for r in refs}
+    written = set(HANDLE_RE.findall(prompt))
+
+    theirs = {}      # a member's picture handle -> the member
+    worn = []
+    plain = [r for r in refs if not any(str(r["handle"]) in s.sources for s in cast)]
+    picked = []
+    for subject in cited:
+        picture = None
+        if subject.send != "words" and takes_pictures:
+            for handle in subject.sources:
+                ref = by_handle.get(handle)
+                if ref is None:
+                    continue
+                if refmod.is_mod(ref.get("filename")):
+                    if space and ref.get("space") == space:
+                        picture = ref
+                        break
+                    continue
+                picture = ref
+                break
+        text = subject.description
+        if picture is not None:
+            # Sent as pictures: the picture, and no rendition of it — a still
+            # reads only its own space, so none of them is this render's.
+            if subject.send == "pictures":
+                picture.pop("mods", None)
+            if picture not in picked and picture not in plain:
+                picked.append(picture)
+            stood = f"@{picture['handle']}" + (f" ({text})" if text else "")
+        elif text:
+            stood = text
+        else:
+            raise CompileError(
+                f"@{subject.handle} has no picture a still can be given here "
+                f"and no description — describe them, or cite one of their "
+                f"pictures in words.")
+        prompt = re.sub(rf"@{re.escape(subject.handle)}\b", stood, prompt)
+        worn += [dict(entry) for entry in subject.loras]
+
+    # A picture of theirs the prompt writes by handle stays, whoever they are.
+    kept = [r for r in refs if r in plain or r in picked or str(r["handle"]) in written]
+    # Plain first, then the members', so an edit family changes what was
+    # cited plain and never a look — and starts blank where nothing was.
+    ordered = [r for r in kept if r in plain or str(r["handle"]) in written and r not in picked]
+    ordered += [r for r in kept if r not in ordered]
+    out = {**data, "prompt": prompt, "refs": ordered,
+           "loras": merge_loras(data.get("loras") or [], worn)}
+    if picked and not any(r in plain or str(r["handle"]) in written for r in kept):
+        out[START_BLANK_FIELD] = True
+    return out
+
+
 def compile_prestage(data, family, image_size_lookup=None):
     """`prestage_data` dict -> `ImagePayload`, for `family`'s architecture.
 
@@ -384,6 +481,12 @@ def compile_prestage(data, family, image_size_lookup=None):
     if not isinstance(data, dict):
         raise CompileError("prestage_data must be a JSON object")
 
+    space = (getattr(family, "REFMOD", None) or {}).get("space")
+    # The cast, written into the still's own terms first: a member's picture
+    # is a reference from here on, their name is its citation, and what they
+    # wear on this family is on the stack before the words are collected.
+    data = cast_into_still(data, registry.STILL_ARCHES.get(getattr(family, "ARCH", None)), space)
+
     prompt = str(data.get("prompt") or "").strip()
     if not prompt:
         raise CompileError("describe the image first — the prompt is empty")
@@ -396,7 +499,6 @@ def compile_prestage(data, family, image_size_lookup=None):
     if triggers:
         prompt = f"{', '.join(triggers)}, {prompt}"
 
-    space = (getattr(family, "REFMOD", None) or {}).get("space")
     refs = _parse_refs(data.get("refs"), *ref_limit(family, data), refs_noun(family), space)
     # Cited before the family check below, so a prompt citing a reference on a
     # family that reads none is refused for the reference rather than for the

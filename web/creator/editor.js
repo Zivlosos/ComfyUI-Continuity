@@ -13,7 +13,7 @@
 
 import { el, icon, ICONS, dismissable, keepScroll, placeNear, svg, swappable } from "./dom.js";
 import { CastShelf } from "./cast.js";
-import { keepAsMod, modFamilies } from "./refmod.js";
+import { castFamilies, keepAsMod } from "./refmod.js";
 import { t } from "./i18n.js";
 import { openPicker } from "./picker.js";
 import { openLoras, loraBlock, settlePins } from "./loras.js";
@@ -1952,7 +1952,7 @@ export class CreatorEditor {
       }).then((rows) => { this.commit(); this.render(); return rows; }),
       vae: () => (this.piece ?? this.state).models?.vae ?? "",
       // The families a member's pictures can be saved for, the piece's first.
-      families: () => modFamilies(S.pieceFamily(this.piece ?? this.state),
+      families: () => castFamilies(S.pieceFamily(this.piece ?? this.state),
                                   (this.piece ?? this.state).models?.vae ?? "", rememberedWeights()),
       // The ledger's estimate of a `match` picture is this shot's own canvas.
       canvas: () => this.frame(),

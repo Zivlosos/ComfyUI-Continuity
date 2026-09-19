@@ -42,7 +42,8 @@ import os
 import re
 
 from . import canvas
-from .compile import TAKES
+from . import compile_image
+from .compile import TAKES, CompileError
 from .families import refine, registry
 from .families.h3 import subjects
 
@@ -784,13 +785,25 @@ def needs_adapter(family):
     return bool(((family.get("capabilities") or {}).get("refs") or {}).get("needs_lora"))
 
 
-def takes_refs(family):
-    """Whether a picture cited in `from` can be handed to this family at all.
+def reads_refs(family):
+    """Whether this family can be handed a picture at all — outright, or
+    through an adapter on its stack. What decides whether a member's picture
+    may be cited to it: the adapter is a LoRA, a member can wear one for the
+    family, and whether it is on the stack is `compile_prestage`'s question
+    (`check_refs`), refused there in the family's own words where it is not.
+    The room used to answer no for such a family, which made the adapter a
+    thing nobody could ever hang."""
+    return bool(ref_limit(family))
 
-    Two manifest keys, never a family id. Both ways of answering no end the same
-    way — `compile_prestage` refuses the render, with `REFS_REFUSAL` for weights
-    that read nothing and with `check_refs` for weights whose adapter is
-    missing — so the room has to know before it cites rather than after.
+
+def takes_refs(family):
+    """Whether a picture cited plain in `from` is read by this family's own
+    weights — where it is not, the picture goes to the edit family instead.
+
+    Two manifest keys, never a family id. A family that reads pictures only
+    through an adapter (Krea 2) does not *edit* a picture cited plain — that
+    is the edit family's job — but it does read a cast member's, as who they
+    are; see `reads_refs`.
     """
     return bool(ref_limit(family)) and not needs_adapter(family)
 
@@ -885,9 +898,10 @@ def still_pictures(family, catalog):
     `edits_pictures` of the family: whether the first picture cited plain is
     the one being changed, which moves what `still_piece` writes.
     """
-    if takes_refs(family):
-        return {"takes": True, "refusal": "", "edits": edits_pictures(family)}
-    return {"takes": False, "refusal": refs_refusal(family, refs_families(catalog)),
+    native = takes_refs(family)
+    if reads_refs(family):
+        return {"takes": True, "native": native, "refusal": "", "edits": edits_pictures(family)}
+    return {"takes": False, "native": False, "refusal": refs_refusal(family, refs_families(catalog)),
             "edits": False}
 
 
@@ -1297,7 +1311,7 @@ DEFAULT_SECONDS = 6
 # what a rail that says nothing means. `takes` is `takes_refs` of that family and
 # `refusal` is `refs_refusal` of it with the alternatives already named — both
 # are the catalog's answers, and the catalog is the route's.
-DEFAULT_STILL_PICTURES = {"takes": True, "refusal": "", "edits": False}
+DEFAULT_STILL_PICTURES = {"takes": True, "native": True, "refusal": "", "edits": False}
 
 # The blob field that releases an edit family's first picture from being the
 # thing changed — `compile_image.START_BLANK_FIELD`, spelled here because that
@@ -1373,14 +1387,21 @@ def cites_picture(action, ledger, cast=()):
     family does with it is the family's business (`still_pictures`); this is
     only whether there is one.
     """
+    return cites_plain_picture(action, ledger) or cites_member_picture(action, ledger, cast)
+
+
+def cites_plain_picture(action, ledger):
+    """A picture in "from": one to be changed, or drawn beside."""
     known = known_handles(ledger)
-    for item in action.get("from") or []:
-        if known.get(split_handle(item)[0]) == "image":
-            return True
-    for member in _cited_members(action.get("prompt") or "", cast):
-        if any(known.get(str(handle)) == "image" for handle in member.get("from") or []):
-            return True
-    return False
+    return any(known.get(split_handle(item)[0]) == "image" for item in action.get("from") or [])
+
+
+def cites_member_picture(action, ledger, cast=()):
+    """A cast member named in the prompt who has a picture: who they are."""
+    known = known_handles(ledger)
+    return any(known.get(str(handle)) == "image"
+               for member in _cited_members(action.get("prompt") or "", cast)
+               for handle in member.get("from") or [])
 
 
 def still_arch_for(action, ledger, rail, cast=()):
@@ -1399,9 +1420,16 @@ def still_arch_for(action, ledger, rail, cast=()):
     rail = rail or {}
     own = rail.get("still_arch")
     pictures = {**DEFAULT_STILL_PICTURES, **(rail.get("still_pictures") or {})}
-    if pictures.get("takes") or not rail.get("edit_arch"):
+    if not rail.get("edit_arch"):
         return own
-    return rail["edit_arch"] if cites_picture(action, ledger, cast) else own
+    # A picture cited plain is one to change, which only the family's own
+    # weights can do (`native`); a member's picture is who they are, which a
+    # family reading through an adapter does as well (`takes`).
+    if not pictures.get("native") and cites_plain_picture(action, ledger):
+        return rail["edit_arch"]
+    if not pictures.get("takes") and cites_member_picture(action, ledger, cast):
+        return rail["edit_arch"]
+    return own
 
 
 def _cited_members(prompt, cast):
@@ -1495,45 +1523,58 @@ def still_piece(action, ledger, rail, base=None, cast=None):
     cited = _cited(action, ledger)
     pictures = {**DEFAULT_STILL_PICTURES, **(rail.get("still_pictures") or {})}
 
-    # A member in a still. The image compilers have no cast: a picture has
-    # one prompt and its references, so `@anna` becomes her first picture
-    # cited where her name stood, with her description after it, or her
-    # description alone where the family reads no picture — and a member with
-    # neither is a name the picture could not draw.
+    # A member in a still: the compiler's own expansion, `compile_image.
+    # cast_into_still` — the same one the PreStage node runs, so the room and
+    # the node cannot read a member differently. The cast goes in as the
+    # blob holds it, with every picture behind the cited members attached
+    # beside what was cited plain; what comes back is the prompt with their
+    # names written as their pictures or their words, the pictures that are
+    # in this render, and the stack wearing what they wear on this family.
     prompt = action["prompt"]
-    # A member's picture, and the renditions it carries: the still family
-    # reads the one in its own space, if any, and the picture otherwise.
-    renditions = {}
     space = rail.get("still_space")
+    plain = [{"handle": handle, "filename": filename} for handle, _, filename, _ in cited]
+    member_refs, subject_blobs = [], []
+    seen = {c[0] for c in cited}
     for member in _cited_members(prompt, cast):
-        files = _cited(None, ledger, member.get("from") or [])
-        # A picture first. A saved reference stands in only where the still
-        # family reads its latent space — a downloaded Klein set on a Klein
-        # still — which the route wrote on the member (`spaces`, off the
-        # file's header) beside the rail's own space. A member built out of
-        # somebody else's family's mod alone is their words here.
+        # A saved reference stands in only where the still family reads its
+        # latent space — which the route wrote on the member (`spaces`, off
+        # the file's header) beside the rail's own space; the renditions the
+        # picture carries ride with it (`compile.Asset.mods`).
         spaces = member.get("spaces") or {}
-        picture = next((f for f in files if f[1] == "image" and not f[2].startswith("refmod:")), None)
-        if picture is None and space:
-            picture = next((f for f in files if f[1] == "image" and f[2].startswith("refmod:")
-                            and spaces.get(f[0]) == space), None)
-        renditions.update(member.get("mods") or {})
-        text = member.get("description") or ""
-        if picture and pictures.get("takes"):
-            handle = picture[0]
-            if handle not in {c[0] for c in cited}:
-                # As a reference (`ROLE_REF`): who they are, never the
-                # picture being changed.
-                cited.append((handle, picture[1], picture[2], ROLE_REF))
-            stood = f"@{handle}" + (f" ({text})" if text else "")
-        elif text:
-            stood = text
-        else:
-            raise ActionError(
-                f"@{member['name']} has no picture a still can be given here "
-                f"and no description — describe them, or cite one of their "
-                f"pictures in words.")
-        prompt = re.sub(rf"@{re.escape(member['name'])}\b", stood, prompt)
+        mods = member.get("mods") or {}
+        sources = []
+        for handle, kind, filename, _ in _cited(None, ledger, member.get("from") or []):
+            if kind != "image":
+                continue
+            sources.append(handle)
+            if handle in seen:
+                continue
+            seen.add(handle)
+            member_refs.append({"handle": handle, "filename": filename,
+                                **({"mods": dict(mods[handle])} if mods.get(handle) else {}),
+                                **({"space": spaces[handle]} if spaces.get(handle) else {})})
+        subject_blobs.append({"handle": member["name"], "takes": member.get("takes") or "person",
+                              "from": sources, "description": member.get("description") or "",
+                              **({"wears": member["wears"]} if member.get("wears") else {})})
+    try:
+        expanded = compile_image.cast_into_still(
+            {"prompt": prompt, "refs": plain + member_refs, "subjects": subject_blobs,
+             "loras": (base or {}).get("loras") or [] if isinstance(base, dict) else []},
+            rail.get("still_family"), space, takes_pictures=bool(pictures.get("takes")))
+    except CompileError as exc:
+        raise ActionError(str(exc)) from exc
+    prompt = expanded["prompt"]
+    stack = expanded["loras"]
+    renditions = {}
+    by_plain = {c[0]: c for c in cited}
+    cited = []
+    for ref in expanded["refs"]:
+        handle = ref["handle"]
+        if ref.get("mods"):
+            renditions[handle] = ref["mods"]
+        # A member's picture is a reference (`ROLE_REF`): who they are, never
+        # the picture being changed.
+        cited.append(by_plain.get(handle) or (handle, "image", ref["filename"], ROLE_REF))
 
     if cited and not pictures.get("takes"):
         raise ActionError(pictures.get("refusal") or
@@ -1570,7 +1611,10 @@ def still_piece(action, ledger, rail, base=None, cast=None):
         "prompt": prompt,
         "init": None,
         "refs": refs,
-        "loras": piece.get("loras") or [],
+        # The stack, then what the cited members wear on this family — the
+        # order `compile.cast_loras` merges them in, so a member's entry for
+        # a file the stack names is the more specific and wins.
+        "loras": stack,
         "turbo": piece.get("turbo") or {},
         "models": piece.get("models") or {},
         **edit,
@@ -1664,10 +1708,20 @@ def cast_entries(piece):
             files.append(subject["voice"])
         handles = [str(h) for h in files if h]
         mods = {h: renditions[h] for h in handles if renditions.get(h)}
+        # What they wear and what each family is sent, by family id
+        # (`subjects.Subject.wears`). A blob written before the rows existed
+        # carries a flat `loras` list, which was the piece's family's.
+        wears = {str(k): dict(v) for k, v in (subject.get("wears") or {}).items()
+                 if isinstance(v, dict)}
+        legacy = subject.get("loras")
+        if isinstance(legacy, list) and legacy:
+            home = (piece or {}).get("family") or registry.DEFAULT_VIDEO
+            wears.setdefault(home, {"loras": legacy})
         out.append({"name": subject["handle"], "takes": subject.get("takes") or "person",
                     "from": handles,
                     "description": subject.get("description") or "",
-                    **({"mods": mods} if mods else {})})
+                    **({"mods": mods} if mods else {}),
+                    **({"wears": wears} if wears else {})})
     return out
 
 
