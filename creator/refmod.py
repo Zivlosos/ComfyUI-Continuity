@@ -184,6 +184,13 @@ def header(path):
         for key in KLEIN_META_KEYS:
             if metadata.get(key):
                 return _klein_header(path, table, metadata[key])
+        # Not a mod at all. The file somebody drops here by mistake is a
+        # LoRA — the browser the Klein sets come from lists ten of those for
+        # every RefMod — so name it, and where it goes.
+        if any("lora" in str(key).lower() for key in table):
+            raise RefModError(
+                f"{path}: a LoRA, not a RefMod — it goes in models/loras and onto "
+                f"a member's *wears* row, not their looks")
         raise RefModError(f"{path}: no RefMod metadata in the header")
     try:
         meta = json.loads(written)

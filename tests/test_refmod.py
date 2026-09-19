@@ -244,6 +244,23 @@ refused("a wrong channel count is refused",
         lambda: refmod.header(write_mod("chan", {"kind": "image"}, shape=(1, 16, 1, 16, 16))), "not [1, 24")
 refused("a file with no metadata is refused",
         lambda: refmod.header(write_mod("bare", None)), "no RefMod metadata")
+
+
+def write_lora(name):
+    table = {"lora_unet_single_blocks_0_linear1.lora_down.weight":
+             {"dtype": "F16", "shape": [4, 8], "data_offsets": [0, 64]},
+             "__metadata__": {"ss_steps": "400"}}
+    body = json.dumps(table).encode("utf-8")
+    path = os.path.join(ROOT, name + refmod.EXT)
+    with open(path, "wb") as handle:
+        handle.write(struct.pack("<Q", len(body)))
+        handle.write(body)
+        handle.write(b"\0" * 64)
+    return path
+
+
+refused("a LoRA dropped here is named as one, with where it goes",
+        lambda: refmod.header(write_lora("flux_someone_v1-step00000400")), "a LoRA, not a RefMod")
 refused("a missing file is refused", lambda: refmod.header(os.path.join(ROOT, "nope.safetensors")), "nope")
 with open(os.path.join(ROOT, "junk.safetensors"), "wb") as handle:
     handle.write(b"PNG\r\n\x1a\n" + b"\0" * 20)
