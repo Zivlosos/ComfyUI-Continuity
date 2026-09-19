@@ -40,6 +40,7 @@ a reply is produced.
 
 import asyncio
 import json
+import logging
 
 from aiohttp import web
 
@@ -48,6 +49,8 @@ from server import PromptServer
 from .. import chat, jobs, media, models as core_models, refine_local, refine_remote
 from .. import refine_routes, refine_skill, server_routes, settings
 from ..families import manifest, refine, registry
+
+log = logging.getLogger(__name__)
 
 
 # ---- the machine card -------------------------------------------------------
@@ -602,8 +605,16 @@ def _run(body):
     quoted = None
     if verdict["act"] == "reask":
         quoted = verdict["sentence"]
+        # The one place the reason a turn made nothing is known. The room
+        # shows only what survived, so a reply refused twice reads as the model
+        # declining — the server log is where the refusal and the reply it was
+        # about can be seen together.
+        log.info("chat turn re-asked: %s\n--- reply ---\n%s", quoted, raw.strip())
         raw = _ask(block, system, chat.reask(message, raw, quoted))
         verdict = chat.judge(raw, ledger, asked, second=True, strip=on_strip, cast=names)
+        if verdict["act"] != chat.ACT_RENDER:
+            log.info("chat turn re-ask did not render; shown as prose"
+                     "\n--- reply ---\n%s", raw.strip())
 
     out = {"say": verdict.get("say") or "", "raw": raw}
     if quoted:

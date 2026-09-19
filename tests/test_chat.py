@@ -159,6 +159,22 @@ check("a handle written with its @ is the same handle",
       chat.validate({"act": "render", "kind": "still", "prompt": "a fox",
                      "from": ["@img-1", "img-1"]}, LEDGER)["from"], ["img-1"])
 
+# The slips a model makes writing a handle it has just read are read, not
+# refused: a 27B wrote `pic--1:end` for the ledger's `pic-1` on its first try,
+# and a refusal there is a second generation spent on a correction whose
+# answer was never in doubt.
+check("a doubled hyphen in a citation is the handle it meant",
+      chat.validate({"act": "render", "kind": "video", "prompt": "she looks up",
+                     "from": ["img--1:start"]}, LEDGER)["from"], ["img-1:start"])
+check("and so is an underscore, a space or a capital",
+      [chat.tidy_handle(t) for t in ("Img_1", "img - 1 : style", "@IMG-1")],
+      ["img-1", "img-1:style", "img-1"])
+check("the same slip in the prose is the ledger's handle, not a stranger's",
+      chat.validate({"act": "render", "kind": "video", "prompt": "ends on @img--1 exactly",
+                     "from": []}, LEDGER)["prompt"], "ends on @img-1 exactly")
+check("a word that is not a handle is left for the validator to name",
+      chat.tidy_handle("nobody"), "nobody")
+
 check("a valid say carries its whole reply",
       chat.validate({"act": "say", "say": "The seed picks the noise."}, LEDGER),
       {"act": "say", "kind": None, "prompt": "", "from": [], "seconds": None,
@@ -228,6 +244,12 @@ quoted = chat.reask("THE CONVERSATION\nuser: a fox", "not JSON", "your reply had
 check("the re-ask carries the original message", "user: a fox" in quoted, True)
 check("what the model wrote", "not JSON" in quoted, True)
 check("and why it could not be used", "your reply had no JSON" in quoted, True)
+# The whole reply, object included: the fault is nearly always a field in the
+# object, and a model corrected about a field it cannot see is guessing.
+fenced = 'Opening on it.\n```json\n{"act": "render", "from": ["img--1"]}\n```'
+quoted = chat.reask("user: a fox", "<think>hmm</think>" + fenced, '"from" is wrong')
+check("the re-ask shows the model its own object", '"from": ["img--1"]' in quoted, True)
+check("without its reasoning", "hmm" in quoted, False)
 
 
 # ---- the machine card -------------------------------------------------------

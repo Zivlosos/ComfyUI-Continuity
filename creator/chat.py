@@ -149,6 +149,28 @@ FIELDS = ("act", "kind", "prompt", "from", "seconds", "aspect", "say",
 # per kind of file, minus `full`, which is what no suffix means.
 SCOPE_RE = re.compile(r"^@?([A-Za-z]+-\d+)(?::([a-z]+))?$")
 
+# The slips a model makes writing a handle it has just read: a doubled or
+# spaced hyphen, an underscore for one, a stray `@`, the prefix capitalised.
+# Measured, not imagined — a 27B wrote `pic--1:end` for a ledger's `pic-1` on
+# its first try, twice, at a fixed seed.
+HANDLE_SLIP_RE = re.compile(r"^@?\s*([A-Za-z]+)\s*[-_]+\s*(\d+)\s*(?::\s*([a-z]+))?\s*$")
+
+
+def tidy_handle(text):
+    """A handle as the model wrote it -> the handle it meant, or the text as is.
+
+    The slips above are read rather than refused: their meaning is not in
+    doubt, and refusing one costs a second generation for a correction the
+    model gets right anyway. Anything this cannot read is returned untouched
+    for the validator to refuse by name.
+    """
+    match = HANDLE_SLIP_RE.match(str(text))
+    if not match:
+        return str(text).strip()
+    prefix, number, scope = match.groups()
+    handle = f"{prefix.lower()}-{number}"
+    return f"{handle}:{scope}" if scope else handle
+
 # Anything written after an `@` in a prompt: a file's handle or a member's name,
 # told apart by the hyphen — `subjects.HANDLE_RE` forbids a member the hyphen
 # every file handle has. `compile.HANDLE_RE` matches only the first shape and
@@ -168,6 +190,9 @@ LEDGER_KINDS = {"still": "image", "clip": "video", "sound": "audio",
 # an essay is not wrong, but the bubble is one line beside a render card and the
 # whole reply is already kept as `raw`.
 MAX_SAY = 600
+# How much of its own reply the model is shown on a re-ask: a plan line and
+# an object with a prompt in it, which runs past `MAX_SAY` on any real turn.
+MAX_REPLY_QUOTED = 2400
 
 
 class ActionError(ValueError):
@@ -271,7 +296,7 @@ def _handles(raw, known):
             raise ActionError(
                 f'"from" must hold handles from the ledger, like "img-1"; it '
                 f"holds {_shown(item)}.")
-        match = SCOPE_RE.match(item.strip())
+        match = SCOPE_RE.match(tidy_handle(item))
         if not match:
             raise ActionError(
                 f'"from" must hold handles from the ledger, like "img-1" or '
@@ -326,7 +351,7 @@ def _on_strip(raw, key, strip):
     if not isinstance(value, str):
         raise ActionError(f'"{key}" must be the handle of a shot on the strip; '
                           f"yours was {_shown(value)}.")
-    handle = value.strip().lstrip("@")
+    handle = tidy_handle(value)
     if handle not in strip:
         where = " → ".join(strip) if strip else "there is no strip yet"
         raise ActionError(
@@ -420,8 +445,12 @@ def validate(raw, ledger, strip=(), cast=()):
 
     cited = _handles(raw, known)
     # A scope belongs in "from"; written after a handle in the prose it
-    # would reach the model as text. Read as the citation it is.
-    prompt = re.sub(r"@([A-Za-z]+-\d+):[a-z]+", r"@\1", prompt.strip())
+    # would reach the model as text. Read as the citation it is. The same
+    # slips `tidy_handle` reads in "from" are read here first, so `@pic--1`
+    # in the prose is the ledger's `pic-1` and not a name nobody cast.
+    prompt = re.sub(r"@([A-Za-z]+[-_]+\d+)(?::[a-z]+)?",
+                    lambda m: "@" + split_handle(tidy_handle(m.group(1)))[0],
+                    prompt.strip())
     # Every `@` in the prompt has to mean something before the compiler reads
     # it. A file's handle written in the prose and left out of "from" is the
     # commonest slip and its meaning is not in doubt, so it is added; a name
@@ -1246,9 +1275,13 @@ def reask(message, reply, sentence):
     person has to watch happen is a correction that reads as a failure. The
     model's own reply is included because it has none of its own context — every
     turn is a fresh single decision, so without it the correction is about text
-    the model cannot see.
+    the model cannot see. The *whole* reply, object and all, not `spoken`'s
+    prose: what went wrong is nearly always a field in the object, and a
+    correction about a field the model cannot see is a guess. Only the
+    reasoning comes off, since it was never addressed to anyone.
     """
-    return (f"{message}\n\nYour reply was:\n{spoken(reply)[:MAX_SAY]}\n\n"
+    written = refine.THINK_RE.sub("", reply or "").strip()[:MAX_REPLY_QUOTED]
+    return (f"{message}\n\nYour reply was:\n{written}\n\n"
             f"That cannot be used: {sentence}\nAnswer again, the same way: one "
             f"line of plan, then the corrected action as JSON in a ``` fence.")
 
