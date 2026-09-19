@@ -4,6 +4,20 @@ Back by request. Every entry opens with a line saying what changed; the
 paragraph under it says how and why, and from 3.0 down that paragraph is kept
 exactly as it was written, wall of text and all.
 
+## 3.1.2
+
+**The step preview plays itself again, whatever Preview playback says.** KJNodes
+1.5.2 changed the order its preview encoder tries: x264 before NVENC before
+WebP, and since the PyPI PyAV wheels carry x264, the animated step preview that
+used to land as a WebP in an `<img>` now lands as an mp4 in a `<video>`. An
+image ignores the Preview playback setting; a video honours it — and the step
+preview has no controls, so a stage set to Waits for play sat on a still that
+changed once per step and that no click could start
+([#95](https://github.com/roadmaus/ComfyUI-Continuity/issues/95)). The setting
+was only ever meant for a canvas of finished clips decoding for nobody, not the
+one render that is sampling right now, so the step preview no longer reads it.
+Waits for play still holds a finished render's first frame as before.
+
 ## 3.1.1
 
 **Every route that writes, queues or spawns now refuses a request from
