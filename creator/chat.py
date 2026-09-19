@@ -1504,13 +1504,19 @@ def still_piece(action, ledger, rail, base=None, cast=None):
     # A member's picture, and the renditions it carries: the still family
     # reads the one in its own space, if any, and the picture otherwise.
     renditions = {}
+    space = rail.get("still_space")
     for member in _cited_members(prompt, cast):
         files = _cited(None, ledger, member.get("from") or [])
-        # A picture, never a saved reference: a still family loads its
-        # pictures by name and a mod is a latent, read only as a rendition
-        # hung on the picture it was made of. A member built out of a mod
-        # alone is their words here, which the branch below already says.
+        # A picture first. A saved reference stands in only where the still
+        # family reads its latent space — a downloaded Klein set on a Klein
+        # still — which the route wrote on the member (`spaces`, off the
+        # file's header) beside the rail's own space. A member built out of
+        # somebody else's family's mod alone is their words here.
+        spaces = member.get("spaces") or {}
         picture = next((f for f in files if f[1] == "image" and not f[2].startswith("refmod:")), None)
+        if picture is None and space:
+            picture = next((f for f in files if f[1] == "image" and f[2].startswith("refmod:")
+                            and spaces.get(f[0]) == space), None)
         renditions.update(member.get("mods") or {})
         text = member.get("description") or ""
         if picture and pictures.get("takes"):

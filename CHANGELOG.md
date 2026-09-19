@@ -28,12 +28,27 @@ controls; each family declares its space and its maker's defaults
 encodes through that family's VAE — Klein's at 1 MP on a 16 grid, as its
 graph scales a reference, pooled to a 32-grid when compressed (a quarter of
 the 4,096 tokens a full Klein reference is; the VAE packs a 2×2 into its
-channels, so a cell is a token there). Klein's graph loads a slot's
-rendition through one new node, `ContinuityRefModLatent`, in place of the
-scale and the encode. Files say whose they are (`vae_kind` in the header;
-the sibling pack's say nothing and are H3's by their 24 channels), the
-picker's RefMod tab says so on a row that is not H3's, and the sibling
-pack's newer one-reference bundles read too. The clip the reporter of #53
+channels, so a cell is a token there). Klein's graph chains a slot's
+rendition through one new node, `ContinuityRefModReference`, in place of the
+scale, the encode and `ReferenceLatent` — every reference the file holds,
+because the Klein files on malcolmrey's browser (a thousand `fk9_*_refmod`
+files, made by his `ComfyUI-Flux2Klein9Mod`) are *picture sets*: one
+`samples` batch of twenty-odd latents of one person, which that pack and
+DainamoLabs' both unroll into one `reference_latents` entry per picture, and
+so does this one. Both Klein formats read (`samples` under
+`klein9_refmod_meta`, `reference_<i>` under `klein_refmod_meta`), a set is
+listed with its member count and every member's cells summed, and a set
+cited outright on a Klein still — a download has no picture behind it — is a
+reference and only that: never the init, never framed. The chat reads the
+same off a member: a mod file is their picture where the still family reads
+its space, their words elsewhere. Files say whose they are (`vae_kind` in
+the header; the sibling pack's say nothing and are H3's by their 24
+channels), a family handed another family's mod refuses it by name (H3 in
+its encode, Klein at the node), the picker's RefMod tab says so on a row
+that is not H3's, and the sibling pack's newer one-reference bundles read
+too. With more than one family's VAE picked the save menu leads with *Every
+family*: the same pictures through each family's VAE, one job after the
+other — the one-go the browser cannot give, since a latent is one VAE's. The clip the reporter of #53
 was after is the fourth shape: *Each clip — its own file*, a clip encoded
 whole at the 768 reference canvas, up to a minute of it, kept as one video
 RefMod and cited as one `<Video n>`; the route also takes their

@@ -123,6 +123,58 @@ check("the row says whose it is",
       (refmod.row_for(klein, "cast/anna.flux2")["space"],
        refmod.row_for(klein, "cast/anna.flux2")["space_label"]), ("flux2", "Flux 2"))
 
+# ---- the Klein packs' files ----------------------------------------------------
+#
+# malcolmrey's generator (the browser's `fk9_*_refmod` files) writes one
+# `samples` batch, B pictures of one person, under `klein9_refmod_meta`;
+# DainamoLabs writes `reference_<i>` tensors under `klein_refmod_meta`. Both
+# unroll a file into one reference per picture, and so does the header.
+
+
+def write_klein(name, key, tensors, meta):
+    table, offset = {}, 0
+    for tkey, shape in tensors:
+        count = 1
+        for dim in shape:
+            count *= dim
+        table[tkey] = {"dtype": "BF16", "shape": list(shape), "data_offsets": [offset, offset + count * 2]}
+        offset += count * 2
+    table["__metadata__"] = {key: json.dumps(meta)}
+    body = json.dumps(table).encode("utf-8")
+    path = os.path.join(ROOT, name + refmod.EXT)
+    with open(path, "wb") as handle:
+        handle.write(struct.pack("<Q", len(body)))
+        handle.write(body)
+        handle.write(b"\0" * offset)
+    return path
+
+
+adele = write_klein("fk9_adele_v1_refmod", "klein9_refmod_meta", [("samples", (22, 128, 32, 32))],
+                    {"name": "fk9_adele_v1_refmod", "concept_type": "identity", "mode": "encode",
+                     "resolution": 1024, "token_budget": 256, "generator": "ComfyUI-Flux2Klein9Mod"})
+ameta = refmod.header(adele)
+check("a browser Klein file is a set of pictures in Flux 2's space",
+      (ameta["space"], ameta["kind"], ameta["members"], ameta["latent_h"], ameta["latent_w"]),
+      ("flux2", "image", 22, 32, 32))
+check("...costing every picture's cells", ameta["tokens"], 22 * 32 * 32)
+check("...read row by row off the batch",
+      ameta["tensors"][:2] + ameta["tensors"][-1:], [("samples", 0), ("samples", 1), ("samples", 21)])
+check("...a full encode, by their word", ameta["mode"], "encode")
+check("the row says it is a set", refmod.row_for(adele, "fk9_adele_v1_refmod")["members"], 22)
+pooled = write_klein("pooled", "klein9_refmod_meta", [("samples", (1, 128, 16, 16))],
+                     {"mode": "pooled"})
+check("...and their pooled is compressed", refmod.header(pooled)["mode"], "training")
+dain = write_klein("dain", "klein_refmod_meta",
+                   [("reference_0", (1, 128, 64, 48)), ("reference_1", (1, 128, 32, 32))],
+                   {"format_version": 1, "name": "dain", "concept_type": "identity"})
+dmeta = refmod.header(dain)
+check("a DainamoLabs file reads each reference at its own shape",
+      (dmeta["members"], dmeta["tokens"], dmeta["tensors"]),
+      (2, 64 * 48 + 32 * 32, [("reference_0", None), ("reference_1", None)]))
+refused("a Klein file of the wrong shape is refused",
+        lambda: refmod.header(write_klein("bad", "klein9_refmod_meta", [("samples", (1, 24, 1, 16, 16))], {})),
+        "not [B, 128, H, W]")
+
 # ---- a version-5 bundle -------------------------------------------------------
 #
 # The sibling pack's newer files: several references as `ref_<i>` tensors

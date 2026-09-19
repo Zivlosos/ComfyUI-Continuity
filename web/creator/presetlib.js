@@ -1801,6 +1801,11 @@ class PresetLibrary {
    */
   async keepAsMod(member, mode, family = null) {
     if (this.encoding) return;
+    if (Array.isArray(family)) {
+      // The "every family" row: one job after the other.
+      for (const one of family) await this.keepAsMod(member, mode, one);
+      return;
+    }
     const stack = mode === "stack";
     const space = family?.space ?? DEFAULT_SPACE;
     const sources = this.modSources(member, mode, space);

@@ -149,22 +149,27 @@ def emit_graph(graph, payload, sampling, weights, clip, vae, model, unique_id,
     # Each picture: scaled to the model's ~1MP working size, VAE-encoded once,
     # and chained into both conditionings as a reference latent. No encoder
     # slots and no method to pick — the base weights read the chain natively.
-    # A slot with a saved rendition skips the scale and the encode: the file
+    # A slot with a saved reference skips the scale and the encode: the file
     # *is* that latent, made by the same VAE at the same size (or pooled
-    # smaller), and `ContinuityRefModLatent` hands it over as one.
+    # smaller), and `ContinuityRefModReference` chains what it holds — one
+    # reference, or a Klein pack's whole picture set — onto both branches, the
+    # way the two `ReferenceLatent`s below chain an encode.
     for slot, name in enumerate(payload.refs):
         if slot in payload.mods:
-            latent = graph.node("ContinuityRefModLatent", name=payload.mods[slot]).out(0)
-        else:
-            image = render_image.load_picture(graph, payload, f"ref:{slot}", name)
-            # resolution_steps is required on current cores and gets no default
-            # injected for a prompt that omits it, so it is always sent; 16 is
-            # the family's own snap, the same one the canvas takes.
-            scaled = graph.node("ImageScaleToTotalPixels", image=image,
-                                upscale_method="lanczos",
-                                megapixels=declare.REFMOD["megapixels"],
-                                resolution_steps=16).out(0)
-            latent = graph.node("VAEEncode", pixels=scaled, vae=vae).out(0)
+            positive = graph.node("ContinuityRefModReference", conditioning=positive,
+                                  name=payload.mods[slot], space=declare.REFMOD["space"]).out(0)
+            negative = graph.node("ContinuityRefModReference", conditioning=negative,
+                                  name=payload.mods[slot], space=declare.REFMOD["space"]).out(0)
+            continue
+        image = render_image.load_picture(graph, payload, f"ref:{slot}", name)
+        # resolution_steps is required on current cores and gets no default
+        # injected for a prompt that omits it, so it is always sent; 16 is
+        # the family's own snap, the same one the canvas takes.
+        scaled = graph.node("ImageScaleToTotalPixels", image=image,
+                            upscale_method="lanczos",
+                            megapixels=declare.REFMOD["megapixels"],
+                            resolution_steps=16).out(0)
+        latent = graph.node("VAEEncode", pixels=scaled, vae=vae).out(0)
         positive = graph.node("ReferenceLatent", conditioning=positive,
                               latent=latent).out(0)
         negative = graph.node("ReferenceLatent", conditioning=negative,

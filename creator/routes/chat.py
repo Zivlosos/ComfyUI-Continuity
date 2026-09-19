@@ -46,7 +46,7 @@ from aiohttp import web
 
 from server import PromptServer
 
-from .. import chat, jobs, media, models as core_models, refine_local, refine_remote
+from .. import chat, jobs, media, models as core_models, refine_local, refine_remote, refmod
 from .. import refine_routes, refine_skill, server_routes, settings
 from ..families import manifest, refine, registry
 
@@ -163,6 +163,9 @@ def _rail(raw):
     rail["video_family"] = video
     rail["still_arch"] = _arch_of(still)
     rail["edit_family"] = edit if edit in registry.IMAGE_FAMILIES else None
+    # The latent space the still family reads saved references in, or None:
+    # what decides whether a member's mod file is a picture to it.
+    rail["still_space"] = (registry.REFMOD.get(still) or {}).get("space")
     return rail
 
 
@@ -550,7 +553,26 @@ def _with_piece(body):
         except ValueError:
             piece = None
     piece = piece if isinstance(piece, dict) else {}
-    return list(body.get("ledger") or []), chat.cast_entries(piece)
+    cast = chat.cast_entries(piece)
+    # Which family each member's mod files are for, off their headers — the
+    # route has the disk, the pure half does not. A file that will not read
+    # is left unnamed and is nobody's picture.
+    handles = {}
+    for owner in [piece, *(piece.get("segments") or [])]:
+        for asset in (owner.get("assets") or []) if isinstance(owner, dict) else []:
+            if isinstance(asset, dict) and refmod.is_mod(asset.get("filename")):
+                handles[str(asset.get("handle"))] = asset["filename"]
+    for member in cast:
+        spaces = {}
+        for handle in member.get("from") or []:
+            if handle in handles:
+                try:
+                    spaces[handle] = refmod.header(refmod.resolve(handles[handle]))["space"]
+                except refmod.RefModError:
+                    continue
+        if spaces:
+            member["spaces"] = spaces
+    return list(body.get("ledger") or []), cast
 
 
 def _last_user(messages):

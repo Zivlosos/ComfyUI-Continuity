@@ -2373,4 +2373,6 @@ export const zh = {
  "Encoding {count} clip…": "正在编码 {count} 个片段…",
  "Encoding {count} clips…": "正在编码 {count} 个片段…",
  "Nothing to save — hang a clip on them first.": "没有可保存的内容 — 先给他们挂上一个片段。",
+ "Every family": "所有模型家族",
+ "For every family this machine can encode for: {families}. One job per family, in that order.": "为这台机器能编码的所有模型家族：{families}。每个家族一个任务，按此顺序执行。",
 };

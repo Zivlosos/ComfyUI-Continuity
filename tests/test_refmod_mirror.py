@@ -118,6 +118,17 @@ out.sections = familySections(
   [{ filename: "c.png", kind: "image", ref_size: "max" }],
   modFamilies("h3", "h3_vae.safetensors", {}), () => {}).map((section) => [
     section.head, section.rows.map((row) => [row.label, Boolean(row.disabled)])]);
+out.everyRow = familySections(
+  [{ filename: "c.png", kind: "image", ref_size: "max" }, { filename: "w.mp4", kind: "video" }],
+  modFamilies("h3", "h3_vae.safetensors", { flux2klein: { vae: "flux2-vae.safetensors" } }),
+  (mode, family) => { out.everyPicked = [mode, Array.isArray(family) ? family.map((f) => f.id) : family]; },
+  () => {}).map((section) => [section.head, section.rows.map((row) => row.label)]);
+out.everyRow.flat().length;  // drawn
+const everySections = familySections(
+  [{ filename: "c.png", kind: "image", ref_size: "max" }],
+  modFamilies("h3", "h3_vae.safetensors", { flux2klein: { vae: "flux2-vae.safetensors" } }),
+  (mode, family) => { out.everyPicked = [mode, Array.isArray(family) ? family.map((f) => f.id) : family]; }, () => {});
+everySections[0].rows[0].onPick();
 // A new frame forgets the renditions: they were latents of the old window.
 const framed = { handle: "img-5", kind: "image", role: "reference", filename: "d.png",
                  mods: { h3_video: "refmod:cast/d" } };
@@ -324,6 +335,14 @@ check("the menu is a section per family, and a family with no VAE picked is offe
       [["For MiniMax H3", [["Compressed — ≈576 tokens", False], ["Full — ≈1,024 tokens", False]]],
        ["For Flux 2 Klein", [["Compressed — ≈1,024 tokens", True], ["Full — ≈4,096 tokens", True]]]])
 check("a new frame forgets the renditions", got["dropped"], None)
+check("with two families ready the menu leads with one row for all of them, per-picture modes only",
+      got["everyRow"],
+      [["Every family", ["Compressed — ≈576 + 1,024 tokens", "Full — ≈1,024 + 4,096 tokens"]],
+       ["For MiniMax H3", ["One file — everything stacked — ≈448 tokens", "Compressed — ≈576 tokens",
+                           "Full — ≈1,024 tokens", "Each clip — its own file — ≈2,016 tokens"]],
+       ["For Flux 2 Klein", ["Compressed — ≈1,024 tokens", "Full — ≈4,096 tokens"]]])
+check("...and picking it names every ready family, the piece's first",
+      got["everyPicked"], ["compressed", ["h3", "flux2klein"]])
 
 # A stack.
 check("the menu leads with the stack where there is something to stack, and offers the clip on its own",

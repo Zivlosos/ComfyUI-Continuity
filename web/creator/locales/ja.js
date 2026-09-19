@@ -2371,4 +2371,6 @@ export const ja = {
  "Encoding {count} clip…": "{count} 本のクリップをエンコード中…",
  "Encoding {count} clips…": "{count} 本のクリップをエンコード中…",
  "Nothing to save — hang a clip on them first.": "保存するものがありません — 先にクリップを掛けてください。",
+ "Every family": "すべてのファミリー",
+ "For every family this machine can encode for: {families}. One job per family, in that order.": "このマシンでエンコードできる全ファミリー向け: {families}。ファミリーごとに 1 ジョブ、この順で実行します。",
 };

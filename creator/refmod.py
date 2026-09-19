@@ -94,6 +94,16 @@ DEFAULT_SPACE = "h3_video"
 # The header field that names the space. Ours; the sibling pack's files have
 # none and are H3's by definition, which `_space_of` reads off the channels.
 SPACE_KEY = "vae_kind"
+# The Klein packs' files. malcolmrey's `ComfyUI-Flux2Klein9Mod` (the
+# generator behind the browser's thousand `fk9_*_refmod` files) writes one
+# `samples` tensor of `[B, 128, H, W]` — B source pictures of one person,
+# each its own reference — under `klein9_refmod_meta`; DainamoLabs'
+# `ComfyUI-FluxKleinRefMods` writes `reference_<i>` tensors of `[1, 128, H, W]`
+# under `klein_refmod_meta`. Both packs unroll the file into one
+# `reference_latents` entry per picture at apply time, and so does this one
+# (`refmodnode`). Read here; never written — ours carry `refmod_meta`.
+KLEIN_META_KEYS = ("klein_refmod_meta", "klein9_refmod_meta")
+KLEIN_SPACE = "flux2"
 # What a mod can be here. Audio mods exist in the format and are refused: a
 # voice is bound to a cast member as a file with a speaker ID, and nothing in
 # that path takes a latent yet.
@@ -164,12 +174,16 @@ def header(path):
     except (ValueError, UnicodeDecodeError) as exc:
         raise RefModError(f"{path}: not a safetensors file ({exc})") from exc
 
-    written = (table.get("__metadata__") or {}).get(META_KEY)
+    metadata = table.get("__metadata__") or {}
+    written = metadata.get(META_KEY)
     if not written:
         # The sibling pack keeps audio mods under a second key. Named so the
         # refusal says what the file is rather than "no metadata".
-        if (table.get("__metadata__") or {}).get("audio_refmod_meta"):
+        if metadata.get("audio_refmod_meta"):
             raise RefModError(f"{path}: an audio RefMod — voices are bound as files, not mods")
+        for key in KLEIN_META_KEYS:
+            if metadata.get(key):
+                return _klein_header(path, table, metadata[key])
         raise RefModError(f"{path}: no RefMod metadata in the header")
     try:
         meta = json.loads(written)
@@ -232,6 +246,70 @@ def header(path):
         "name": str(meta.get("name", "") or ""),
         "space": space_id,
         "tensor": tensor_key,
+        # How many references the file holds: one, here. A Klein pack's file
+        # holds a picture set (`_klein_header`).
+        "members": 1,
+        "tensors": [(tensor_key, None)],
+    })
+    return out
+
+
+def _klein_header(path, table, written):
+    """A Klein pack's file -> the same header dict, one reference per picture.
+
+    `tensors` is what `load_latents` reads: `(key, index)` per member — the
+    row of a `samples` batch, or a whole `reference_<i>` tensor. `tokens` is
+    every member's cells summed, since every one of them rides into the
+    conditioning. `latent_h/w` are the first member's, for the picker's grid
+    and `media._source_size`; members may differ (DainamoLabs keeps each
+    picture's own shape).
+    """
+    try:
+        meta = json.loads(written)
+    except ValueError as exc:
+        raise RefModError(f"{path}: Klein RefMod metadata is not JSON") from exc
+    if not isinstance(meta, dict):
+        raise RefModError(f"{path}: Klein RefMod metadata is not an object")
+    space = SPACES[KLEIN_SPACE]
+    tensors = []
+    if isinstance(table.get("samples"), dict):
+        shape = [int(v) for v in table["samples"].get("shape", [])]
+        if len(shape) != 4 or shape[1] != space["channels"] or shape[0] < 1:
+            raise RefModError(f"{path}: Klein 'samples' is {shape}, not [B, 128, H, W]")
+        tensors = [("samples", index, shape[2], shape[3]) for index in range(shape[0])]
+        dtype = str(table["samples"].get("dtype", ""))
+    else:
+        keys = sorted((k for k in table if k.startswith("reference_")),
+                      key=lambda k: int(k.rsplit("_", 1)[-1]) if k.rsplit("_", 1)[-1].isdigit() else 0)
+        for key in keys:
+            shape = [int(v) for v in table[key].get("shape", [])]
+            if len(shape) != 4 or shape[1] != space["channels"] or shape[0] != 1:
+                raise RefModError(f"{path}: Klein {key!r} is {shape}, not [1, 128, H, W]")
+            tensors.append((key, None, shape[2], shape[3]))
+        dtype = str(table[keys[0]].get("dtype", "")) if keys else ""
+    if not tensors:
+        raise RefModError(f"{path}: a Klein RefMod with no reference tensors")
+    _, _, first_h, first_w = tensors[0]
+    mode = str(meta.get("mode", "encode") or "encode")
+    out = dict(meta)
+    out.update({
+        "kind": "image",
+        "latent_t": 1,
+        "latent_h": first_h,
+        "latent_w": first_w,
+        "shape": [1, space["channels"], first_h, first_w],
+        "dtype": dtype,
+        "tokens": sum(h * w for _, _, h, w in tensors),
+        "format_version": int(meta.get("format_version", 0) or 0),
+        "mode": "training" if mode in ("pooled", "training", "refined") else "encode",
+        "description": str(meta.get("description", "") or ""),
+        "name": str(meta.get("name", "") or ""),
+        "space": KLEIN_SPACE,
+        "tensor": tensors[0][0],
+        "members": len(tensors),
+        "tensors": [(key, index) for key, index, _, _ in tensors],
+        # Theirs: `source` says so for the listing, and nothing here remakes it.
+        "source": "set" if len(tensors) > 1 else "image",
     })
     return out
 
@@ -443,6 +521,9 @@ def row_for(path, name, meta=None, stat=None):
         # against `image` / `video` for one encoded source. Their word.
         "source": str(meta.get("source", "") or ""),
         "tokens": meta["tokens"],
+        # How many references the file holds — a Klein pack's picture set is
+        # several, each riding into the conditioning on its own.
+        "members": meta.get("members", 1),
         "grid": [meta["latent_t"], meta["latent_h"], meta["latent_w"]],
         "description": meta["description"],
         # Whose it is, as far as the header says: ours, or the sibling pack's.
@@ -568,16 +649,35 @@ def adopt(temporary, name):
 
 
 def load_latent(path, meta=None):
-    """The mod's latent as a float32 CPU tensor, checked against its header."""
+    """The mod's one latent as a float32 CPU tensor, checked against its
+    header. A file of several references is refused here — `load_latents`
+    is the reader for those, and the H3 encoder wants one."""
+    meta = meta or header(path)
+    if meta.get("members", 1) != 1:
+        raise RefModError(f"{path}: a set of {meta['members']} references, not one")
+    return load_latents(path, meta)[0]
+
+
+def load_latents(path, meta=None):
+    """Every reference in the file, each a float32 CPU tensor of the header's
+    shape — one for ours and the sibling pack's, one per picture for a Klein
+    pack's set. In the order they were written."""
     from safetensors.torch import load_file
 
     meta = meta or header(path)
-    latent = load_file(path, device="cpu")[meta.get("tensor", "latent")]
-    if list(latent.shape) != meta["shape"]:
-        raise RefModError(f"{path}: latent is {list(latent.shape)}, header says {meta['shape']}")
-    # `.clone()` drops the file mmap so the file can be replaced under its name
-    # while a render holds the tensor — the same reason the sibling pack does it.
-    return latent.clone().float()
+    table = load_file(path, device="cpu")
+    out = []
+    for key, index in meta.get("tensors") or [(meta.get("tensor", "latent"), None)]:
+        tensor = table[key]
+        if index is not None:
+            tensor = tensor[index:index + 1]
+        if meta["members"] == 1 and list(tensor.shape) != meta["shape"]:
+            raise RefModError(f"{path}: latent is {list(tensor.shape)}, header says {meta['shape']}")
+        # `.clone()` drops the file mmap so the file can be replaced under its
+        # name while a render holds the tensor — the same reason the sibling
+        # pack does it.
+        out.append(tensor.clone().float())
+    return out
 
 
 def save(name, latent, meta, preview=None, space=DEFAULT_SPACE):

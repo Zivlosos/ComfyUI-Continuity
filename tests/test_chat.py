@@ -901,6 +901,20 @@ mod_only = chat.still_piece(
                   cast=["kim", "lee"]), MOD_LEDGER, ON_EDIT, cast=MOD_CAST)
 check("a member built out of a mod alone is their words in a still",
       (mod_only["refs"], mod_only["prompt"]), ([], "tall at dusk"))
+# ...unless the still family reads that mod's space: a downloaded Klein set
+# on a Klein still is their picture, and rides in as the reference it is.
+ON_KLEIN = {**ON_EDIT, "still_family": "flux2klein", "still_arch": "flux2klein", "still_space": "flux2"}
+klein_cast = [dict(MOD_CAST[0]), {**MOD_CAST[1], "spaces": {"img-8": "flux2"}}]
+as_set = chat.still_piece(
+    chat.validate({"act": "render", "kind": "still", "prompt": "@lee at dusk"}, MOD_LEDGER,
+                  cast=["kim", "lee"]), MOD_LEDGER, ON_KLEIN, cast=klein_cast)
+check("a mod in the still family's own space is a member's picture",
+      (as_set["refs"], as_set["prompt"]),
+      ([{"handle": "img-8", "filename": "refmod:cast/lee"}], "@img-8 (tall) at dusk"))
+check("...and one in another family's stays their words",
+      chat.still_piece(chat.validate({"act": "render", "kind": "still", "prompt": "@lee at dusk"},
+                                     MOD_LEDGER, cast=["kim", "lee"]), MOD_LEDGER,
+                       {**ON_KLEIN, "still_space": "h3_video"}, cast=klein_cast)["refs"], [])
 
 check("the picture cited plain leads whatever order it was cited in",
       [r["handle"] for r in ordered["refs"]], ["img-2", "img-1"])

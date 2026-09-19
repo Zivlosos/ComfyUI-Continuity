@@ -2372,4 +2372,6 @@ export const ko = {
  "Encoding {count} clip…": "클립 {count}개 인코딩 중…",
  "Encoding {count} clips…": "클립 {count}개 인코딩 중…",
  "Nothing to save — hang a clip on them first.": "저장할 것이 없습니다 — 먼저 클립을 걸어 주세요.",
+ "Every family": "모든 패밀리",
+ "For every family this machine can encode for: {families}. One job per family, in that order.": "이 머신이 인코딩할 수 있는 모든 패밀리용: {families}. 패밀리마다 작업 하나씩, 이 순서로 실행합니다.",
 };

@@ -311,7 +311,7 @@ export function modeRows(entries, onPick, onKnown, family = null) {
  *  stills. `onPick(mode, family)`. */
 export function familySections(entries, families, onPick, onKnown) {
   const list = families?.length ? families : [null];
-  return list.map((family) => {
+  const sections = list.map((family) => {
     const rows = modeRows(entries, onPick, onKnown, family);
     if (!family?.vae && family && rows.length) {
       // No VAE picked for that family on this machine: the rows are drawn
@@ -321,6 +321,30 @@ export function familySections(entries, families, onPick, onKnown) {
     }
     return { head: list.length > 1 && family ? t("For {family}", { family: family.label }) : null, rows };
   });
+  // One row for all of them, where more than one family could be encoded for
+  // right now: the same picture through each family's VAE, one job after the
+  // other. The per-picture modes only — a stack and a clip are H3's shapes.
+  const ready = list.filter((family) => family?.vae);
+  if (ready.length > 1) {
+    const rows = ["compressed", "full"].map((key) => {
+      const mode = MODES.find((m) => m.key === key);
+      const perFamily = ready.map((family) => {
+        const fresh = entries.filter((entry) => !modIn(entry, family.space) && entry.kind !== "video");
+        return fresh.reduce((sum, entry) => sum + modTokens(entry, key, onKnown, family.space), 0);
+      });
+      if (!perFamily.some(Boolean)) return null;
+      return {
+        label: t("{mode} — {tokens} tokens", {
+          mode: t(mode.label), tokens: `≈${perFamily.map(long).join(" + ")}` }),
+        note: t("For every family this machine can encode for: {families}. One job per family, in that order.",
+                { families: ready.map((family) => family.label).join(", ") }),
+        onPick: () => onPick(key, ready),
+        key,
+      };
+    }).filter(Boolean);
+    if (rows.length) sections.unshift({ head: t("Every family"), rows });
+  }
+  return sections;
 }
 
 /** A listing row's aspect, long over short, off its own grid — exact, where a

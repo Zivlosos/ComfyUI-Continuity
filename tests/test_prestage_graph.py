@@ -846,26 +846,42 @@ klm_payload, klm = klein_graph(klein_blob(
           {"filename": "cup.png", "handle": "img-2", "mods": {"h3_video": "refmod:cast/cup"}}]))
 check("the payload names the rendition in Klein's own space, by slot",
       klm_payload.mods, {0: "refmod:cast/room.flux2"})
-check("that slot is a latent read off the file",
-      [i for _, i in klm["ContinuityRefModLatent"]], [{"name": "refmod:cast/room.flux2"}])
+check("that slot is chained off the file, in the family's own space, onto both branches",
+      [(i["name"], i["space"]) for _, i in klm["ContinuityRefModReference"]],
+      [("refmod:cast/room.flux2", "flux2")] * 2)
 check("...and only the other is scaled and encoded",
       (len(klm["ImageScaleToTotalPixels"]), len(klm["VAEEncode"]),
        [i["image"] for _, i in klm["LoadImage"]]), (1, 1, ["cup.png"]))
-check("...both still chained onto both conditionings", len(klm["ReferenceLatent"]), 4)
-klm_latent_ids = {node_id for node_id, _ in klm["ContinuityRefModLatent"]}
-check("the chain reads the loader's latent",
-      sum(1 for _, i in klm["ReferenceLatent"] if i["latent"][0] in klm_latent_ids), 2)
+check("...the encoded one on both conditionings as before", len(klm["ReferenceLatent"]), 2)
+klm_guider = klm["CFGGuider"][0][1]
+klm_ref_ids = {node_id for node_id, _ in klm["ReferenceLatent"]}
+check("both branches the guider reads end on the chain",
+      (klm_guider["positive"][0] in klm_ref_ids, klm_guider["negative"][0] in klm_ref_ids), (True, True))
 check("the picture is still the picture: promoted to the canvas",
       klm_payload.init, {"filename": "room.png", "denoise": 1.0})
+# A mod cited outright — a downloaded Klein set, no picture behind it — is a
+# reference and only that: never the init, never framed, never loaded as a
+# picture. The canvas is the asked shape.
+kls_payload, kls = klein_graph(klein_blob(
+    prompt="Picture 1 at a window", aspect="1:1",
+    refs=[{"filename": "refmod:fk9_adele_v1_refmod", "handle": "img-1"}]))
+check("a mod cited outright is chained and nothing is loaded",
+      (kls_payload.mods, "LoadImage" in kls, "VAEEncode" in kls,
+       len(kls["ContinuityRefModReference"])),
+      ({0: "refmod:fk9_adele_v1_refmod"}, False, False, 2))
+check("...never the init, so the canvas is the asked shape",
+      (kls_payload.init, kls_payload.width == kls_payload.height, "EmptyFlux2LatentImage" in kls),
+      (None, True, True))
 try:
-    ci.compile_prestage(klein_blob(refs=["refmod:cast/room.flux2"]), kl)
+    ci.compile_prestage({**klein_blob(refs=["refmod:x"]), "arch": "krea2"},
+                        importlib.import_module(f"{PACKAGE}.creator.families.krea2.still"))
     mod_refusal = ""
 except ci.CompileError as exc:
     mod_refusal = str(exc)
-check("a mod handed to a still family as a picture is refused, naming the picture it was made of",
-      "attach the picture" in mod_refusal, True)
-check("the loader is one of the pack's nodes",
-      "ContinuityRefModLatent" in [
+check("a family that keeps no mods refuses one by name",
+      "reads none" in mod_refusal, True)
+check("the reference node is one of the pack's nodes",
+      "ContinuityRefModReference" in [
           node.define_schema().node_id
           for node in asyncio.run(package.creator.creator_node.MiniMaxCreatorExtension().get_node_list())],
       True)

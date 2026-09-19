@@ -196,8 +196,21 @@ the others by the VAE remembered in their weights controls), each row naming
 what it would cost there; a tile wears *mod* when it carries one for the
 piece's family, and the shut line's amber count is that family's. Families
 that keep none — Ideogram is an API, LTX 2.5 reads one composited sheet per
-card — are not offered. A picture framed again forgets its renditions: they
-were latents of the old window.
+card — are not offered. With more than one family's VAE picked the menu
+leads with *Every family*: the same pictures through each VAE, one job after
+the other. A picture framed again forgets its renditions: they were latents
+of the old window.
+
+**Downloaded Klein sets.** The Flux 2 Klein files on malcolmrey's browser
+(`fk9_<name>_v1_refmod.safetensors`) are picture *sets* — a batch of twenty
+or so latents of one person, made by his `ComfyUI-Flux2Klein9Mod` — and
+they read here as one RefMod of that many members (DainamoLabs'
+`ComfyUI-FluxKleinRefMods` files too). Dropped on the Cast tab's Import they
+cast a member as an H3 mod does; on a Klein still that member's set rides in
+as one reference slot, every member chained onto the conditioning the way
+both Klein packs apply it, costing every member's cells. On an H3 clip the
+same member is their words — a Klein latent is nothing to H3, and the render
+says so by name rather than reading it.
 
 The menu's shapes, and what each costs:
 

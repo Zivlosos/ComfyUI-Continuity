@@ -291,7 +291,7 @@ def refs_noun(family):
 
 
 def _parse_refs(raw, limit=MAX_STYLE_REFS, reason=REFS_LIMIT_REASON,
-                noun=REFS_NOUN):
+                noun=REFS_NOUN, space=None):
     """The attached pictures, as `[(handle, filename)]` in slot order.
 
     The handle is what the prompt cites and the position is what the encoder
@@ -303,9 +303,11 @@ def _parse_refs(raw, limit=MAX_STYLE_REFS, reason=REFS_LIMIT_REASON,
 
     Each entry is `(handle, filename, crop, mods)`; `mods` is the picture's
     saved renditions by latent space (`refmod.parse_mods`), `{}` where it has
-    none. A mod cannot itself be a still family's picture — the graph loads a
-    picture by name and a mod is a latent — so `refmod:` here is refused with
-    the way it does work named: hang it on the picture it was made of.
+    none. A mod itself may stand in a slot on a family that keeps them (`space`
+    is that family's): a downloaded Klein set has no picture behind it, and it
+    is a reference the way a picture is, minus the picture — so it is never
+    the init and never framed. On a family that keeps none, `refmod:` is
+    refused with the way it does work named.
     """
     refs = []
     for item in raw or []:
@@ -314,10 +316,19 @@ def _parse_refs(raw, limit=MAX_STYLE_REFS, reason=REFS_LIMIT_REASON,
             raise CompileError(f"every {noun[0]} must carry a filename")
         handle = item.get("handle") if isinstance(item, dict) else None
         if refmod.is_mod(filename):
-            raise CompileError(
-                f"{'@' + handle if isinstance(handle, str) else filename} is a saved "
-                f"reference, and a {noun[0]} here is loaded as a picture — attach "
-                f"the picture it was made of; its mods ride on it")
+            if not space:
+                raise CompileError(
+                    f"{'@' + handle if isinstance(handle, str) else filename} is a saved "
+                    f"reference, and this family reads none — attach the picture it "
+                    f"was made of")
+            if isinstance(item, dict) and item.get("mods"):
+                raise CompileError(
+                    f"{'@' + handle if isinstance(handle, str) else filename}: a saved "
+                    f"reference is one rendition already — mods hang on the picture it "
+                    f"was made of")
+            refs.append((handle if isinstance(handle, str) else None, filename,
+                         None, {space: filename}))
+            continue
         try:
             mods = refmod.parse_mods(item.get("mods") if isinstance(item, dict) else None,
                                      owner=f"@{handle}: " if isinstance(handle, str) else "")
@@ -385,7 +396,8 @@ def compile_prestage(data, family, image_size_lookup=None):
     if triggers:
         prompt = f"{', '.join(triggers)}, {prompt}"
 
-    refs = _parse_refs(data.get("refs"), *ref_limit(family, data), refs_noun(family))
+    space = (getattr(family, "REFMOD", None) or {}).get("space")
+    refs = _parse_refs(data.get("refs"), *ref_limit(family, data), refs_noun(family), space)
     # Cited before the family check below, so a prompt citing a reference on a
     # family that reads none is refused for the reference rather than for the
     # citation — one mistake, and the one the user actually made.
@@ -406,7 +418,7 @@ def compile_prestage(data, family, image_size_lookup=None):
 
     init = _parse_init(data.get("init"))
     if (init is None and refs and getattr(family, "EDITS_FIRST_REF", False)
-            and not data.get(START_BLANK_FIELD)):
+            and not data.get(START_BLANK_FIELD) and not refmod.is_mod(refs[0][1])):
         # An edit family's first reference is *usually* the picture being
         # edited, so it is also what the render starts from: the canvas follows
         # its aspect and the latent is that image encoded, at a denoise of 1.0
@@ -434,15 +446,16 @@ def compile_prestage(data, family, image_size_lookup=None):
     ratio_clamped = False
     framed = {}
     for slot, (_, filename, crop, _mods) in enumerate(refs):
+        if refmod.is_mod(filename):
+            continue
         entry = _framed(f"picture {slot + 1}", filename, crop, image_size_lookup)
         if entry:
             framed[f"ref:{slot}"] = entry
     # The renditions this family reads: a slot whose picture carries a mod in
-    # the family's own latent space is read from the file. The slot keeps its
-    # picture too — the init promotion above and the framing are about the
-    # picture, and the latent stands in only where the picture would have
-    # been encoded.
-    space = (getattr(family, "REFMOD", None) or {}).get("space")
+    # the family's own latent space is read from the file, and a slot that is
+    # a mod outright is too. A picture keeps its picture — the init promotion
+    # above and the framing are about the picture, and the latent stands in
+    # only where the picture would have been encoded.
     mods = {slot: entry[3][space] for slot, entry in enumerate(refs)
             if space and entry[3].get(space)}
     if init is not None:

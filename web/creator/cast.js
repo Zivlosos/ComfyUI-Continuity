@@ -1091,16 +1091,23 @@ export class CastShelf {
    *  how it is going, and afterwards it says what it became. */
   async keepAsMod(subject, mode, family = null) {
     if (!this.mod || this.encoding) return;
-    const count = keepable(subject, this.getAssets(), mode, family?.space ?? DEFAULT_SPACE).length;
-    this.encoding = { subject, mode, count, progress: 0, family };
+    // Several families is the "every family" row: one job after the other,
+    // the bar walking through them, the note naming the first that failed.
+    const families = Array.isArray(family) ? family : [family];
+    const count = families.reduce((sum, one) =>
+      sum + keepable(subject, this.getAssets(), mode, one?.space ?? DEFAULT_SPACE).length, 0);
+    this.encoding = { subject, mode, count, progress: 0, family: families.length > 1 ? null : family };
     this.modNote = null;
     this.render();
     try {
-      await this.mod(subject, this.getAssets(), mode, (fraction) => {
-        if (this.encoding?.subject !== subject) return;
-        this.encoding.progress = fraction;
-        this.renderSoon();
-      }, family);
+      for (const [index, one] of families.entries()) {
+        if (!keepable(subject, this.getAssets(), mode, one?.space ?? DEFAULT_SPACE).length) continue;
+        await this.mod(subject, this.getAssets(), mode, (fraction) => {
+          if (this.encoding?.subject !== subject) return;
+          this.encoding.progress = (index + fraction) / families.length;
+          this.renderSoon();
+        }, one);
+      }
     } catch (error) {
       this.modNote = { subject, text: t("Could not save @{handle} — {error}",
                                         { handle: subject.handle, error: error.message ?? error }) };

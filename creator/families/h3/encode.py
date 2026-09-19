@@ -810,6 +810,11 @@ def _mod_tensors(vae, asset, path):
     model management from a pool worker, and that has crashed the process.
     """
     meta = refmod.header(path)
+    if meta["space"] != refmod.DEFAULT_SPACE:
+        raise ValueError(
+            f"@{asset.handle}: {asset.filename} is a {refmod.space_label(meta['space'])} "
+            f"RefMod, and MiniMax H3 reads {refmod.space_label(refmod.DEFAULT_SPACE)} "
+            f"ones — hang the picture it was made of on the member instead")
     latent = refmod.load_latent(path, meta)
     frames = vae.decode(latent)
     frames = frames.reshape(-1, *frames.shape[-3:]).to("cpu", torch.float32)
