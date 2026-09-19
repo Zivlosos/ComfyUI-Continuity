@@ -4,7 +4,10 @@ Back by request. Every entry opens with a line saying what changed; the
 paragraph under it says how and why, and from 3.0 down that paragraph is kept
 exactly as it was written, wall of text and all.
 
-## Unreleased
+## 3.1
+
+**Published to the Comfy registry again.** The scanner's warnings are
+gone and the version is one it will take.
 
 **A still has the cast a shot has, and Krea 2 reads a member's picture
 through the adapter they wear.** The image pre-stage had no cast at all —

@@ -1,16 +1,12 @@
 """What the picker's listing walk finds, and what it costs to find it.
 
-`server_routes` cannot be imported without ComfyUI, aiohttp and a live
-PromptServer to hang its decorators off, and none of those has an opinion about
-walking a folder. So the two functions under test are read out of the source and
-given a `folder_paths` stub: the real text, none of the server.
+The walk lives in `assets.py`, which wants core's `folder_paths` and nothing
+else — so that one module is stubbed and the real one is imported.
 
     python3 tests/test_assets.py
 """
 
-import ast
 import os
-import pathlib
 import sys
 
 import layout
@@ -18,7 +14,7 @@ import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# Core's table, cut to what the fixtures use. `_classify` asks for one kind at a
+# Core's table, cut to what the fixtures use. `classify` asks for one kind at a
 # time, so this only has to answer for one kind at a time.
 MIME = {
     ".png": "image", ".jpg": "image", ".webp": "image",
@@ -28,7 +24,7 @@ MIME = {
 
 
 class _FolderPaths:
-    """Only the two names `_scan` and `_classify` reach for."""
+    """Only the two names `scan` and `classify` reach for."""
 
     @staticmethod
     def filter_files_content_types(files, kinds):
@@ -41,20 +37,8 @@ class _FolderPaths:
         return target == root or target.startswith(root + os.sep)
 
 
-def _load():
-    """`_classify` and `_scan` lifted out of server_routes.py by name."""
-    source = pathlib.Path(layout.py("server_routes")).read_text(encoding="utf-8")
-    wanted = {"_classify", "_scan"}
-    picked = [n for n in ast.parse(source).body
-              if isinstance(n, ast.FunctionDef) and n.name in wanted]
-    missing = wanted - {n.name for n in picked}
-    assert not missing, f"server_routes no longer defines {missing}"
-    namespace = {"os": os, "folder_paths": _FolderPaths}
-    exec(compile(ast.Module(body=picked, type_ignores=[]), "server_routes.py", "exec"), namespace)
-    return namespace["_scan"]
-
-
-_scan = _load()
+sys.modules["folder_paths"] = _FolderPaths
+_scan = layout.load("assets").assets.scan
 
 
 def _touch(path, payload=b"x"):

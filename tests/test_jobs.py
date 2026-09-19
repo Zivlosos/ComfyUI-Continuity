@@ -226,7 +226,7 @@ check("and the local one is queued",
 
 for module, route in (("routes/control", "preview_frame"),
                       ("routes/upscale", "preview_tile"),
-                      ("server_routes", "cut_plate_panel")):
+                      ("routes/plate", "cut_plate_panel")):
     source = open(os.path.join(layout.PY_ROOT, f"{module}.py"), encoding="utf-8").read()
     body = source[source.index(f"def {route}("):]
     check(f"{route} is gated", "jobs.refuse_if_busy()" in body[:900], True)

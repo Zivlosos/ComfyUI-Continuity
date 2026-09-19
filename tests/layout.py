@@ -83,6 +83,11 @@ MODULES = {
     # one so its own relative imports resolve.
     "mlxdlss": "mlxdlss",
     "vdnh3": "vdnh3",
+    # Route modules. Importing one registers its handlers on `PromptServer`,
+    # which `stub_server()` stands in for.
+    "neural_route": "routes.neural",
+    "plate_route": "routes.plate",
+    "reveal_route": "routes.reveal",
 }
 
 
@@ -155,6 +160,31 @@ def load(*names, package="mmcpkg"):
                 spec.loader.exec_module(module)
             setattr(holder, name, module)
     return holder
+
+
+def stub_server():
+    """A `server.PromptServer` whose route decorators only record. -> {path: handler}
+
+    A route module hangs `@PromptServer.instance.routes.post(...)` off the
+    running server at import time, which is the one thing that kept them from
+    being imported outside ComfyUI. With this in `sys.modules` the module loads
+    as itself and the handler under test is read off the dict — or off the
+    module, since the decorator hands the function back untouched.
+    """
+    handlers = {}
+
+    class _Routes:
+        def _on(self, path):
+            def keep(handler):
+                handlers[path] = handler
+                return handler
+            return keep
+        get = post = _on
+
+    server = types.ModuleType("server")
+    server.PromptServer = types.SimpleNamespace(instance=types.SimpleNamespace(routes=_Routes()))
+    sys.modules["server"] = server
+    return handlers
 
 
 class _MovedModules:

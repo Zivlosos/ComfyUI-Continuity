@@ -49,7 +49,8 @@ def _catmull_coordinates(normalized: np.ndarray, dimension: int):
     pixel = normalized * np.float32(dimension) - np.float32(0.5)
     base_index = np.floor(pixel)
     t = np.clip(pixel - base_index, 0, 1).astype(np.float32)
-    square = t * t; cube = square * t
+    square = t * t
+    cube = square * t
     w0 = -0.5 * t + square - 0.5 * cube
     w1 = 1 - 2.5 * square + 1.5 * cube
     w2 = 0.5 * t + 2 * square - 1.5 * cube
@@ -66,10 +67,14 @@ def _catmull_coordinates(normalized: np.ndarray, dimension: int):
 def _sample_linear(image: np.ndarray, x: np.ndarray, y: np.ndarray) -> np.ndarray:
     """Bilinear sample of (H, W, C) at pixel-centre coordinates (x, y), clamped to the edge."""
     height, width = image.shape[:2]
-    px = x - np.float32(0.5); py = y - np.float32(0.5)
-    x0 = np.clip(np.floor(px), 0, width - 1).astype(np.int64); y0 = np.clip(np.floor(py), 0, height - 1).astype(np.int64)
-    x1 = np.minimum(x0 + 1, width - 1); y1 = np.minimum(y0 + 1, height - 1)
-    tx = np.clip(px - x0, 0, 1).astype(np.float32)[..., None]; ty = np.clip(py - y0, 0, 1).astype(np.float32)[..., None]
+    px = x - np.float32(0.5)
+    py = y - np.float32(0.5)
+    x0 = np.clip(np.floor(px), 0, width - 1).astype(np.int64)
+    y0 = np.clip(np.floor(py), 0, height - 1).astype(np.int64)
+    x1 = np.minimum(x0 + 1, width - 1)
+    y1 = np.minimum(y0 + 1, height - 1)
+    tx = np.clip(px - x0, 0, 1).astype(np.float32)[..., None]
+    ty = np.clip(py - y0, 0, 1).astype(np.float32)[..., None]
     top = image[y0, x0] * (1 - tx) + image[y0, x1] * tx
     bottom = image[y1, x0] * (1 - tx) + image[y1, x1] * tx
     return top * (1 - ty) + bottom * ty
@@ -97,10 +102,13 @@ def _closest_depth_offsets(depth: np.ndarray, inverted: bool):
     yy, xx = np.indices((height, width))
     best_x, best_y, best = xx.copy(), yy.copy(), depth[..., 0].copy()
     for dx, dy in ((-1, -1), (1, -1), (-1, 1), (1, 1)):
-        cx = np.clip(xx + dx, 0, width - 1); cy = np.clip(yy + dy, 0, height - 1)
+        cx = np.clip(xx + dx, 0, width - 1)
+        cy = np.clip(yy + dy, 0, height - 1)
         candidate = depth[cy, cx, 0]
         closer = candidate > best if inverted else candidate < best
-        best_x = np.where(closer, cx, best_x); best_y = np.where(closer, cy, best_y); best = np.where(closer, candidate, best)
+        best_x = np.where(closer, cx, best_x)
+        best_y = np.where(closer, cy, best_y)
+        best = np.where(closer, candidate, best)
     return best_x, best_y
 
 
@@ -120,7 +128,9 @@ def make_temporal_features(
     control_mask: np.ndarray | None = None,
 ) -> np.ndarray:
     """Logical-size (H, W, 16) features: first-frame layout with reprojected history in channels 7-9."""
-    color = np.asarray(color, dtype=np.float32); history = np.asarray(history, dtype=np.float32); motion = np.asarray(motion, dtype=np.float32)
+    color = np.asarray(color, dtype=np.float32)
+    history = np.asarray(history, dtype=np.float32)
+    motion = np.asarray(motion, dtype=np.float32)
     height, width = color.shape[:2]
     if history.shape != color.shape:
         raise ValueError("history must match the colour shape")
@@ -168,7 +178,9 @@ def compose_temporal(
     intensity: float = 1.0,
 ) -> np.ndarray:
     """predicted + alpha * (history - predicted), alpha = clamp(sigmoid(half(logit)) * half(blend_scale))."""
-    head = np.asarray(head, dtype=np.float32); color = np.asarray(color, dtype=np.float32); features = np.asarray(features, dtype=np.float32)
+    head = np.asarray(head, dtype=np.float32)
+    color = np.asarray(color, dtype=np.float32)
+    features = np.asarray(features, dtype=np.float32)
     if head.shape[:2] != color.shape[:2] or features.shape[:2] != color.shape[:2] or features.shape[2] != 16:
         raise ValueError("head, colour and features must share height and width; features need 16 channels")
     logit = half(head[..., 3:4])
@@ -251,7 +263,9 @@ class TemporalSession:
         self.scene_cuts = 0
 
     def reset(self) -> None:
-        self.history = None; self.previous = None; self.frame_index = 0
+        self.history = None
+        self.previous = None
+        self.frame_index = 0
 
     def _controls(self) -> dict[str, float]:
         controls = dict(PROFILES[self.options.profile])
@@ -266,7 +280,8 @@ class TemporalSession:
         if frame.ndim != 3 or frame.shape[2] != 3:
             raise ValueError("frame must be (height, width, 3)")
         if self.previous is not None and (self.previous.shape != frame.shape or self._is_scene_cut(frame)):
-            self.reset(); self.scene_cuts += 1
+            self.reset()
+            self.scene_cuts += 1
         height, width = frame.shape[:2]
         geometry = NetworkGeometry.vendor_aligned(width, height)
         controls = self._controls()
@@ -287,7 +302,8 @@ class TemporalSession:
         # preserves unedited pixels without multiplying soft-mask strength twice.
         self.history = (output if control_mask is None else
                         blend_mask(frame, output, control_mask))
-        self.previous = frame; self.frame_index += 1
+        self.previous = frame
+        self.frame_index += 1
         detailed = compose_detail(
             frame, output, detail_strength=self.options.detail_strength, colour_strength=self.options.colour_strength, radius=self.options.detail_radius
         )

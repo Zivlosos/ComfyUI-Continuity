@@ -2,18 +2,16 @@
 
     python3 tests/test_neural_producer_route.py
 
-Runs the actual route function with in-memory request, metadata and queue
-boundaries. No server, user file, network or GPU execution is involved.
+Runs the actual route module over a stub `PromptServer`, with in-memory
+request, metadata and queue boundaries. No user file, network or GPU execution
+is involved.
 """
 
-import ast
 import asyncio
 import json
-from pathlib import Path
 import sys
 from types import ModuleType, SimpleNamespace
 
-from aiohttp import web
 
 import layout
 from harness import check
@@ -29,10 +27,7 @@ prompt = {
 }
 embedded = {"prompt": prompt, twin.PRODUCER_KEY: {"node": "B", "index": 1}}
 reads, validations, queued = [], [], []
-routes_module = ModuleType(f"{package}.routes")
-routes_module.__path__ = [str(Path(layout.PY_ROOT) / "routes")]
-sys.modules[routes_module.__name__] = routes_module
-server_routes = ModuleType(f"{package}.server_routes")
+assets = ModuleType(f"{package}.assets")
 
 
 def read_embedded(path, keys):
@@ -40,9 +35,10 @@ def read_embedded(path, keys):
     return {key: embedded.get(key) for key in keys}
 
 
-server_routes._read_embedded = read_embedded
-server_routes._input_path = lambda request: "in-memory-file.png"
-sys.modules[server_routes.__name__] = server_routes
+assets.read_embedded = read_embedded
+assets.input_path = lambda request: "in-memory-file.png"
+sys.modules[assets.__name__] = assets
+pkg.assets = assets
 media = ModuleType(f"{package}.media")
 media.resolve = lambda filename: filename
 sys.modules[media.__name__] = media
@@ -57,16 +53,11 @@ async def validate(prompt_id, graph, targets):
 
 execution.validate_prompt = validate
 sys.modules["execution"] = execution
-server = SimpleNamespace(number=1, prompt_queue=SimpleNamespace(put=queued.append))
-source = Path(layout.PY_ROOT) / "routes" / "neural.py"
-tree = ast.parse(source.read_text(encoding="utf-8"))
-functions = [node for node in tree.body if isinstance(node, ast.AsyncFunctionDef)
-             and node.name in ("neural_of", "neural_twin")]
-for node in functions:
-    node.decorator_list = []
-namespace = {"__package__": routes_module.__name__, "asyncio": asyncio, "json": json,
-             "web": web, "neuraltwin": twin, "PromptServer": SimpleNamespace(instance=server)}
-exec(compile(ast.Module(body=functions, type_ignores=[]), str(source), "exec"), namespace)
+layout.stub_server()
+server = sys.modules["server"].PromptServer.instance   # the routes' own, so the queue is on it
+server.number = 1
+server.prompt_queue = SimpleNamespace(put=queued.append)
+route = layout.load("neural_route", package=package).neural_route
 
 
 class Request:
@@ -75,10 +66,10 @@ class Request:
 
 
 async def run():
-    response = await namespace["neural_of"](Request())
+    response = await route.neural_of(Request())
     info = json.loads(response.text)
     check("metadata endpoint reads B's closure, not the unrelated ON A", (info["node"], info["on"]), ("B", False))
-    response = await namespace["neural_twin"](Request())
+    response = await route.neural_twin(Request())
     answer = json.loads(response.text)
     check("queue request succeeds", response.status, 200)
     check("response identifies output and batch index", (answer["node"], answer["index"]), ("B", 1))
@@ -90,7 +81,7 @@ async def run():
     check("socket client id preserved", queued[0][3], {"client_id": "test"})
     check("metadata reader requests provenance", twin.PRODUCER_KEY in reads[0][1], True)
     embedded.pop(twin.PRODUCER_KEY)
-    response = await namespace["neural_twin"](Request())
+    response = await route.neural_twin(Request())
     answer = json.loads(response.text)
     check("an older file without the stamp still queues", response.status, 200)
     check("...the whole prompt, every node of ours flipped", set(queued[1][2]), set(prompt))

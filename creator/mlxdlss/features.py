@@ -6,7 +6,7 @@ Channel layout (NHWC, float32 holding half-rounded values):
   4-6  scaled colour ((half(c) - 0.5) * 0.125), repeated in 7-9
   10   normalised style, 11 local tone, 12 local structure,
   13   skin structure, 14 automatic-mask structure, 15 zero
-The network runs on a vendor-aligned extent (at least 320, multiples of 64);
+The network runs on a vendor-aligned extent (at least 320, multiples of 64)
 the image sits at the origin and the extension mirrors the image without
 repeating the edge (index 2*extent-2-x) while the noise is regenerated from the
 network coordinates.
@@ -137,7 +137,8 @@ def make_features(
 ) -> np.ndarray:
     """Build the (network_height, network_width, 16) float32 feature tensor.
 
-    ``color`` is (height, width, 3) float32 in [0, 1]; ``control_mask`` has the
+    ``color`` is (height, width, 3) float32 in [0, 1]
+    ``control_mask`` has the
     same shape (red: blend in the postprocessor, green: tone, blue: structure).
     """
     color = np.asarray(color, dtype=np.float32)
@@ -155,7 +156,9 @@ def make_features(
     style = half(normalized_style)
     tone = half(local_tone_strength)
     if control_mask is not None:
-        structure = np.float32(0); skin_structure = np.float32(0); automatic_structure = np.float32(0)
+        structure = np.float32(0)
+        skin_structure = np.float32(0)
+        automatic_structure = np.float32(0)
     elif automatic_mask is not None:
         enabled = max(automatic_mask.skin_structure_strength, automatic_mask.automatic_mask_structure_strength) >= 0
         structure = half(1 if enabled else local_structure_strength)
@@ -168,7 +171,9 @@ def make_features(
             if enabled else -1
         )
     else:
-        structure = half(local_structure_strength); skin_structure = np.float32(-1); automatic_structure = np.float32(-1)
+        structure = half(local_structure_strength)
+        skin_structure = np.float32(-1)
+        automatic_structure = np.float32(-1)
     rows = geometry.source_rows()
     columns = geometry.source_columns()
     extended = color[rows[:, None], columns[None, :], :]

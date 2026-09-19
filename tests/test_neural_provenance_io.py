@@ -6,8 +6,6 @@ CPU tensors and tiny synthetic media only. Input/output/temp are confined to a
 TemporaryDirectory; no installed models, workflow or existing files are used.
 """
 
-import ast
-import json
 import os
 from pathlib import Path
 import sys
@@ -40,19 +38,12 @@ with tempfile.TemporaryDirectory(prefix="continuity-producer-") as work:
         directory = Path(work) / kind
         directory.mkdir(exist_ok=True)
         getattr(folder_paths, f"set_{kind}_directory")(str(directory))
-    pkg = layout.load("prestage", "timeline", "neuraltwin")
+    pkg = layout.load("prestage", "timeline", "neuraltwin", "assets")
     prompt = {"A": {"class_type": "MiniMaxH3Creator", "inputs": {"creator_data": "{}"}},
               "B": {"class_type": "MiniMaxH3PreStage", "inputs": {"prestage_data": "{}"}}}
     workflow = {"nodes": [{"id": "A"}, {"id": "B"}]}
 
-    # Only the standalone metadata reader is loaded from the route module: a
-    # server singleton/routes are not needed to read actual PNG and MP4 files.
-    route_path = Path(layout.py("server_routes"))
-    tree = ast.parse(route_path.read_text(encoding="utf-8"))
-    reader = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_read_embedded")
-    namespace = {"os": os, "json": json}
-    exec(compile(ast.Module(body=[reader], type_ignores=[]), str(route_path), "exec"), namespace)
-    read_embedded = namespace["_read_embedded"]
+    read_embedded = pkg.assets.read_embedded
 
     def hidden(owner):
         return io.HiddenHolder(unique_id=f"{owner}.0.save", prompt=prompt,

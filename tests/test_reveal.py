@@ -1,17 +1,14 @@
 """The Open folder route: what it hands the OS, and what it refuses (#23).
 
-Lifted out of `server_routes.py` the way `test_assets.py` lifts the walk — the
-route's own text, with `folder_paths`, aiohttp's `web` and `subprocess.Popen`
-stood in for — because the server cannot be imported without ComfyUI and the
-route has no opinion about it.
+`routes/reveal.py` imported as itself, over a stub `PromptServer`, with
+`folder_paths`, aiohttp's `web` and `subprocess.Popen` stood in for — the route
+has no opinion about any of them beyond what it hands them.
 
     python3 tests/test_reveal.py
 """
 
-import ast
 import asyncio
 import os
-import pathlib
 import sys
 import tempfile
 
@@ -59,22 +56,17 @@ class _Subprocess:
 
 
 def _load():
-    source = pathlib.Path(layout.py("server_routes")).read_text(encoding="utf-8")
-    wanted = {"_reveal_command", "_picker_root", "_clean_subfolder", "reveal_folder"}
-    picked = []
-    for node in ast.parse(source).body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in wanted:
-            node.decorator_list = []          # the PromptServer route hook
-            picked.append(node)
-    missing = wanted - {n.name for n in picked}
-    assert not missing, f"server_routes no longer defines {missing}"
-    namespace = {"os": os, "sys": sys, "folder_paths": _FolderPaths, "web": _Web,
-                 "subprocess": _Subprocess}
-    exec(compile(ast.Module(body=picked, type_ignores=[]), "server_routes.py", "exec"), namespace)
-    return namespace
+    sys.modules["folder_paths"] = _FolderPaths
+    layout.stub_server()
+    pkg = layout.load("assets", "reveal_route")
+    pkg.reveal_route.web = _Web
+    pkg.reveal_route.subprocess = _Subprocess
+    return pkg
 
 
-NS = _load()
+PKG = _load()
+reveal_folder = PKG.reveal_route.reveal_folder
+reveal_command = PKG.assets.reveal_command
 
 
 class _Request:
@@ -87,15 +79,15 @@ class _Request:
 
 def call(body):
     LAUNCHED.clear()
-    return asyncio.run(NS["reveal_folder"](_Request(body)))
+    return asyncio.run(reveal_folder(_Request(body)))
 
 
 # ---- the argv is the platform's own -----------------------------------------
 
 want = {"darwin": "open", "win32": "explorer", "linux": "xdg-open"}[
     "darwin" if sys.platform == "darwin" else "win32" if sys.platform.startswith("win") else "linux"]
-check("the command is this platform's file manager", NS["_reveal_command"]("/x")[0], want)
-check("...handed the folder itself", NS["_reveal_command"]("/x")[-1], "/x")
+check("the command is this platform's file manager", reveal_command("/x")[0], want)
+check("...handed the folder itself", reveal_command("/x")[-1], "/x")
 
 # ---- the two roots, and the folder being browsed ----------------------------
 
@@ -108,7 +100,7 @@ with tempfile.TemporaryDirectory() as tmp:
 
     status, body = call({"root": "output"})
     check("the output root opens", (status, body["path"]), (200, real_out))
-    check("...and is what was launched", LAUNCHED, [NS["_reveal_command"](real_out)])
+    check("...and is what was launched", LAUNCHED, [reveal_command(real_out)])
 
     status, body = call({"root": "output", "subfolder": "day one"})
     check("a shelf opens as its directory", (status, body["path"]),

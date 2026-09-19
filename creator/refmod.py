@@ -470,7 +470,7 @@ def preview_path(path):
 def listing():
     """Every mod in every root -> `(rows, folders)`, the picker's shapes.
 
-    A row is the asset row `server_routes._scan` produces, with the mod's own
+    A row is the asset row `assets.scan` produces, with the mod's own
     facts added: `mode`, `tokens`, `description`, `grid`. A file that does not
     read as a mod is skipped rather than listed with a broken thumbnail — the
     folder holds graph presets and whatever else the sibling pack keeps there.

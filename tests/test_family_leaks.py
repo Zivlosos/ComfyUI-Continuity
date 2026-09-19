@@ -47,7 +47,8 @@ def strip(source):
     A character scanner rather than regexes, because `//` inside a string is
     not a comment and `"` inside a comment is not a string. Template-literal
     interpolations are re-entered as code — `` `x ${state.minimax}` `` must
-    not hide its access. Regex literals are not modelled; a family token in
+    not hide its access. Regex literals are not modelled
+    a family token in
     one would be caught as code, which is the safe direction.
     """
     out = []
@@ -59,45 +60,78 @@ def strip(source):
         nxt = source[i + 1] if i + 1 < n else ""
         if mode == "code":
             if ch == "/" and nxt == "/":
-                mode = "line"; i += 2; continue
+                mode = "line"
+                i += 2
+                continue
             if ch == "/" and nxt == "*":
-                mode = "block"; i += 2; continue
+                mode = "block"
+                i += 2
+                continue
             if ch == "'":
-                mode = "single"; out.append(ch); i += 1; continue
+                mode = "single"
+                out.append(ch)
+                i += 1
+                continue
             if ch == '"':
-                mode = "double"; out.append(ch); i += 1; continue
+                mode = "double"
+                out.append(ch)
+                i += 1
+                continue
             if ch == "`":
-                mode = "template"; out.append(ch); i += 1; continue
+                mode = "template"
+                out.append(ch)
+                i += 1
+                continue
             if ch == "}" and depth and depth[-1] == 0:
-                depth.pop(); mode = "template"; out.append(ch); i += 1; continue
+                depth.pop()
+                mode = "template"
+                out.append(ch)
+                i += 1
+                continue
             if ch == "{" and depth:
                 depth[-1] += 1
             elif ch == "}" and depth:
                 depth[-1] -= 1
-            out.append(ch); i += 1; continue
+            out.append(ch)
+            i += 1
+            continue
         if mode == "line":
             if ch == "\n":
-                mode = "code"; out.append(ch)
-            i += 1; continue
+                mode = "code"
+                out.append(ch)
+            i += 1
+            continue
         if mode == "block":
             if ch == "*" and nxt == "/":
-                mode = "code"; i += 2; continue
+                mode = "code"
+                i += 2
+                continue
             if ch == "\n":
                 out.append(ch)
-            i += 1; continue
+            i += 1
+            continue
         if mode in ("single", "double"):
             if ch == "\\":
-                i += 2; continue
+                i += 2
+                continue
             if (mode == "single" and ch == "'") or (mode == "double" and ch == '"'):
-                mode = "code"; out.append(ch)
-            i += 1; continue
+                mode = "code"
+                out.append(ch)
+            i += 1
+            continue
         # template
         if ch == "\\":
-            i += 2; continue
+            i += 2
+            continue
         if ch == "$" and nxt == "{":
-            depth.append(0); mode = "code"; out.append("${"); i += 2; continue
+            depth.append(0)
+            mode = "code"
+            out.append("${")
+            i += 2
+            continue
         if ch == "`":
-            mode = "code"; out.append(ch)
+            mode = "code"
+            out.append(ch)
         elif ch == "\n":
             out.append(ch)
         i += 1

@@ -21,7 +21,9 @@ from .creator.routes import chat  # noqa: F401  (registers /continuity/chat)
 from .creator.routes import control  # noqa: F401  (registers /continuity/control)
 from .creator.routes import families  # noqa: F401  (registers /continuity/families)
 from .creator.routes import neural  # noqa: F401  (registers /continuity/neural)
+from .creator.routes import plate  # noqa: F401  (registers /continuity/plate)
 from .creator.routes import refmod  # noqa: F401  (registers /continuity/refmod)
+from .creator.routes import reveal  # noqa: F401  (registers /continuity/reveal)
 from .creator.routes import upscale  # noqa: F401  (registers /continuity/upscale)
 
 WEB_DIRECTORY = "./web"

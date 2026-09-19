@@ -29,7 +29,7 @@ without a second matte.
 
 **Nothing is written until the sheet is accepted.** The editor previews by
 compositing in the browser from per-panel cutouts served straight out of memory
-(`server_routes.cut_panel`), and `build` — the only writer — runs when Accept
+(`routes/plate.py`), and `build` — the only writer — runs when Accept
 is pressed. It used to run on every click of the grid, which filled `_plates/`
 with one near-identical composite per glance and made the input folder a
 midden of discarded previews.

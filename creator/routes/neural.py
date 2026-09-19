@@ -30,7 +30,7 @@ import json
 from aiohttp import web
 from server import PromptServer
 
-from .. import neural, neuraltwin, settings
+from .. import assets, neural, neuraltwin, settings
 
 
 def _number(query, key, fallback):
@@ -118,14 +118,12 @@ async def neural_of(request):
     error. It is an ordinary file that simply has no other version, and the
     surface that asked has something else to offer it.
     """
-    from ..server_routes import _input_path, _read_embedded
-
-    path = _input_path(request)
+    path = assets.input_path(request)
     if path is None:
         return web.json_response({"error": "not in the input or output folder"}, status=404)
     loop = asyncio.get_running_loop()
     try:
-        embedded = await loop.run_in_executor(None, _read_embedded, path,
+        embedded = await loop.run_in_executor(None, assets.read_embedded, path,
                                               ("prompt", neuraltwin.PRODUCER_KEY))
     except Exception as exc:  # noqa: BLE001 — an unreadable file has no answer, not an error
         return web.json_response({"ours": False, "on": False, "settings": None,
@@ -150,8 +148,6 @@ async def neural_twin(request):
     import execution
     import uuid
 
-    from ..server_routes import _read_embedded
-
     try:
         body = await request.json()
     except (json.JSONDecodeError, ValueError):
@@ -166,7 +162,7 @@ async def neural_twin(request):
         return web.json_response({"error": str(exc)}, status=404)
 
     loop = asyncio.get_running_loop()
-    embedded = await loop.run_in_executor(None, _read_embedded, path,
+    embedded = await loop.run_in_executor(None, assets.read_embedded, path,
                                           ("prompt", neuraltwin.PRODUCER_KEY))
     try:
         producer = embedded.get(neuraltwin.PRODUCER_KEY)

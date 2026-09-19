@@ -26,18 +26,15 @@ it runs the real compiler to do it — see the route.
 
 import asyncio
 import json
-import logging
 import os
-import subprocess
-import sys
 
 from aiohttp import web
 
 import folder_paths
 from server import PromptServer
 
-from . import (compile as compiler, crop as framing, jobs, latents, lorameta, media,
-               models, plate, refmod, preview, settings, vdn)
+from . import (assets, compile as compiler, crop as framing, latents, lorameta, media,
+               models, refmod, preview, settings, vdn)
 
 # The picker builds its grid lazily and paginates, so the cap only bounds the
 # listing's JSON payload (~2 MB at this size). Newest first, so when a folder
@@ -50,112 +47,6 @@ MAX_ASSETS = 20000
 # for every one of them is seconds of work — so only the newest MAX_LORAS are
 # described, and the manager says so and offers the folder picker instead.
 MAX_LORAS = 600
-
-
-def _classify(filename):
-    for kind in ("image", "video", "audio"):
-        if folder_paths.filter_files_content_types([filename], [kind]):
-            return kind
-    return None
-
-
-def _scan(root, annotation=""):
-    """Walk one media folder -> `(assets, folders)`.
-
-    `annotation` is ComfyUI's ` [output]` suffix.
-
-    The folders come back because the folders *are* the answer: a shelf in the
-    picker is a directory on this disk and nothing else, so the listing has to
-    report every one of them — including the ones holding no media, which the
-    file rows alone can never mention. A shelf that came from anywhere but here
-    is a shelf that outlives the directory it named (#40): delete the input
-    folder from a terminal and the picker went on offering its contents.
-
-    Carried inside `path` rather than as a separate field because the path is
-    the one thing that survives into creator_data: every consumer downstream —
-    the thumb and probe routes here, `media.resolve` at execute time — already
-    goes through `get_annotated_filepath`, so an annotated path is a file the
-    whole pipeline can reach with no second load path.
-
-    Read off `os.scandir`'s entries rather than `os.walk`'s names, because
-    enumerating the directory has already answered everything this asks. Going
-    back by path — `islink`, `getmtime`, `getsize` — is three more syscalls per
-    file, and on Windows that is the entire cost of a listing: `FindFirstFileW`
-    hands back the size and the timestamps inline, so `DirEntry.stat()` there is
-    free for everything except a symlink, while `os.path.getmtime` on a path
-    string is a fresh open through the whole filter driver stack, virus scanner
-    included. On Linux and macOS the same change saves two syscalls of three and
-    nothing was ever slow enough to notice, which is how a folder of renders
-    that lists in a second here listed in minutes on someone's Windows
-    server (#4).
-    """
-    assets = []
-    folders = []
-    pending = [root]
-    index = 0
-    while index < len(pending):
-        directory = pending[index]
-        index += 1
-        try:
-            with os.scandir(directory) as scan:
-                entries = sorted(scan, key=lambda e: e.name)
-        except OSError:
-            continue
-        subfolder = os.path.relpath(directory, root)
-        subfolder = "" if subfolder == "." else subfolder.replace(os.sep, "/")
-        if subfolder:
-            folders.append(subfolder)
-        for entry in entries:
-            if entry.name.startswith("."):
-                continue
-            try:
-                # follow_symlinks=False is os.walk's own default: a link to a
-                # directory is listed, not descended into.
-                if entry.is_dir(follow_symlinks=False):
-                    pending.append(entry.path)
-                    continue
-            except OSError:
-                continue
-            kind = _classify(entry.name)
-            if kind is None:
-                continue
-            # A symlink pointing outside the root is a file this pack cannot
-            # open: `get_annotated_filepath` resolves the link and then refuses
-            # it for leaving the folder, so listing it would offer a thumbnail
-            # that fails at execute time with "not in the input folder any
-            # more" — about a file that is plainly sitting right there.
-            #
-            # Not worked around: the containment check is core's and is the
-            # thing standing between a crafted filename and the rest of the
-            # disk. Symlinking media into input/ does not work; the flag that
-            # does is `--input-directory`, and the README says so.
-            #
-            # `is_symlink` reads the type the enumeration already returned, so
-            # what cost a syscall per file now costs one per symlink.
-            if entry.is_symlink() and not folder_paths.is_within_directory(root, entry.path):
-                continue
-            try:
-                stat = entry.stat()
-            except OSError:
-                continue
-            relative = f"{subfolder}/{entry.name}" if subfolder else entry.name
-            assets.append({
-                "path": relative + annotation,
-                "name": entry.name,
-                "subfolder": subfolder,
-                "kind": kind,
-                "size": stat.st_size,
-                "mtime": stat.st_mtime,
-            })
-    return assets, folders
-
-
-def _input_path(request):
-    """The absolute path behind a `?filename=` query, or None if it is not ours."""
-    filename = request.query.get("filename", "")
-    if not filename or not folder_paths.exists_annotated_filepath(filename):
-        return None
-    return folder_paths.get_annotated_filepath(filename)
 
 
 # What is answered by opening a picture rather than a container. Extensions
@@ -245,7 +136,7 @@ async def probe_asset(request):
         return web.json_response({"has_audio": False, "width": meta["latent_w"] * 16,
                                   "height": meta["latent_h"] * 16, "mod": True,
                                   "tokens": meta["tokens"], "mode": meta["mode"]})
-    path = _input_path(request)
+    path = assets.input_path(request)
     if path is None:
         return web.json_response({"has_audio": None, "error": "not in the input folder"}, status=404)
     try:
@@ -256,48 +147,6 @@ async def probe_asset(request):
         return web.json_response(await loop.run_in_executor(None, _read_header, path))
     except Exception as exc:  # noqa: BLE001 — an unreadable file is the caller's problem, later
         return web.json_response({"has_audio": None, "error": str(exc)})
-
-
-def _read_embedded(path, keys=("prompt", "workflow")):
-    """The `prompt` and `workflow` a finished render carries in its own file.
-
-    Both save nodes write them — `MiniMaxH3Save` into the MP4's container tags,
-    `MiniMaxH3SaveImage` into the PNG's text chunks — for the reason core's
-    savers do: a render dropped back onto the canvas rebuilds the node that made
-    it. Which means the file already holds every field a preset wants, and the
-    only thing missing was a way for the browser to read it.
-
-    Two readers because they are two containers, chosen by extension rather than
-    by trying one and catching: `av` cannot see a PNG's text chunks and PIL
-    cannot open an MP4, so a fallback chain here would only turn "the wrong
-    reader" into "no metadata", which is the same answer for a file that has
-    none and a file we failed to read.
-
-    A value that is not JSON comes back as None rather than raising. These tags
-    are written by whoever wrote the file, which is not always this pack — a
-    render remuxed by ffmpeg keeps the tag and can lose the end of it.
-
-    Callers needing producer provenance opt into that key; preset/workflow
-    readers retain the original two-field response by default.
-    """
-    if os.path.splitext(path)[1].lower() in (".png", ".webp"):
-        from PIL import Image
-
-        with Image.open(path) as image:
-            raw = {key: image.info.get(key) for key in keys}
-    else:
-        import av  # ComfyUI's own decoder stack, as `_read_header` above.
-
-        with av.open(path) as container:
-            raw = {key: container.metadata.get(key) for key in keys}
-
-    out = {}
-    for key, value in raw.items():
-        try:
-            out[key] = json.loads(value) if value else None
-        except (TypeError, ValueError):
-            out[key] = None
-    return out
 
 
 @PromptServer.instance.routes.get("/continuity/render_meta")
@@ -314,12 +163,12 @@ async def render_meta(request):
     200: a file saved under `--disable-metadata` is an ordinary file and not an
     error, and the caller says so in words the user can act on.
     """
-    path = _input_path(request)
+    path = assets.input_path(request)
     if path is None:
         return web.json_response({"error": "not in the input or output folder"}, status=404)
     try:
         loop = asyncio.get_running_loop()
-        return web.json_response(await loop.run_in_executor(None, _read_embedded, path))
+        return web.json_response(await loop.run_in_executor(None, assets.read_embedded, path))
     except Exception as exc:  # noqa: BLE001 — an unreadable file is the caller's problem
         return web.json_response({"prompt": None, "workflow": None, "error": str(exc)})
 
@@ -365,7 +214,7 @@ async def asset_thumb(request):
         except refmod.RefModError:
             path = None
     else:
-        path = _input_path(request)
+        path = assets.input_path(request)
     if path is None:
         return web.Response(status=404)
     # `crop=x,y,w,h[,turn[,mirror]]` draws the framed picture — the same
@@ -397,7 +246,7 @@ async def asset_peaks(request):
     that decoded to silence — and the timeline stays plain, which is exactly what
     it does when this is unavailable altogether.
     """
-    path = _input_path(request)
+    path = assets.input_path(request)
     if path is None:
         return web.json_response({"peaks": None}, status=404)
     result = await preview.waveform(path)
@@ -661,7 +510,7 @@ async def list_assets(request):
 
     The output listing is the gallery — finished renders, browsed with the same
     machinery as the input folder. Its paths come back annotated (` [output]`),
-    which is what lets one of them be attached as a reference: see `_scan`.
+    which is what lets one of them be attached as a reference: see `assets.scan`.
     """
     if request.query.get("root") == "refmods":
         # Saved references, out of the model folders: a different place with
@@ -680,44 +529,15 @@ async def list_assets(request):
     # A walk with two stat calls per file is nothing on a local disk and minutes
     # on a network share, and the event loop is also the prompt queue.
     loop = asyncio.get_running_loop()
-    assets, folders = await loop.run_in_executor(None, _scan, root, annotation)
-    assets.sort(key=lambda a: a["mtime"], reverse=True)
-    truncated = len(assets) > MAX_ASSETS
-    # Not capped with the assets. `MAX_ASSETS` is there so a folder of ten
+    found, folders = await loop.run_in_executor(None, assets.scan, root, annotation)
+    found.sort(key=lambda a: a["mtime"], reverse=True)
+    truncated = len(found) > MAX_ASSETS
+    # Not capped with the files. `MAX_ASSETS` is there so a folder of ten
     # thousand renders does not become a ten-megabyte JSON body, and the shelf
     # row is the one part of a truncated listing that must still be whole:
     # dropping folders would hide the places the missing files are in.
-    return web.json_response({"assets": assets[:MAX_ASSETS], "folders": sorted(folders),
+    return web.json_response({"assets": found[:MAX_ASSETS], "folders": sorted(folders),
                               "truncated": truncated})
-
-
-def _picker_root(name):
-    """The absolute path of a root the picker browses, or None.
-
-    Named rather than derived from a file, because the two folder routes below
-    act on a directory and a directory has no ` [output]` suffix to read a root
-    out of. Same two roots either way — nothing here rearranges `[temp]`.
-    """
-    if name == "output":
-        return os.path.realpath(folder_paths.get_output_directory())
-    if name in ("input", "", None):
-        return os.path.realpath(folder_paths.get_input_directory())
-    return None
-
-
-def _clean_subfolder(raw):
-    """A user-typed shelf name as a safe root-relative directory, or None.
-
-    Rejects rather than sanitizes: a name that needs rewriting to be safe is a
-    name the user should see refused, not silently changed.
-    """
-    raw = str(raw).strip().strip("/")
-    if not raw:
-        return ""
-    parts = raw.replace("\\", "/").split("/")
-    if any(not p or p.startswith(".") for p in parts):
-        return None
-    return "/".join(parts)
 
 
 def _rooted(filename):
@@ -752,7 +572,7 @@ async def move_asset(request):
     the dated folder it landed in and onto a shelf of its own.
     """
     body = await request.json()
-    subfolder = _clean_subfolder(body.get("subfolder", ""))
+    subfolder = assets.clean_subfolder(body.get("subfolder", ""))
     if subfolder is None:
         return web.json_response({"error": "bad folder name"}, status=400)
     rooted = _rooted(body.get("filename", ""))
@@ -825,10 +645,10 @@ async def make_folder(request):
     nothing is remembered anywhere else.
     """
     body = await request.json()
-    root = _picker_root(body.get("root"))
+    root = assets.picker_root(body.get("root"))
     if root is None:
         return web.json_response({"error": "not a folder the picker browses"}, status=400)
-    subfolder = _clean_subfolder(body.get("subfolder", ""))
+    subfolder = assets.clean_subfolder(body.get("subfolder", ""))
     if not subfolder:
         return web.json_response({"error": "bad folder name"}, status=400)
     target = os.path.realpath(os.path.join(root, subfolder))
@@ -854,10 +674,10 @@ async def remove_folder(request):
     is a directory on the disk.
     """
     body = await request.json()
-    root = _picker_root(body.get("root"))
+    root = assets.picker_root(body.get("root"))
     if root is None:
         return web.json_response({"error": "not a folder the picker browses"}, status=400)
-    subfolder = _clean_subfolder(body.get("subfolder", ""))
+    subfolder = assets.clean_subfolder(body.get("subfolder", ""))
     if not subfolder:
         return web.json_response({"error": "bad folder name"}, status=400)
     target = os.path.realpath(os.path.join(root, subfolder))
@@ -868,204 +688,6 @@ async def remove_folder(request):
     except OSError:
         return web.json_response({"error": "that folder is not empty"}, status=409)
     return web.json_response({"ok": True})
-
-
-def _reveal_command(path):
-    """The OS's own "show me this folder", as an argv."""
-    if sys.platform == "darwin":
-        return ["open", path]
-    if sys.platform.startswith("win"):
-        return ["explorer", path]
-    return ["xdg-open", path]
-
-
-@PromptServer.instance.routes.post("/continuity/reveal")
-async def reveal_folder(request):
-    """Open a folder the picker browses in the operating system's file manager.
-
-    On the machine ComfyUI runs on — which is the only machine this process
-    can open anything on, and is not always the one the browser is on. So the
-    answer carries the path either way: on a local install the window comes up
-    and the path is a caption; on a remote one nothing comes up, the reply
-    says so, and the path is the thing you actually wanted (#23).
-
-    The output directory is asked of `folder_paths` rather than assumed, so an
-    install started with `--output-directory` opens the folder it writes to.
-    """
-    body = await request.json()
-    root = _picker_root(body.get("root"))
-    if root is None:
-        return web.json_response({"error": "not a folder the picker browses"}, status=400)
-    subfolder = _clean_subfolder(body.get("subfolder", ""))
-    if subfolder is None:
-        return web.json_response({"error": "bad folder name"}, status=400)
-    target = os.path.realpath(os.path.join(root, subfolder)) if subfolder else root
-    if not folder_paths.is_within_directory(root, target) or not os.path.isdir(target):
-        return web.json_response({"error": "no such folder"}, status=404)
-    try:
-        # Detached, and not waited for: `open` and `explorer` return at once,
-        # `xdg-open` returns when the file manager has taken the folder.
-        subprocess.Popen(_reveal_command(target), stdin=subprocess.DEVNULL,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except OSError as exc:
-        # No file manager to hand it to — a headless box, a container. The
-        # path is still the answer.
-        return web.json_response({"error": f"this machine has no file manager to open it in ({exc})",
-                                  "path": target}, status=501)
-    return web.json_response({"path": target})
-
-
-def _plate_panels(body):
-    """The panels a plate request describes, with only what the pixels need."""
-    panels = []
-    for panel in body.get("panels") or []:
-        path = str(panel.get("path") or "").strip()
-        if not path:
-            continue
-        made = {"path": path, "cut": bool(panel.get("cut"))}
-        rect = panel.get("rect")
-        if isinstance(rect, (list, tuple)) and len(rect) == 4:
-            made["rect"] = [float(v) for v in rect]
-        points = [{"x": float(p.get("x", 0)), "y": float(p.get("y", 0)),
-                   "include": bool(p.get("include", True))}
-                  for p in (panel.get("points") or []) if isinstance(p, dict)]
-        if points:
-            made["points"] = points
-        crop = panel.get("crop")
-        if isinstance(crop, dict) and crop:
-            made["crop"] = crop
-        panels.append(made)
-    return panels
-
-
-def _plate_models(body):
-    """The matte weights a plate request names — or, unnamed, the install's
-    own (`plate.default_models`), resolved here so the plate's name on disk
-    says which file cut it."""
-    defaults = plate.default_models()
-    return {"cutout": str(body.get("model") or "") or defaults["cutout"],
-            "segment": str(body.get("segment") or "") or defaults["segment"]}
-
-
-def _plate_job(body):
-    """One accepted sheet, on the queue. See `creator/jobs.py`."""
-    return plate.build(_plate_panels(body), _plate_models(body),
-                       float(body.get("backdrop", 0.5)),
-                       int(body.get("width") or 1280),
-                       int(body.get("height") or 704))
-
-
-jobs.register("plate", _plate_job)
-
-
-@PromptServer.instance.routes.post("/continuity/plate")
-async def build_plate(request):
-    """Write the accepted sheet. See `creator/plate.py`.
-
-    Posted when the sheet editor's Accept (or the picker's Add over an already
-    confirmed group) commits — never while the sheet is merely being edited,
-    which is what keeps `_plates/` holding only sheets somebody chose to keep.
-    The editing preview never touches this route: it composites in the browser
-    from `/plate/panel` cutouts, which are served from memory.
-
-    Errors come back as `{"error": …}` with a 400 rather than as a 500, because
-    every way this fails is something the user can act on — no model picked, a
-    file that has been deleted out from under the picker, an install without
-    core's background removal — and the editor puts the sentence on the sheet
-    where the picture would have been.
-    """
-    body = await request.json()
-    panels = _plate_panels(body)
-    if not panels:
-        return web.json_response({"error": "a plate needs at least one picture"},
-                                 status=400)
-
-    # A sheet with nothing cut out is a resize and a paste: no weights, no GPU.
-    # It is answered inside the request, because a plain sheet queued behind a
-    # render greyed the picker's Add for the length of the render with nothing
-    # on screen saying why (#89) — and the six pictures picked in order were
-    # lost to the only button that still worked, Cancel.
-    if not any(panel.get("cut") for panel in panels):
-        try:
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(None, lambda: _plate_job(body))
-        except Exception as exc:                   # noqa: BLE001 — reported, not swallowed
-            logging.exception("[MiniMax] laying out a plate failed")
-            return web.json_response({"error": str(exc)}, status=400)
-        return web.json_response({"result": result})
-
-    # A cut panel is a forward pass through BiRefNet, and a sheet is one per
-    # panel — queued rather than run on a thread beside the prompt queue. See
-    # `creator/jobs.py`.
-    try:
-        prompt_id = await jobs.submit("plate", body, body.get("client_id"))
-    except jobs.JobError as exc:
-        return web.json_response({"error": str(exc)}, status=500)
-    return web.json_response({"prompt_id": prompt_id})
-
-
-# The sheet editor's per-panel cutouts, encoded once and held — bounded, and
-# keyed by everything that changes the pixels (the file's stamp, the matte
-# weights, the clicks), so replacing a photograph under the same name or moving
-# a point makes a fresh matte rather than finding the stale one.
-_PANEL_CACHE = {}
-_PANEL_KEEP = 64
-
-
-def _panel_png(panel, models):
-    """One panel's cutout as RGBA PNG bytes — the subject over transparency.
-
-    Transparent rather than composited, because the editor lays the panel over
-    the backdrop itself: one encode serves every backdrop, and the browser's
-    compositing is the same alpha-over `cutout.over` bakes on Accept.
-    """
-    import io as _io
-
-    import numpy as np
-    from PIL import Image
-
-    image, alpha = plate.cut_panel(panel, models)
-    rgb = image[0].clamp(0.0, 1.0).mul(255.0).round().to("cpu").numpy().astype(np.uint8)
-    if alpha is None:
-        made = Image.fromarray(rgb, "RGB")
-    else:
-        a = alpha[0].clamp(0.0, 1.0).mul(255.0).round().to("cpu").numpy().astype(np.uint8)
-        made = Image.fromarray(np.dstack([rgb, a]), "RGBA")
-    out = _io.BytesIO()
-    made.save(out, format="PNG", compress_level=4)
-    return out.getvalue()
-
-
-@PromptServer.instance.routes.post("/continuity/plate/panel")
-async def cut_plate_panel(request):
-    """One panel of the sheet being edited, cut out, as a PNG — from memory,
-    never from a file. This is what the editor's live preview is made of."""
-    refused = jobs.refuse_if_busy()
-    if refused is not None:
-        return refused
-    body = await request.json()
-    panels = _plate_panels(body)
-    if len(panels) != 1:
-        return web.json_response({"error": "one panel at a time"}, status=400)
-    panel, models = panels[0], _plate_models(body)
-
-    try:
-        stamp = media.stamp(panel["path"])
-        key = json.dumps([stamp, models, panel.get("points") or [],
-                          bool(panel.get("cut")), panel.get("crop") or {}],
-                         sort_keys=True, default=str)
-        png = _PANEL_CACHE.get(key)
-        if png is None:
-            loop = asyncio.get_running_loop()
-            png = await loop.run_in_executor(
-                None, lambda: _panel_png(panel, models))
-            while len(_PANEL_CACHE) >= _PANEL_KEEP:
-                _PANEL_CACHE.pop(next(iter(_PANEL_CACHE)))
-            _PANEL_CACHE[key] = png
-    except Exception as exc:                       # noqa: BLE001 — reported, not swallowed
-        logging.exception("[MiniMax] cutting a panel failed")
-        return web.json_response({"error": str(exc)}, status=400)
-    return web.Response(body=png, content_type="image/png")
 
 
 @PromptServer.instance.routes.get("/continuity/settings")

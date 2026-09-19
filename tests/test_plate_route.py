@@ -5,35 +5,32 @@
 `/continuity/plate` used to queue every sheet behind whatever was rendering.
 A sheet with nothing cut out is a resize and a paste — no weights — so making
 it wait for a render greyed the picker's Add for the render's length with
-nothing saying why, and Cancel was the only way out. The route function is run
-here with the queue and the builder replaced: what is checked is which door
-each kind of sheet leaves by.
+nothing saying why, and Cancel was the only way out. `routes/plate.py` is
+imported over a stub server with the queue and the builder replaced: what is
+checked is which door each kind of sheet leaves by.
 """
 
-import ast
 import asyncio
 import json
 import logging
-from pathlib import Path
+import sys
+from types import ModuleType
 
-from aiohttp import web
 
 import layout
 from harness import check, passed
 
 logging.disable(logging.CRITICAL)   # the refused build is logged on purpose
 
-source = Path(layout.PY_ROOT) / "server_routes.py"
-tree = ast.parse(source.read_text(encoding="utf-8"))
-route = next(node for node in tree.body
-             if isinstance(node, ast.AsyncFunctionDef) and node.name == "build_plate")
-route.decorator_list = []
-
 built, submitted = [], []
 
 
 class _Jobs:
     class JobError(ValueError):
+        pass
+
+    @staticmethod
+    def register(kind, build):
         pass
 
     @staticmethod
@@ -49,10 +46,17 @@ def _plate_job(body):
     return {"path": "_plates/plate-abc.png", "panels": len(body["panels"])}
 
 
-namespace = {"asyncio": asyncio, "logging": logging, "web": web, "jobs": _Jobs,
-             "_plate_panels": lambda body: body["panels"], "_plate_job": _plate_job}
-exec(compile(ast.Module(body=[route], type_ignores=[]), str(source), "exec"), namespace)
-build_plate = namespace["build_plate"]
+PACKAGE = "plate_route_test"
+layout.stub_server()
+pkg = layout.load(package=PACKAGE)
+# The route's siblings, stood in for: the queue by `_Jobs`, and `media` and
+# `plate` by empty modules, since the builder they serve is replaced below.
+for name, stub in (("jobs", _Jobs), ("media", ModuleType("media")), ("plate", ModuleType("plate"))):
+    sys.modules[f"{PACKAGE}.{name}"] = stub
+    setattr(pkg, name, stub)
+route = layout.load("plate_route", package=PACKAGE).plate_route
+route._plate_job = _plate_job
+build_plate = route.build_plate
 
 
 class Request:
