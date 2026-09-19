@@ -9,6 +9,7 @@ from aiohttp import web
 from server import PromptServer
 
 from .. import jobs, media, plate
+from ..guard import same_origin
 
 
 def _plate_panels(body):
@@ -55,6 +56,7 @@ jobs.register("plate", _plate_job)
 
 
 @PromptServer.instance.routes.post("/continuity/plate")
+@same_origin
 async def build_plate(request):
     """Write the accepted sheet. See `creator/plate.py`.
 
@@ -133,6 +135,7 @@ def _panel_png(panel, models):
 
 
 @PromptServer.instance.routes.post("/continuity/plate/panel")
+@same_origin
 async def cut_plate_panel(request):
     """One panel of the sheet being edited, cut out, as a PNG — from memory,
     never from a file. This is what the editor's live preview is made of."""

@@ -35,6 +35,7 @@ from server import PromptServer
 
 from . import (assets, compile as compiler, crop as framing, latents, lorameta, media,
                models, refmod, preview, settings, vdn)
+from .guard import same_origin
 
 # The picker builds its grid lazily and paginates, so the cap only bounds the
 # listing's JSON payload (~2 MB at this size). Newest first, so when a folder
@@ -377,6 +378,7 @@ def _collect_named(names):
 
 
 @PromptServer.instance.routes.post("/continuity/loras_named")
+@same_origin
 async def loras_named(request):
     body = await request.json()
     raw = body.get("names")
@@ -562,6 +564,7 @@ def _rooted(filename):
 
 
 @PromptServer.instance.routes.post("/continuity/move")
+@same_origin
 async def move_asset(request):
     """Move one file into another subfolder of the root it already lives in —
     the picker's drag-a-thumbnail-onto-a-shelf.
@@ -604,6 +607,7 @@ async def move_asset(request):
 
 
 @PromptServer.instance.routes.post("/continuity/delete")
+@same_origin
 async def delete_asset(request):
     """Delete one file — organize mode's other action. Files only, never
     directories: a shelf whose last file goes simply drops out of the listing.
@@ -631,6 +635,7 @@ async def delete_asset(request):
 
 
 @PromptServer.instance.routes.post("/continuity/folder")
+@same_origin
 async def make_folder(request):
     """Make a shelf — which is to say: make the directory.
 
@@ -661,6 +666,7 @@ async def make_folder(request):
 
 
 @PromptServer.instance.routes.post("/continuity/folder/delete")
+@same_origin
 async def remove_folder(request):
     """Remove an empty shelf.
 
@@ -697,6 +703,7 @@ async def read_settings(request):
 
 
 @PromptServer.instance.routes.post("/continuity/settings")
+@same_origin
 async def write_settings(request):
     """Store what the settings page changed and hand back what was stored.
 
@@ -715,6 +722,7 @@ async def write_settings(request):
 
 
 @PromptServer.instance.routes.post("/continuity/settings/reset")
+@same_origin
 async def reset_settings(request):
     """Put every setting back to what this pack ships with. See `settings.reset`.
 
@@ -742,6 +750,7 @@ async def read_latent_cache(request):
 
 
 @PromptServer.instance.routes.post("/continuity/latent_cache/clear")
+@same_origin
 async def clear_latent_cache(request):
     """Delete every cached reference. -> what was freed, so the page can say so.
 
@@ -825,6 +834,7 @@ def compiled_passes(blob, seed=None):
 
 
 @PromptServer.instance.routes.post("/continuity/compiled_prompt")
+@same_origin
 async def compiled_prompt(request):
     """The prompt the model will actually read, for the blob the editor holds.
 

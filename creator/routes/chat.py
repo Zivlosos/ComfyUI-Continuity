@@ -49,6 +49,7 @@ from server import PromptServer
 from .. import chat, jobs, media, models as core_models, refine_local, refine_remote, refmod
 from .. import refine_routes, refine_skill, server_routes, settings
 from ..families import manifest, refine, registry
+from ..guard import same_origin
 
 log = logging.getLogger(__name__)
 
@@ -417,6 +418,7 @@ def _no_model(block):
 
 
 @PromptServer.instance.routes.post("/continuity/chat/render")
+@same_origin
 async def chat_render(request):
     """Render what the model asked for.
 
@@ -672,6 +674,7 @@ jobs.register("chat", _run_job)
 
 
 @PromptServer.instance.routes.post("/continuity/chat/turn")
+@same_origin
 async def chat_turn(request):
     """Ask the model what to do about one message. -> the turn, or a `prompt_id`.
 

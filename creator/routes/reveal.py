@@ -9,9 +9,11 @@ from server import PromptServer
 import folder_paths
 
 from .. import assets
+from ..guard import same_origin
 
 
 @PromptServer.instance.routes.post("/continuity/reveal")
+@same_origin
 async def reveal_folder(request):
     """Open a folder the picker browses in the operating system's file manager.
 

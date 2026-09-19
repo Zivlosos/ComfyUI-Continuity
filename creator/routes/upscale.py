@@ -24,6 +24,7 @@ from aiohttp import web
 from server import PromptServer
 
 from .. import jobs, media, upscale
+from ..guard import same_origin
 
 # The preview is asked for whenever a dial or the centre moves and the answer is
 # a picture — long enough that going back to a setting is free, short enough
@@ -102,6 +103,7 @@ jobs.register("upscale", _run_job)
 
 
 @PromptServer.instance.routes.post("/continuity/upscale/run")
+@same_origin
 async def run_upscale(request):
     """Upscale the whole file and put the result on the shelf.
 

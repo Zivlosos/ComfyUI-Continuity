@@ -4,6 +4,12 @@ Back by request. Every entry opens with a line saying what changed; the
 paragraph under it says how and why, and from 3.0 down that paragraph is kept
 exactly as it was written, wall of text and all.
 
+## 3.1.1
+
+**Every route that writes, queues or spawns now refuses a request from
+another site.** The registry's review asked for it: a page on any origin
+could POST to the pack's routes, and nothing checked who was asking.
+
 ## 3.1
 
 **Published to the Comfy registry again.** The scanner's warnings are
