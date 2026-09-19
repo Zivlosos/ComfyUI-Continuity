@@ -406,6 +406,9 @@ function defaultRail() {
     // one of its fixed blocks. Read on the turn, never on the render: the
     // model's prompt is the render's prompt, and nothing rewrites it between.
     verbosity: 0,
+    // How long a reply may run, in tokens — a plan line and one object, so
+    // far below the refiner's rewrite budget. Mirrors `chat.REPLY_TOKENS`.
+    reply_tokens: 1024,
     // A file under the node's skills/ folder, appended to the room's own
     // prompting. Only ever appended — the room's reply contract is what turns
     // an answer into a render, so replacing it would leave nothing to queue.
@@ -528,6 +531,7 @@ function requestBlock(sync) {
     // letting a package's own declared mode decide and be refused.
     skill_mode: bar.skill ? "add" : "",
     verbosity: Number(bar.verbosity) || 0,
+    reply_tokens: Number(bar.reply_tokens) || 1024,
     ...sync.families(),
   };
 }

@@ -38,6 +38,11 @@ import { t } from "./i18n.js";
  *  or none off it, and this is only so the readout can name the block. */
 const VERBOSITY_TIERS = 3;
 
+/** What the reply-length pill may be moved between. Mirrors
+ *  `chat.MIN_REPLY_TOKENS` and `chat.MAX_REPLY_TOKENS`, which clamp it
+ *  again server-side. */
+const REPLY_TOKENS = { min: 256, max: 8192, step: 256 };
+
 /** What each block is called beside the slider, bottom first. */
 const TIER_NAMES = ["as written", "a little", "more", "rich"];
 
@@ -210,6 +215,13 @@ export function openThinker(anchor, { rail, setRail, skills, onChange }) {
         onChange: (next) => { saveRefiner({ temperature: next }); changed(); },
       }), t("The model's temperature. Lower keeps closer to your wording; higher "
             + "invents more around it. Cold keeps a small model on task.")),
+      line(t("Reply length"), stepperPill({
+        value: Number(bar.reply_tokens) || 1024, ...REPLY_TOKENS, width: "62px",
+        format: (n) => t("{n} tokens", { n }),
+        onChange: (next) => { setRail({ reply_tokens: next }); drawWrites(); },
+      }), t("How many tokens a reply may run to. A reply is a line and one prompt, "
+            + "so this stays small: on one card the model reserves memory for the "
+            + "whole budget before it writes, and a large one slows every word.")),
     );
   }
 

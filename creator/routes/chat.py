@@ -534,7 +534,10 @@ def _ask(block, system, message):
         # conversation about one. The dial is still the user's.
         temperature=block.get("temperature", 0.3),
         seed=block.get("seed", -1),
-        max_tokens=block.get("max_tokens"),
+        # The rail's own budget, not the refiner's `max_tokens` on the block:
+        # a turn is a plan line and one object, and the in-process backend
+        # reserves a KV cache of the prompt plus this.
+        max_tokens=chat.reply_tokens(block.get("reply_tokens")),
         prefill="",
     )
 

@@ -194,6 +194,21 @@ MAX_SAY = 600
 # How much of its own reply the model is shown on a re-ask: a plan line and
 # an object with a prompt in it, which runs past `MAX_SAY` on any real turn.
 MAX_REPLY_QUOTED = 2400
+# How long a turn's reply may run, in tokens: the rail's own setting, with
+# its default and its ends. A plan line and an object with one prompt in it
+# is a few hundred; this is not the refiner's rewrite budget, and must not
+# be: the in-process backend reserves a KV cache of the prompt plus this.
+REPLY_TOKENS = 1024
+MIN_REPLY_TOKENS = 256
+MAX_REPLY_TOKENS = 8192
+
+
+def reply_tokens(value):
+    """The rail's reply budget, made usable. Junk falls back to the default."""
+    try:
+        return max(MIN_REPLY_TOKENS, min(MAX_REPLY_TOKENS, int(value)))
+    except (TypeError, ValueError):
+        return REPLY_TOKENS
 
 
 class ActionError(ValueError):

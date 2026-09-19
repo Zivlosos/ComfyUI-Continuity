@@ -28,6 +28,7 @@ Everything except the loading is in `refine.py`, unit-tested without torch.
 """
 
 import gc
+import inspect
 
 from .families import refine
 
@@ -268,6 +269,13 @@ def chat(name, system, message, images=(), temperature=0.7, seed=-1, max_tokens=
     import comfy.model_management as mm
 
     seed = int(seed)
+    # Core's Qwen3.5 generate (9a77c1db, 2026-09-18) drafts ahead with the
+    # checkpoint's MTP head inside a captured CUDA graph. On a 24 GB card with
+    # the 27B w4a8 that capture failed (`cudaErrorStreamCaptureInvalidated`,
+    # taking the process down on the lab), and its snapshot slabs pushed the
+    # weights into streaming at ~1 s/token. `mtp=False` is the plain decode
+    # this always used; cores older than the kwarg get the same call as before.
+    options = {"mtp": False} if "mtp" in inspect.signature(clip.generate).parameters else {}
     try:
         with _progress_context():
             generated = clip.generate(
@@ -280,6 +288,7 @@ def chat(name, system, message, images=(), temperature=0.7, seed=-1, max_tokens=
                 min_p=MIN_P,
                 repetition_penalty=REPETITION_PENALTY,
                 seed=seed if seed >= 0 else 0,
+                **options,
             )
     except refine.RefineError:
         raise
