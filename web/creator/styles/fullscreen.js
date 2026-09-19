@@ -901,7 +901,11 @@ export const css = `
    would have been a jump. */
 .mmc-fs.simple .mmc-fs-reel {
   flex: 1 1 auto; min-width: 0; max-width: 0; align-self: stretch;
-  padding: 0; opacity: 0; gap: 12px;
+  /* The card sits a shade above true centre (its 6vh margin-bottom, below);
+     the picture beside it has to be lifted by the same amount or the two are
+     level only on paper. Set here rather than on .working so opening the reel
+     animates width alone. */
+  padding: 0 0 6vh; opacity: 0; gap: 12px;
   transition: max-width .32s cubic-bezier(.4, 0, .2, 1),
               padding-left .32s cubic-bezier(.4, 0, .2, 1),
               opacity .22s ease .06s;
