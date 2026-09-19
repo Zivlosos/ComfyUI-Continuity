@@ -1,4 +1,4 @@
-// What the room takes from the canvas, and nothing else.
+// What the room takes from the canvas, and whose each setting is.
 //
 // A chat renders from its own piece. Its family, its shape, its seed, its
 // cast, the files it made and attached, and the family's pinned LoRAs are all
@@ -8,25 +8,32 @@
 // row and the turbo switch — and that only while the room follows the node:
 // a chat is usually opened over a piece somebody has already tuned, and the
 // steps, the guidance and the schedule they settled on are the ones a draft
-// beside it should sample on too.
+// beside it should sample on too. So a machine set up once, on the node, is
+// set up for its chats.
 //
-// **A pin takes a copy of that row for the room alone.** From then on the
-// gear edits the copy, the node is free to be set differently, and the copy
-// is the machine's (`settings.chat`) so it is there on the next page and for
-// every chat. Unpinning drops it and the room follows again.
+// **Every row says whose it is.** `source(kind)` answers one of three words,
+// and the *Makes with* sheet wears the answer as a badge beside the row:
 //
-// **A node on another family has nothing to follow.** A row is a family's —
-// H3's steps are not LTX's, and H3's turbo LoRA is not a file LTX can wear —
-// so a room whose clips are on one family while the piece is on another
-// samples on its own family's defaults, and the gear says so. Pinning writes
-// a row of the room's own from those defaults.
+//   - `node` — the node under the room is on this family, and its row is
+//     what the room samples on. Change the node and the room changes.
+//   - `chat` — the room keeps a row of its own for this side, kept on the
+//     machine (`settings.chat`) so it is there on the next page and for every
+//     chat. The node is free to be set differently.
+//   - `defaults` — there is nothing to follow: no node under the room, or a
+//     node on another family (H3's steps are not LTX's, and H3's turbo LoRA
+//     is not a file LTX can wear). The family's own defaults, all the way down.
 //
-// The gear is the node's row, drawn again. `samplingBar`, `turboPills` and
-// `PreStageRow` are the same functions the faces mount, called here with the
-// same `widgetIO` over the node's own blob while following, or with `blobIO`
-// over the copy while pinned. The bodies say when they have redrawn
-// (`onRender`), and the room follows.
-import { el, icon } from "./dom.js";
+// **A row of the chat's own is the steps and the guidance, never the
+// speed-ups.** The accelerators — block cache, spectrum, attention, VDN, the
+// low-VRAM and fast-math switches — are statements about this machine rather
+// than about a piece, so they are never copied into the chat's row and never
+// drawn on it; the render takes the node's where the node can be followed
+// and the family's defaults where it cannot (`row`).
+//
+// The chat's own row is drawn with the same functions the faces mount —
+// `samplingBar`, `turboPills`, `PreStageRow` — over a blank blob of the
+// room's family through `blobIO`. A followed row is read, never drawn: the
+// node is the one place it is edited, which is the whole point of following.
 import { samplingBar, blobIO, SAMPLING_WIDGETS, WIDGET_ONLY } from "./sampling.js";
 import { turboPills, sync as syncTurbo } from "./turbo.js";
 import { PreStageRow } from "./prestage.js";
@@ -46,36 +53,53 @@ export const PICTURE_ARCHES = S.PRESTAGE_IMAGE_ARCHES;
 export const EDIT_ARCHES = PICTURE_ARCHES.filter(
   (arch) => Boolean(stillFamily(arch).capabilities?.refs?.edits_first));
 
-/** The rail field a side's pinned row is kept in. */
-const PIN = { still: "pinned_still", video: "pinned_video" };
+/** The rail field a side's own row is kept in. */
+const OWN = { still: "pinned_still", video: "pinned_video" };
 
-/** The sampler widgets minus the seed's: the room's seed is its own, so the
- *  rows drawn here never show the node's. */
-function rowWidgets(widgets) {
-  return Object.fromEntries(Object.entries(widgets ?? {})
-    .filter(([name]) => !WIDGET_ONLY.includes(name)));
+/** The pre-stage's sampler row, by widget name. One node draws every image
+ *  arch, so its row is one set of widgets whatever the arch. */
+const STILL_ROW = ["steps", "cfg", "sampler_name", "scheduler"];
+
+/** The keys of a video family's row that are about the machine — the
+ *  accelerators — plus the blob-only VDN stage, which rides with them. */
+function accelKeys(family) {
+  return new Set([
+    ...S.widgetsOf(family).filter((w) => w.group === "accel").map((w) => w.id),
+    "vdn",
+  ]);
 }
 
-/** The row's values off an io, by name — what a pin copies. */
-function rowOf(io) {
-  const row = {};
-  if (!io) return row;
-  for (const name of SAMPLING_WIDGETS) {
-    if (WIDGET_ONLY.includes(name)) continue;
-    const value = io.value(name, undefined);
-    if (value !== undefined) row[name] = value;
-  }
-  return row;
+/** `block` without the keys in `drop`. */
+function without(block, drop) {
+  return Object.fromEntries(Object.entries(block ?? {}).filter(([name]) => !drop.has(name)));
+}
+
+/** Only the keys of `block` in `keep`. */
+function only(block, keep) {
+  return Object.fromEntries(Object.entries(block ?? {}).filter(([name]) => keep.has(name)));
+}
+
+/** The widgets a chat's own row is drawn over: the node's, minus the seed's
+ *  (the room's seed is its own) and minus the accelerators; or, with no
+ *  node on the canvas to borrow them from, a stand-in per name — the bar
+ *  only asks whether a widget exists, and reads its value through the io. */
+function ownWidgets(kind, family, real) {
+  const drop = new Set([...WIDGET_ONLY, ...(kind === "video" ? accelKeys(family) : [])]);
+  if (real && Object.keys(real).length) return without(real, drop);
+  const names = kind === "video"
+    ? S.widgetsOf(family).filter((w) => w.group === "sampler").map((w) => w.id)
+    : STILL_ROW;
+  return Object.fromEntries(names.map((name) => [name, { name }]));
 }
 
 /**
- * The sampler row a chat render samples on, and where it comes from.
+ * The sampler row a chat render samples on, and whose it is.
  *
  * @param {object} doors
  *   `node()` the piece's node under the room, or null;
  *   `preStage()` the pre-stage beside it, or null;
  *   `rail()` / `setRail(patch)` the room's rail, where the families and a
- *   pinned row live.
+ *   row of the room's own live.
  */
 export class Sync {
   constructor({ node, preStage, rail, setRail }) {
@@ -154,51 +178,94 @@ export class Sync {
     return Boolean(live && live.state.arch === arch);
   }
 
-  // ---- pinning ------------------------------------------------------------------
+  // ---- whose row it is -------------------------------------------------------------
 
-  pinned(kind) {
-    return Boolean(this.rail()[PIN[kind]]);
+  /** Whose row a side samples on: `chat`, `node` or `defaults`. */
+  source(kind, arch = this.stillArch()) {
+    if (this.own(kind)) return "chat";
+    return this.followable(kind, arch) ? "node" : "defaults";
   }
 
-  /** The pinned copy of a side, parsed, or null while the side follows. */
+  /** How many sides keep a row of the room's own — what the header pill says. */
+  ownCount() {
+    return ["still", "video"].filter((kind) => this.own(kind)).length;
+  }
+
+  /** Why a side samples on its defaults: what was there to follow, if
+   *  anything. Empty for a side that is the node's or the chat's. */
+  reason(kind) {
+    if (this.source(kind) !== "defaults") return "";
+    const family = kind === "still"
+      ? t(S.PRESTAGE_ARCH_LABEL[this.stillArch()])
+      : t(S.FAMILY_LABEL[this.videoFamily()]);
+    const live = kind === "still" ? this.pictureNode() : this.clipNode();
+    if (!live) {
+      return kind === "still"
+        ? t("No pre-stage under this chat to follow, so {family} samples on its defaults.", { family })
+        : t("No piece under this chat to follow, so {family} samples on its defaults.", { family });
+    }
+    const theirs = kind === "still"
+      ? t(S.PRESTAGE_ARCH_LABEL[live.state.arch] ?? live.state.arch)
+      : t(S.FAMILY_LABEL[S.pieceFamily(live.piece)] ?? S.pieceFamily(live.piece));
+    return t("The node is on {theirs}, and a row is a family's, so {family} samples on its defaults.",
+             { theirs, family });
+  }
+
+  // ---- a row of the room's own ---------------------------------------------------
+
+  own(kind) {
+    return Boolean(this.rail()[OWN[kind]]);
+  }
+
+  /** The room's own row for a side, parsed, or null while the side follows.
+   *  A row saved before the accelerators were kept out of it loses them on
+   *  the way in, so a copy is never the machine's speed-ups frozen. */
   copy(kind) {
-    const raw = this.rail()[PIN[kind]];
+    const raw = this.rail()[OWN[kind]];
     if (!raw) { this.copies[kind] = null; return null; }
     if (!this.copies[kind]) {
-      this.copies[kind] = kind === "still" ? S.parsePreStage(raw) : S.parseTimeline(raw);
+      if (kind === "still") {
+        this.copies.still = S.parsePreStage(raw);
+      } else {
+        const copy = S.parseTimeline(raw);
+        copy.sampling = without(copy.sampling, accelKeys(S.pieceFamily(copy)));
+        this.copies.video = copy;
+      }
     }
     return this.copies[kind];
   }
 
-  /** Write a side's copy back to the rail, after a change on it. */
+  /** Write a side's own row back to the rail, after a change on it. */
   save(kind) {
     const copy = this.copies[kind];
     if (!copy) return;
-    this.setRail({ [PIN[kind]]: kind === "still" ? S.serializePreStage(copy) : S.serializeTimeline(copy) });
+    this.setRail({ [OWN[kind]]: kind === "still" ? S.serializePreStage(copy) : S.serializeTimeline(copy) });
   }
 
   /**
-   * Pin a side: a row of the room's own, copied from the node where the node
-   * can be followed and from the family's defaults where it cannot.
+   * Give a side a row of the room's own, started from what it samples on
+   * now: the node's row where the node can be followed, the family's
+   * defaults where it cannot.
    *
    * The copy is a blank blob of the room's family with only the row and the
    * turbo switch written onto it — nothing else of the node's comes across,
-   * because nothing else of the node's is the room's. It is a whole blob
-   * rather than the two fields because the pills that draw and edit a row
-   * (`turboPills`, `PreStageRow`) read and write one.
+   * because nothing else of the node's is the room's, and the accelerators
+   * stay out (`rowOf`). It is a whole blob rather than the two fields because
+   * the pills that draw and edit a row (`turboPills`, `PreStageRow`) read and
+   * write one.
    */
-  pin(kind) {
+  takeOwn(kind) {
     let copy;
     if (kind === "still") {
       const arch = this.stillArch();
       const live = this.followable("still") ? this.pictureNode() : null;
-      const blank = { ...S.emptyPreStage(), arch, sampling: rowOf(live?.body.widgetIO()) };
+      const blank = { ...S.emptyPreStage(), arch, sampling: this.rowOf(kind, live?.body.widgetIO()) };
       if (live?.state.turbo?.[arch]) blank.turbo = { ...blank.turbo, [arch]: { ...live.state.turbo[arch] } };
       copy = S.parsePreStage(S.serializePreStage(blank));
     } else {
       const family = this.videoFamily();
       const live = this.followable("video") ? this.clipNode() : null;
-      const blank = { ...S.emptyTimeline(), family, sampling: rowOf(live?.body.widgetIO()) };
+      const blank = { ...S.emptyTimeline(), family, sampling: this.rowOf(kind, live?.body.widgetIO()) };
       if (live?.piece.turbo) blank.turbo = { ...live.piece.turbo };
       // The turbo file rides in the stack as well as on the switch; the
       // switch alone is a switch on nothing. Only that entry comes across.
@@ -210,23 +277,24 @@ export class Sync {
     this.save(kind);
   }
 
-  unpin(kind) {
+  /** Drop the room's own row; the side follows the node again. */
+  follow(kind) {
     this.copies[kind] = null;
-    this.setRail({ [PIN[kind]]: "" });
+    this.setRail({ [OWN[kind]]: "" });
   }
 
-  /** The pin, for a gear head: lit while the row is the room's own. */
-  pinPill(kind, onChange) {
-    const on = this.pinned(kind);
-    const what = kind === "still" ? t("pictures") : t("clips");
-    return el("button", {
-      class: `mmc-pill mmc-ch-pin${on ? " accel-on" : ""}`,
-      "aria-pressed": on,
-      title: on
-        ? t("Pinned: the room samples {what} on a row of its own, and the node can be set differently. Press to follow the node again.", { what })
-        : t("Following the node: its sampler row and turbo switch are what the room samples {what} on. Press to pin a row of the room's own.", { what }),
-      onclick: () => { if (on) this.unpin(kind); else this.pin(kind); onChange(); },
-    }, [icon("pin", 15)]);
+  /** The row's values off an io, by name — what `takeOwn` copies. The seed
+   *  and the accelerators stay behind. */
+  rowOf(kind, io) {
+    const row = {};
+    if (!io) return row;
+    const drop = new Set([...WIDGET_ONLY, ...(kind === "video" ? accelKeys(this.videoFamily()) : [])]);
+    for (const name of SAMPLING_WIDGETS) {
+      if (drop.has(name)) continue;
+      const value = io.value(name, undefined);
+      if (value !== undefined) row[name] = value;
+    }
+    return row;
   }
 
   // ---- what a render samples on ---------------------------------------------------
@@ -234,11 +302,13 @@ export class Sync {
   /**
    * The row for a render of `kind` -> `{sampling, turbo, loras, widgets}`.
    *
-   * Pinned: the copy's row, its switch and the turbo file in its stack.
-   * Following: the node's blob-level row, its switch, that file, and the
-   * node's widget values as the queue would read them (the blob wins for the
-   * row, the widgets are the fallback — `sampling.resolve`). Neither: empty,
-   * which is the family's defaults all the way down.
+   * The chat's own: the copy's row, its switch and the turbo file in its
+   * stack — and, on the clip side, the node's accelerators laid under it
+   * where the node can be followed, since those are the machine's and not
+   * the chat's. Following: the node's blob-level row, its switch, that file,
+   * and the node's widget values as the queue would read them (the blob wins
+   * for the row, the widgets are the fallback — `sampling.resolve`).
+   * Neither: empty, which is the family's defaults all the way down.
    *
    * `arch` is the image arch a still is drawn on where it is not the room's
    * own — a cited picture changed on the *Edits* family. A row is a
@@ -249,20 +319,31 @@ export class Sync {
    */
   row(kind, arch = this.stillArch()) {
     const copy = this.copy(kind);
-    if (copy) return this.rowFrom(kind, copy, {}, arch);
-    if (!this.followable(kind, arch)) return { sampling: {}, turbo: null, loras: [], widgets: {} };
+    const live = this.followable(kind, arch) ? this.liveRow(kind, arch) : null;
+    if (!copy) return live ?? { sampling: {}, turbo: null, loras: [], widgets: {} };
+    const own = this.rowFrom(kind, copy, {}, arch);
+    if (kind === "video" && live) {
+      const keys = accelKeys(this.videoFamily());
+      own.sampling = { ...only(live.sampling, keys), ...own.sampling };
+      own.widgets = only(live.widgets, keys);
+    }
+    return own;
+  }
+
+  /** The node's row, as the queue would read it. Only where `followable`. */
+  liveRow(kind, arch = this.stillArch()) {
     if (kind === "still") {
       const { body, state } = this.pictureNode();
-      return this.rowFrom(kind, state, rowWidgets(this.values(body.widgetIO(), body.samplingWidgets)), arch);
+      return this.rowFrom(kind, state, without(this.values(body.widgetIO(), body.samplingWidgets), new Set(WIDGET_ONLY)), arch);
     }
     const { body, piece } = this.clipNode();
-    return this.rowFrom(kind, piece, rowWidgets(this.values(body.widgetIO(), body.widgets)));
+    return this.rowFrom(kind, piece, without(this.values(body.widgetIO(), body.widgets), new Set(WIDGET_ONLY)));
   }
 
   rowFrom(kind, blob, widgets, arch = this.stillArch()) {
     if (kind === "still") {
       // The room's own arch reads the row whatever the blob says it was
-      // written for — a copy pinned before the pill moved keeps working;
+      // written for — a copy taken before the pill moved keeps working;
       // any other arch reads it only when the blob is on that arch.
       const own = arch === this.stillArch() || blob.arch === arch;
       return { sampling: own ? { ...(blob.sampling ?? {}) } : {}, turbo: blob.turbo?.[arch] ?? null,
@@ -283,6 +364,42 @@ export class Sync {
     return out;
   }
 
+  // ---- the row, said in a line ---------------------------------------------------
+
+  /**
+   * A side's row as one line for the sheet: "8 steps · cfg 1 · euler · beta
+   * · shift 6 · turbo good". The family's own controls in the family's own
+   * order, at the values the render would sample on — the blob's over the
+   * widgets' over the family's defaults — so a followed row reads the node
+   * and a defaults row reads the manifest.
+   */
+  summary(kind, arch = this.stillArch()) {
+    const row = this.row(kind, arch);
+    const values = { ...row.widgets, ...row.sampling };
+    const parts = [];
+    if (kind === "video") {
+      const family = this.videoFamily();
+      for (const w of S.widgetsOf(family)) {
+        if (w.group !== "sampler") continue;
+        const value = values[w.id] ?? w.default;
+        if (value === undefined || value === null || value === "") continue;
+        if (typeof value === "boolean") { if (value) parts.push(t(w.label)); continue; }
+        parts.push(w.id === "steps" ? t("{n} steps", { n: value }) : `${t(w.label)} ${value}`);
+      }
+    } else {
+      const base = arch === "ideogram4"
+        ? { steps: S.PRESTAGE_IDEOGRAM_STEPS[S.emptyPreStage().quality], ...S.PRESTAGE_IDEOGRAM_ROW }
+        : (S.PRESTAGE_BASE_ROW[arch] ?? S.PRESTAGE_STILL_ROW);
+      const merged = { ...base, ...values };
+      if (merged.steps !== undefined) parts.push(t("{n} steps", { n: merged.steps }));
+      if (merged.cfg !== undefined) parts.push(`cfg ${merged.cfg}`);
+      if (merged.sampler_name) parts.push(String(merged.sampler_name));
+      if (merged.scheduler) parts.push(String(merged.scheduler));
+    }
+    if (row.turbo?.on) parts.push(t("turbo {quality}", { quality: t(row.turbo.quality ?? "good") }));
+    return parts.join(" · ");
+  }
+
   // ---- following ------------------------------------------------------------------
 
   /**
@@ -293,7 +410,7 @@ export class Sync {
    * the shell re-assigns the body's slot on every remount; a link is marked
    * so it is never laid twice over itself.
    */
-  follow(fn) {
+  watch(fn) {
     this.followers.add(fn);
     this.chainAll();
     return () => this.followers.delete(fn);
@@ -316,75 +433,36 @@ export class Sync {
     }
   }
 
-  // ---- the gear's rows ------------------------------------------------------------
-
-  /** Why a side has no row to draw: followed nothing, and not pinned. */
-  note(kind) {
-    const family = kind === "still"
-      ? t(S.PRESTAGE_ARCH_LABEL[this.stillArch()])
-      : t(S.FAMILY_LABEL[this.videoFamily()]);
-    const live = kind === "still" ? this.pictureNode() : this.clipNode();
-    if (!live) {
-      return t("No {what} under this room to follow. {family} samples on its defaults — pin to set a row of the room's own.",
-               { what: kind === "still" ? t("pre-stage") : t("piece"), family });
-    }
-    const theirs = kind === "still"
-      ? t(S.PRESTAGE_ARCH_LABEL[live.state.arch] ?? live.state.arch)
-      : t(S.FAMILY_LABEL[S.pieceFamily(live.piece)] ?? S.pieceFamily(live.piece));
-    return t("The node is on {theirs}; this room draws with {family}, which samples on its defaults — pin to set a row of the room's own.",
-             { theirs, family });
-  }
+  // ---- the chat's own row, drawn -------------------------------------------------
 
   /**
-   * The clip side's sampler row: steps, cfg, the schedule, the accelerators,
-   * the turbo switch — over the node's own blob while following, over the
-   * copy while pinned. `redraw` is the room's repaint after a pill writes.
+   * The clip side's own row: steps, cfg, the schedule, the turbo switch —
+   * over the copy, through `blobIO`. Nothing while the side follows: a
+   * followed row is edited on the node. `redraw` is the sheet's repaint
+   * after a pill writes.
    */
   clipRow(redraw) {
     const copy = this.copy("video");
-    const live = this.followable("video") ? this.clipNode() : null;
-    if (!copy && !live) return el("div", { class: "mmc-ch-note", text: this.note("video") });
-    let piece, widgets, io, set, commit;
-    if (copy) {
-      piece = copy;
-      widgets = rowWidgets(this.clipNode()?.body.widgets);
-      io = blobIO(() => ({}), () => copy.sampling, (block) => { copy.sampling = block; });
-      set = (name, value) => { io.set(name, value); this.save("video"); redraw(); };
-      commit = () => { syncTurbo(copy, io); this.save("video"); redraw(); };
-    } else {
-      piece = live.piece;
-      widgets = rowWidgets(live.body.widgets);
-      io = live.body.widgetIO();
-      set = (name, value) => { live.body.set(name, value); redraw(); };
-      commit = () => { live.body.commit(); redraw(); };
-    }
-    const family = S.pieceFamily(piece);
+    if (!copy) return null;
+    const family = S.pieceFamily(copy);
+    const widgets = ownWidgets("video", family, this.clipNode()?.body.widgets);
+    const io = blobIO(() => ({}), () => copy.sampling, (block) => { copy.sampling = block; });
+    const set = (name, value) => { io.set(name, value); this.save("video"); redraw(); };
+    const commit = () => { syncTurbo(copy, io); this.save("video"); redraw(); };
     return samplingBar({
-      family, widgets, value: io.value, set, perSegment: false, container: piece,
-      turbo: S.turboOf(family) ? turboPills({ container: piece, value: io.value, set, onCommit: commit }) : [],
+      family, widgets, value: io.value, set, perSegment: false, container: copy, accel: false,
+      turbo: S.turboOf(family) ? turboPills({ container: copy, value: io.value, set, onCommit: commit }) : [],
     });
   }
 
-  /** The picture side's row, the pre-stage's own turbo pill included. */
+  /** The picture side's own row, the pre-stage's own turbo pill included. */
   pictureRow(redraw) {
     const copy = this.copy("still");
-    const live = this.followable("still") ? this.pictureNode() : null;
-    if (!copy && !live) return el("div", { class: "mmc-ch-note", text: this.note("still") });
-    let host, widgets, io, set;
-    if (copy) {
-      io = blobIO(() => ({}), () => copy.sampling, (block) => { copy.sampling = block; });
-      host = { state: copy, widgetIO: () => io, commit: () => { this.save("still"); redraw(); } };
-      widgets = rowWidgets(this.pictureNode()?.body.samplingWidgets);
-      set = (name, value) => { io.set(name, value); this.save("still"); redraw(); };
-    } else {
-      io = live.body.widgetIO();
-      host = { state: live.state, widgetIO: () => io, commit: () => { live.body.commit(); redraw(); } };
-      widgets = rowWidgets(live.body.samplingWidgets);
-      set = (name, value) => { io.set(name, value); live.body.editor?.render(); redraw(); };
-    }
-    if (!Object.keys(widgets).length) {
-      return el("div", { class: "mmc-ch-note", text: t("The pre-stage's sampler row is not drawn yet; open it once and come back.") });
-    }
+    if (!copy) return null;
+    const io = blobIO(() => ({}), () => copy.sampling, (block) => { copy.sampling = block; });
+    const host = { state: copy, widgetIO: () => io, commit: () => { this.save("still"); redraw(); } };
+    const widgets = ownWidgets("still", null, this.pictureNode()?.body.samplingWidgets);
+    const set = (name, value) => { io.set(name, value); this.save("still"); redraw(); };
     const row = new PreStageRow(host);
     return samplingBar({
       widgets, value: io.value, set, perSegment: false,

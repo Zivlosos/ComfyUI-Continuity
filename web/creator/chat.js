@@ -45,7 +45,10 @@ import { resolvedPreStage, PRESTAGE_CANVAS_MULTIPLE, PRESTAGE_MIN_EDGE, PRESTAGE
 import { openPicker } from "./picker.js";
 import { loadLoraPrefs, outputUrl, upload, uiSetting, patchSettings, primeSettings,
          viewUrl } from "./api.js";
-import { settings as refinerSettings, chosenModel, openSettings, listSkills } from "./refine.js";
+import { settings as refinerSettings, chosenModel, listSkills } from "./refine.js";
+import { openThinker, thinkerName } from "./chatmodel.js";
+import { openWeightsPopover, adoptWeights, rememberedWeights } from "./models.js";
+import { PreStageRow } from "./prestage.js";
 import { FAMILIES, STILL_ARCHES, VIDEO_FAMILIES, DEFAULT_VIDEO_FAMILY, DEFAULT_STILL_ARCH, DEFAULT_EDIT_FAMILY,
          videoFamily, stillFamily } from "./manifest.js";
 import { run, watch as watchQueue, dropQueued } from "./queue.js";
@@ -357,20 +360,15 @@ function fail(card, message) {
 
 // ---- the rail ---------------------------------------------------------------
 
-/** How many blocks of prompting the verbosity dial is cut into — `chat.TIERS`,
- *  held together by `tests/test_chat_mirror.py`. The dial itself is a number
- *  from 0 to 1, which is what is saved and sent; the server reads one block
- *  or none off it, and this is only so the readout can name the block. */
-const VERBOSITY_TIERS = 3;
-
-/** What each block is called beside the slider, bottom first. */
-const TIER_NAMES = ["as written", "a little", "more", "rich"];
-
-/** `chat.verbosity_tier`: the dial -> which block, 0 to `VERBOSITY_TIERS`. */
-function verbosityTier(dial) {
-  if (!(dial > 0)) return 0;
-  return Math.min(VERBOSITY_TIERS, Math.ceil(Math.round(dial * VERBOSITY_TIERS * 1e9) / 1e9));
-}
+/** The three answers to "whose is this?" on the *Makes with* sheet, and
+ *  what each means — `chatnode.Sync.source` says which applies. */
+const SOURCE_WORD = { node: "node", machine: "this machine", chat: "this chat", defaults: "defaults" };
+const SOURCE_HELP = {
+  node: "The node under this chat. Change it there and the chat changes with it.",
+  machine: "This ComfyUI's files, as the node picks them. One memory, shared.",
+  chat: "Set here, kept for chats only. The node can be set differently.",
+  defaults: "Nothing to follow, so the family's own defaults.",
+};
 
 /** What the room keeps of its own. Everything a render is otherwise made with
  *  is the nodes' — see `chatnode.js` — unless a side is pinned, in which case
@@ -900,6 +898,7 @@ class Room {
       el("div", { class: "mmc-ch-dock" }, [this.composer]),
     ]);
     this.modelHost = el("span", { class: "mmc-ch-model" });
+    this.makesHost = el("span", { class: "mmc-ch-model" });
     this.titleHost = el("span", { class: "mmc-ch-title" });
     // The shelf: every conversation, and the way to a new one. Painted on its
     // own — the list changes when a chat is saved, renamed or deleted, not on
@@ -947,15 +946,13 @@ class Room {
           },
         }, [icon("panel", 17)]),
         el("span", { class: "mmc-bn-gap" }),
-        // Which model is talking, where ChatGPT puts it: in the bar, one quiet
-        // name. Everything that is set once per machine and then left alone is
-        // behind the gear beside it, so the composer holds only what changes
-        // from one message to the next.
+        // Two pills, each named for the question it answers. *Thinks with* is
+        // the model that writes the prompt and how it writes; *Makes with* is
+        // the files and the sampler rows a render is made with, and whose
+        // they are. The composer holds only what changes from one message to
+        // the next: the families, the shape, the seed.
         this.modelHost,
-        el("button", {
-          class: "mmc-ch-gear", title: t("How this room renders"),
-          onclick: (event) => this.openMore(event.currentTarget),
-        }, [icon("gear", 17)]),
+        this.makesHost,
         el("button", {
           class: "mmc-close", text: "✕", title: t("Close the room"),
           onclick: () => this.close(),
@@ -1708,17 +1705,39 @@ class Room {
     ] : []));
     const current = refinerSettings();
     const local = current.backend !== "remote";
-    const name = chosenModel(current) || t("Choose a model");
+    const model = chosenModel(current);
     this.modelHost.replaceChildren(el("button", {
       class: "mmc-ch-modelpill",
-      title: local
-        ? t("A model in this ComfyUI. It shares the card with your renders, so a "
-            + "reply waits behind whatever is sampling — a server is the better "
-            + "setting on one GPU.")
-        : t("A model on a server you already run."),
-      onclick: (event) => openSettings(event.currentTarget, () => this.paint(), this.sync.videoFamily()),
+      title: model
+        ? (local
+            ? t("{model}, inside ComfyUI. Turns what you say into a prompt.", { model })
+            : t("{model}, on your server. Turns what you say into a prompt.", { model }))
+        : t("No model chosen yet. Nothing can turn what you say into a prompt until one is."),
+      onclick: (event) => openThinker(event.currentTarget, {
+        rail, setRail, skills: () => this.skills, onChange: () => this.paint(),
+      }),
     }, [
-      el("span", { class: "mmc-ch-modelname", text: name }),
+      icon("brain", 15),
+      el("span", { class: "mmc-ch-pillkey", text: t("Thinks with") }),
+      el("span", { class: `mmc-ch-modelname${model ? "" : " mmc-ch-pill-off"}`,
+                   text: model ? thinkerName(current) : t("choose a model") }),
+      icon("chevron", 12),
+    ]));
+    // What the render is made with, said by whose it is: the node's, or a
+    // count of the rows this chat keeps for itself. The one word that was
+    // invisible before — a chat quietly on rows of its own while the node
+    // was being tuned — is on the bar.
+    const own = this.sync.ownCount();
+    this.makesHost.replaceChildren(el("button", {
+      class: "mmc-ch-modelpill",
+      title: t("The files and the sampler rows a render is made with, and whose each one is."),
+      onclick: (event) => this.openMakes(event.currentTarget),
+    }, [
+      icon("gear", 15),
+      el("span", { class: "mmc-ch-pillkey", text: t("Makes with") }),
+      el("span", { class: "mmc-ch-modelname", text: own
+        ? (own === 1 ? t("1 row of its own") : t("{n} rows of its own", { n: own }))
+        : t("the node's rows") }),
       icon("chevron", 12),
     ]));
   }
@@ -1857,56 +1876,97 @@ class Room {
   }
 
   /**
-   * The gear: how this room renders.
+   * The *Makes with* sheet: what a render is made with, and whose each
+   * setting is.
    *
-   * Two sections, one per kind: the size a picture is drawn at and the row
-   * it samples on; the size a clip is sampled at and its row. A row is the
-   * node's while the room follows it — `chatnode.Sync` calls the same
-   * functions the faces mount over the node's own blob, so a step count
-   * dialled here is on the node and a switch thrown on the node is lit here
-   * — or the room's own once pinned. Under them, the room's own two: the
-   * verbosity dial and a skill to append. Redrawn in place on every change,
-   * and whenever either node redraws.
+   * Two sections, one per kind — the family the composer's pill chose, and
+   * under it the files it loads and the row it samples on — each line with a
+   * badge saying whose it is (`chatnode.js` says the three words). The files
+   * are this machine's: the same `settings.weights` block the node reads,
+   * changed through the node's own weights popover, so a machine set up once
+   * is set up for its chats and there is no second place to set it. The row
+   * is the node's until the chat takes one of its own, and a row of the
+   * chat's own is drawn here with the node's own pills. Redrawn in place on
+   * every change, and whenever either node redraws.
    */
-  openMore(anchor) {
-    const pop = el("div", { class: "mmc-pop mmc-ch-more" });
+  openMakes(anchor) {
+    const pop = el("div", { class: "mmc-pop mmc-ch-makes" });
     const draw = () => {
       const bar = rail();
       const change = (patch) => { setRail(patch); draw(); };
       const sizePill = (kind) => el("button", {
         class: "mmc-pill mmc-ch-value",
+        title: kind === "still" ? t("The short edge a picture is drawn at.") : t("The short edge a clip is sampled at."),
         onclick: (event) => this.openEdge(event.currentTarget, kind,
                                           (edge) => change({ [`${kind}_edge`]: edge })),
       }, [icon("res", 16), el("span", { text: `${kind === "still" ? bar.still_edge : clipEdge(this.sync)}p` })]);
-      const head = (text, kind) => el("div", { class: "mmc-ch-gearhead" }, [
-        el("span", { text }), el("span", { class: "mmc-bn-gap" }),
-        this.sync.pinPill(kind, () => { draw(); this.paintPills(); }), sizePill(kind)]);
+      const badge = (source) => el("span", {
+        class: `mmc-ch-src mmc-ch-src-${source}`, text: t(SOURCE_WORD[source]), title: t(SOURCE_HELP[source]),
+      });
+      const act = (text, title, onclick) => el("button", { class: "mmc-ch-do", text, title, onclick });
+      // The badge leads the value, so the eye finds whose it is at the same
+      // place on every line before it reads what it is; the line's one
+      // action sits at the right end of that first row. A row of the chat's
+      // own — the node's pills — takes the whole width under them.
+      const line = (label, value, source, action = null, under = null) => el("div", { class: "mmc-ch-line" }, [
+        el("span", { class: "mmc-ch-k", text: label }),
+        el("span", { class: "mmc-ch-v" }, [
+          badge(source),
+          ...(typeof value === "string" ? [el("span", { class: "mmc-ch-sum", text: value })] : []),
+          ...(action ? [action] : []),
+          ...(typeof value === "string" ? [] : [value]),
+          ...(under ? [el("span", { class: "mmc-ch-under", text: under })] : []),
+        ]),
+      ]);
+
+      const side = (kind) => {
+        const still = kind === "still";
+        const familyId = still ? STILL_ARCHES[this.sync.stillArch()] : this.sync.videoFamily();
+        const familyLabel = still
+          ? t(S.PRESTAGE_ARCH_LABEL[this.sync.stillArch()]) : t(S.FAMILY_LABEL[familyId] ?? familyId);
+        const files = this.filesOf(kind);
+        const source = this.sync.source(kind);
+        const own = source === "chat";
+        const rowEl = own ? (still ? this.sync.pictureRow(draw) : this.sync.clipRow(draw)) : null;
+        return [
+          el("div", { class: "mmc-ch-gearhead" }, [
+            el("span", { class: "mmc-ch-gearkind", text: still ? t("Pictures") : t("Clips") }),
+            el("span", { class: "mmc-ch-gearfamily", text: familyLabel }),
+            el("span", { class: "mmc-bn-gap" }), sizePill(kind),
+          ]),
+          line(t("Files"), files.text, "machine",
+               act(t("Change"), t("The same weights popover the node has, over the same memory."),
+                   (event) => this.openFiles(kind, event.currentTarget, draw)),
+               files.missing),
+          line(t("Samples"), own ? rowEl : this.sync.summary(kind), source,
+               own
+                 ? act(t("Follow the node again"),
+                       t("Drop this chat's own row. The node's row, or the family's defaults, samples again."),
+                       () => { this.sync.follow(kind); draw(); this.paintBar(); })
+                 : act(t("Set for chats"),
+                       t("Give chats a row of their own, started from this one. The node keeps its row and can be set differently."),
+                       () => { this.sync.takeOwn(kind); draw(); this.paintBar(); }),
+               own ? t("Speed-ups stay the node's: they are about this machine, not this chat.")
+                   : this.sync.reason(kind)),
+        ];
+      };
+
       pop.replaceChildren(
-        head(t("Pictures"), "still"),
-        this.sync.pictureRow(draw),
-        head(t("Clips"), "video"),
-        this.sync.clipRow(draw),
+        ...side("still"),
         el("div", { class: "mmc-ch-rule" }),
-        this.verbosityRow(bar, change),
-        this.row(t("Skill"), el("button", {
-          class: "mmc-pill mmc-ch-value", text: bar.skill || t("none"),
-          onclick: (event) => openChoicePopover(event.currentTarget, {
-            title: t("Append to the room's prompting"),
-            options: ["", ...this.skills.map((entry) => entry.name)],
-            value: bar.skill || "",
-            label: (name) => name || t("none"),
-            onPick: (name) => change({ skill: name }),
-          }),
-        }), t("A file from the node's skills folder, added to this room's own "
-              + "prompting. It is only ever added: the room's reply contract is "
-              + "what turns an answer into a render.")),
+        ...side("video"),
         el("div", { class: "mmc-ch-rule" }),
-        this.row(t("First run"), el("button", {
-          class: "mmc-pill mmc-ch-value", text: t("Set up again"),
-          disabled: state.setup ? true : null,
-          onclick: () => { pop.close(); this.startSetup(true); },
-        }), t("Ask the three questions the room opened with again, with a fresh "
-              + "look at what is on this disk.")),
+        el("div", { class: "mmc-ch-legend" }, [
+          el("span", {}, [badge("node"), el("span", { text: " " + t("the node under this chat; moves when it moves") })]),
+          el("span", {}, [badge("machine"), el("span", { text: " " + t("files on this ComfyUI; the node loads the same") })]),
+          el("span", {}, [badge("chat"), el("span", { text: " " + t("set here, for chats only") })]),
+        ]),
+        el("div", { class: "mmc-ch-line mmc-ch-line-foot" }, [
+          el("span", { class: "mmc-ch-k", text: t("First run") }),
+          el("span", { class: "mmc-ch-v" }, [act(t("Set up again"),
+            t("Ask the three questions the room opened with again, with a fresh look at what is on this disk."),
+            () => { pop.close(); this.startSetup(true); })]),
+        ]),
       );
     };
     draw();
@@ -1914,41 +1974,76 @@ class Room {
     placeNear(pop, anchor, { above: false });
     // A node redrawing is a row that may have moved under the pointer — a
     // switch thrown from a pill the editor owns, an arch swapped.
-    const unfollow = this.sync.follow(() => { if (pop.isConnected) draw(); });
-    pop.close = dismissable(pop, unfollow);
+    const unwatch = this.sync.watch(() => { if (pop.isConnected) draw(); });
+    pop.close = dismissable(pop, unwatch);
   }
 
-  /** One line of the gear: what it is, and the control. */
-  row(label, control, title) {
-    return el("div", { class: "mmc-ch-row", title }, [
-      el("span", { class: "mmc-ch-label", text: label }),
-      control,
-    ]);
+  /**
+   * The files a side's family loads, as this machine remembers them ->
+   * `{text, missing}`: how many of its slots are picked, and which required
+   * ones are not. Read off the same memory the node fills its empty rows
+   * from (`models.adoptWeights`, `settings.weights`), so what the sheet says
+   * is what a render would load.
+   */
+  filesOf(kind) {
+    if (kind === "still") {
+      const state = this.stillWeightsState();
+      const arch = state.arch;
+      const fields = S.PRESTAGE_FIELDS[arch];
+      const picked = fields.filter((field) => state.models[arch][field]).length;
+      const missing = S.missingPreStageModels(state).map((field) => t(S.PRESTAGE_FIELD_LABEL[field]));
+      return {
+        text: t("{picked} of {total} picked", { picked, total: fields.length }),
+        missing: missing.length ? t("Missing: {files}. The render is refused without them.", { files: missing.join(", ") }) : null,
+      };
+    }
+    const piece = this.clipWeightsPiece();
+    const family = S.pieceFamily(piece);
+    const fields = S.modelFields(family);
+    const label_ = S.modelLabels(family);
+    const picked = fields.filter((field) => piece.models[field]).length;
+    const routed = S.routedCheckpoints(piece.models, S.timelineCheckpoints(piece));
+    const missing = S.missingModels(piece.models, S.requiredModels(routed, false, family), family)
+      .map((field) => t(label_[field]));
+    return {
+      text: t("{picked} of {total} picked", { picked, total: fields.length }),
+      missing: missing.length ? t("Missing: {files}. The render is refused without them.", { files: missing.join(", ") }) : null,
+    };
   }
 
-  /** The verbosity dial: how much the model may add to a prompt beyond what
-   *  was said, 0 to 1, as a range with the name of the block it lands in
-   *  beside it. The number is what is saved, so the blocks can be recut on
-   *  the server without moving anybody's dial; the name is what the number
-   *  means. Painted on every move, saved on release — a save redraws the
-   *  whole gear, which is not something to do under a dragging thumb. */
-  verbosityRow(bar, change) {
-    const name = el("span", { class: "mmc-ch-tier" });
-    const slider = el("input", {
-      type: "range", min: 0, max: 1, step: 0.05, value: Number(bar.verbosity) || 0,
-      "aria-label": t("Verbosity"),
-      // The graph canvas reads a pointerdown as the start of a drag.
-      onpointerdown: (event) => event.stopPropagation(),
+  /** A blank pre-stage on the chat's image arch, its files filled from this
+   *  machine's memory — what the node's own weights popover edits. */
+  stillWeightsState() {
+    const state = S.emptyPreStage();
+    state.arch = this.sync.stillArch();
+    S.adoptRememberedPreStage(state.models, rememberedWeights());
+    return state;
+  }
+
+  /** A blank piece on the chat's video family, its files filled the way a
+   *  fresh node's are. */
+  clipWeightsPiece() {
+    const piece = { ...S.emptyTimeline(), family: this.sync.videoFamily() };
+    adoptWeights(piece);
+    return piece;
+  }
+
+  /** The node's own weights popover, over this machine's memory. Every pick
+   *  in it is remembered for the family (`rememberWeights`,
+   *  `rememberStillWeights`), which is exactly what the chat renders from —
+   *  and what the next node on that family starts from. */
+  openFiles(kind, anchor, redraw) {
+    if (kind === "still") {
+      const state = this.stillWeightsState();
+      const io = { value: (name, fallback) => fallback, set: () => {} };
+      new PreStageRow({ state, widgetIO: () => io, commit: redraw }).openWeights(anchor);
+      return;
+    }
+    const piece = this.clipWeightsPiece();
+    openWeightsPopover(anchor, {
+      piece, models: piece.models, checkpoints: S.timelineCheckpoints(piece),
+      onChange: redraw, face: false,
     });
-    const paint = () => { name.textContent = t(TIER_NAMES[verbosityTier(Number(slider.value))]); };
-    slider.addEventListener("input", paint);
-    slider.addEventListener("change", () => change({ verbosity: Number(slider.value) }));
-    paint();
-    return this.row(t("Verbosity"), el("div", { class: "mmc-ch-verbosity" }, [slider, name]),
-                    t("How much the model may add to a prompt beyond what you said — the "
-                      + "light, the lens, the textures, the sound — without changing what "
-                      + "you meant. At the left it writes as it always has; each step up "
-                      + "is a fuller block of prompting. A skill you append still wins."));
   }
 
   /** Put a handle in the box. Citing is how an edit is asked for, and the

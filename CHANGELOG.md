@@ -6,6 +6,30 @@ exactly as it was written, wall of text and all.
 
 ## Unreleased
 
+**The chat's bar says whose every setting is, and the node is set up once.**
+The room had four things called *model*, three seeds, two *skills*, and a
+gear whose pin nobody could see: a chat could be sampling on a row of its own
+while the node was being tuned, and nothing on the bar said so. Now the bar
+carries two pills named for the question each answers. *Thinks with* is the
+model that writes the prompt and how it writes — where it runs, which file
+(only files that can chat; a family's encoder says which family loads it),
+the verbosity dial, the skill, the temperature — and it is the refiner's own
+choice, so a machine set up for the node's Refine button is set up for its
+chats. *Makes with* is the drawing: per side, the family the composer's pill
+chose, the files it loads and the row it samples on, each line wearing a
+badge — *node* (follows the node under the chat), *this machine* (the same
+`settings.weights` the node fills its rows from, changed through the node's
+own weights popover), *this chat* (a row of the chat's own, kept for chats
+only) or *defaults*. A followed row is read, not drawn: the node is where it
+is edited. *Set for chats* takes a row of the chat's own started from what
+samples now, *Follow the node again* drops it, and the pill on the bar counts
+the rows a chat keeps. A chat's own row never carries the accelerators — block
+cache, spectrum, attention, VDN — which are the machine's and stay the node's
+(`samplingBar` takes `accel: false`). The picture side's own row draws without
+a pre-stage on the canvas, which it could not before. The composer's family
+pills are unchanged: which family draws is the user's decision, never the
+node's.
+
 **A chat still that cites a picture is drawn on an edit model, whatever the
 image model is.** Krea 2, the room's default image model, reads a reference
 only through an adapter in the pre-stage's LoRA stack, which the room has no

@@ -384,6 +384,147 @@ export async function refine(payload, options) {
   }, options);
 }
 
+/**
+ * The server as one card with a state: provider presets, URL and Connect on a
+ * line, the write-only key box under it, and a status line whose dot says
+ * whether the endpoint answered — connected, unreachable, or not set up yet.
+ * The model list hangs below the card. Redrawn only on save, switch or
+ * refresh — the inputs hold carets.
+ *
+ * Module-level rather than the popover's own, because the chat room's
+ * *Thinks with* popover (`chatmodel.js`) draws the same card over the same
+ * settings: one server, set up once, whichever door it was set up from.
+ *
+ * @param {HTMLElement} modelHost  where the card and the model list go
+ * @param {() => void} changed  a setting moved; the caller repaints its own
+ */
+export async function drawRemoteCard(modelHost, changed, force = false) {
+  const status = await remoteStatus({ force });
+
+  // One line owns the card's condition: config errors, transport errors and
+  // "connected — N models" all land here, so the eye has one place to check.
+  const stateText = el("span", { class: "mmc-refine-status-text" });
+  const state = el("div", { class: "mmc-refine-status" }, [
+    el("span", { class: "mmc-dot" }),
+    stateText,
+  ]);
+  const say = (kind, text) => {
+    state.className = "mmc-refine-status " + kind;
+    stateText.textContent = text;
+  };
+  const urlBox = el("input", {
+    class: "mmc-shelf-input mmc-refine-field", type: "text",
+    placeholder: "http://localhost:1234/v1", value: status.url,
+    spellcheck: "false", autocomplete: "off",
+  });
+  // Chips fill the URL box; nothing is stored until Connect. Checked marks
+  // follow whatever the box holds, typed or clicked.
+  const presets = el("div", { class: "mmc-chips mmc-refine-providers" },
+    PROVIDERS.map(([name, url]) => el("button", {
+      class: "mmc-chip", text: name, title: url,
+      "aria-checked": status.url === url,
+      onclick: (event) => {
+        urlBox.value = url;
+        for (const chip of presets.children)
+          chip.setAttribute("aria-checked", String(chip === event.currentTarget));
+        urlBox.focus();
+      },
+    })));
+  urlBox.addEventListener("input", () => {
+    for (const chip of presets.children)
+      chip.setAttribute("aria-checked", String(chip.title === urlBox.value.trim()));
+  });
+  // Write-only on purpose: the placeholder says a key exists, the value never
+  // comes back to fill it. Typing replaces; the button beside it forgets.
+  const keyBox = el("input", {
+    class: "mmc-shelf-input mmc-refine-field", type: "password",
+    placeholder: status.key_set ? t("key saved — type to replace") : t("API key — hosted providers only"),
+    autocomplete: "new-password",
+  });
+  const store = async (key) => {
+    try {
+      await saveRemote(urlBox.value, key);
+      await listRemoteModels({ force: true });
+      drawRemoteCard(modelHost, changed);
+    } catch (error) {
+      say("bad", String(error.message || error));
+    }
+  };
+  const connect = () => store(keyBox.value || null);
+  urlBox.addEventListener("keydown", (e) => { if (e.key === "Enter") connect(); });
+  keyBox.addEventListener("keydown", (e) => { if (e.key === "Enter") connect(); });
+  const rows = el("div", { class: "mmc-refine-remote-rows" });
+  modelHost.replaceChildren(
+    el("div", { class: "mmc-refine-server" }, [
+      presets,
+      el("div", { class: "mmc-refine-row" }, [
+        urlBox,
+        el("button", { class: "mmc-refine-connect", text: t("Connect"), onclick: connect }),
+      ]),
+      el("div", { class: "mmc-refine-row" }, [
+        keyBox,
+        status.key_set
+          ? el("button", { class: "mmc-ghost mmc-refine-forget", text: t("Forget key"),
+                           title: t("Delete the stored key from this machine."),
+                           onclick: () => store("") })
+          : null,
+      ]),
+      state,
+      el("div", { class: "mmc-refine-hint",
+                  text: t("The key stays on this machine — never in the browser or a workflow.") }),
+      // Under the card because it is a fact about this server, not about the
+      // model: whether the refiner is allowed to hand the memory back when
+      // it is done with it.
+      el("div", { class: "mmc-chips mmc-refine-eject" }, [
+        el("button", {
+          class: "mmc-chip", "aria-checked": settings().eject === true,
+          text: t("eject when done"),
+          title: t("Ask the server to unload the model as soon as the rewrite is in, "
+                 + "so the sampler gets the memory back. LM Studio and Ollama can do "
+                 + "this; a server that cannot is left alone. Leave it off if you keep "
+                 + "the model loaded for other work."),
+          // Toggled in place rather than by redrawing the card: the card owns
+          // two inputs holding carets and a model list it would refetch.
+          onclick: (event) => {
+            const on = !(settings().eject === true);
+            saveSettings({ eject: on });
+            event.currentTarget.setAttribute("aria-checked", String(on));
+            changed();
+          },
+        }),
+      ]),
+    ]),
+    rows,
+  );
+  if (!status.url) {
+    say("", t("Not connected"));
+    return;
+  }
+  say("", t("Looking for models…"));
+  const { names, error } = await listRemoteModels({ force });
+  if (error) {
+    say("bad", error);
+    rows.replaceChildren();
+    return;
+  }
+  if (!names.length) {
+    say("bad", t("The server lists no models — load one there first."));
+    rows.replaceChildren();
+    return;
+  }
+  say("ok", t("Connected — {n} models", { n: names.length }));
+  const chosen = settings().remoteModel;
+  rows.replaceChildren(...names.map((name) => el("button", {
+    class: "mmc-opt",
+    "aria-checked": name === chosen,
+    title: name,
+    onclick: () => { saveSettings({ remoteModel: name }); changed(); drawRemoteCard(modelHost, changed); },
+  }, [
+    el("span", { class: "mmc-opt-label mmc-refine-name", text: name }),
+    el("span", { class: "mmc-radio" }),
+  ])));
+}
+
 // ---- settings popover -------------------------------------------------------
 
 /**
@@ -551,136 +692,7 @@ export function openSettings(anchor, onChange, family = DEFAULT_VIDEO_FAMILY) {
     drawTemplate();
   }
 
-  /** The server as one card with a state: provider presets, URL and Connect
-   *  on a line, the write-only key box under it, and a status line whose dot
-   *  says whether the endpoint answered — connected, unreachable, or not set
-   *  up yet. The model list hangs below the card. Redrawn only on save,
-   *  switch or refresh — the inputs hold carets. */
-  async function drawRemote(force = false) {
-    const status = await remoteStatus({ force });
-    // One line owns the card's condition: config errors, transport errors and
-    // "connected — N models" all land here, so the eye has one place to check.
-    const stateText = el("span", { class: "mmc-refine-status-text" });
-    const state = el("div", { class: "mmc-refine-status" }, [
-      el("span", { class: "mmc-dot" }),
-      stateText,
-    ]);
-    const say = (kind, text) => {
-      state.className = "mmc-refine-status " + kind;
-      stateText.textContent = text;
-    };
-    const urlBox = el("input", {
-      class: "mmc-shelf-input mmc-refine-field", type: "text",
-      placeholder: "http://localhost:1234/v1", value: status.url,
-      spellcheck: "false", autocomplete: "off",
-    });
-    // Chips fill the URL box; nothing is stored until Connect. Checked marks
-    // follow whatever the box holds, typed or clicked.
-    const presets = el("div", { class: "mmc-chips mmc-refine-providers" },
-      PROVIDERS.map(([name, url]) => el("button", {
-        class: "mmc-chip", text: name, title: url,
-        "aria-checked": status.url === url,
-        onclick: (event) => {
-          urlBox.value = url;
-          for (const chip of presets.children)
-            chip.setAttribute("aria-checked", String(chip === event.currentTarget));
-          urlBox.focus();
-        },
-      })));
-    urlBox.addEventListener("input", () => {
-      for (const chip of presets.children)
-        chip.setAttribute("aria-checked", String(chip.title === urlBox.value.trim()));
-    });
-    // Write-only on purpose: the placeholder says a key exists, the value never
-    // comes back to fill it. Typing replaces; the button beside it forgets.
-    const keyBox = el("input", {
-      class: "mmc-shelf-input mmc-refine-field", type: "password",
-      placeholder: status.key_set ? t("key saved — type to replace") : t("API key — hosted providers only"),
-      autocomplete: "new-password",
-    });
-    const store = async (key) => {
-      try {
-        await saveRemote(urlBox.value, key);
-        await listRemoteModels({ force: true });
-        drawRemote();
-      } catch (error) {
-        say("bad", String(error.message || error));
-      }
-    };
-    const connect = () => store(keyBox.value || null);
-    urlBox.addEventListener("keydown", (e) => { if (e.key === "Enter") connect(); });
-    keyBox.addEventListener("keydown", (e) => { if (e.key === "Enter") connect(); });
-    const rows = el("div", { class: "mmc-refine-remote-rows" });
-    modelHost.replaceChildren(
-      el("div", { class: "mmc-refine-server" }, [
-        presets,
-        el("div", { class: "mmc-refine-row" }, [
-          urlBox,
-          el("button", { class: "mmc-refine-connect", text: t("Connect"), onclick: connect }),
-        ]),
-        el("div", { class: "mmc-refine-row" }, [
-          keyBox,
-          status.key_set
-            ? el("button", { class: "mmc-ghost mmc-refine-forget", text: t("Forget key"),
-                             title: t("Delete the stored key from this machine."),
-                             onclick: () => store("") })
-            : null,
-        ]),
-        state,
-        el("div", { class: "mmc-refine-hint",
-                    text: t("The key stays on this machine — never in the browser or a workflow.") }),
-        // Under the card because it is a fact about this server, not about the
-        // model: whether the refiner is allowed to hand the memory back when
-        // it is done with it.
-        el("div", { class: "mmc-chips mmc-refine-eject" }, [
-          el("button", {
-            class: "mmc-chip", "aria-checked": settings().eject === true,
-            text: t("eject when done"),
-            title: t("Ask the server to unload the model as soon as the rewrite is in, "
-                   + "so the sampler gets the memory back. LM Studio and Ollama can do "
-                   + "this; a server that cannot is left alone. Leave it off if you keep "
-                   + "the model loaded for other work."),
-            // Toggled in place rather than by redrawing the card: the card owns
-            // two inputs holding carets and a model list it would refetch.
-            onclick: (event) => {
-              const on = !(settings().eject === true);
-              saveSettings({ eject: on });
-              event.currentTarget.setAttribute("aria-checked", String(on));
-              changed();
-            },
-          }),
-        ]),
-      ]),
-      rows,
-    );
-    if (!status.url) {
-      say("", t("Not connected"));
-      return;
-    }
-    say("", t("Looking for models…"));
-    const { names, error } = await listRemoteModels({ force });
-    if (error) {
-      say("bad", error);
-      rows.replaceChildren();
-      return;
-    }
-    if (!names.length) {
-      say("bad", t("The server lists no models — load one there first."));
-      rows.replaceChildren();
-      return;
-    }
-    say("ok", t("Connected — {n} models", { n: names.length }));
-    const chosen = settings().remoteModel;
-    rows.replaceChildren(...names.map((name) => el("button", {
-      class: "mmc-opt",
-      "aria-checked": name === chosen,
-      title: name,
-      onclick: () => { saveSettings({ remoteModel: name }); changed(); drawRemote(); },
-    }, [
-      el("span", { class: "mmc-opt-label mmc-refine-name", text: name }),
-      el("span", { class: "mmc-radio" }),
-    ])));
-  }
+  const drawRemote = (force = false) => drawRemoteCard(modelHost, changed, force);
 
   async function drawModels(force = false) {
     if (settings().backend === "remote") return drawRemote(force);

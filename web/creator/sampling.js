@@ -234,6 +234,8 @@ export function adopted(raw, widgets, parse, serialize) {
  * @param {HTMLElement[]} [options.turbo]     the turbo switch's pills (see
  *   turbo.js), drawn with the accelerators because that is what it is — built
  *   by the caller because it needs the state, which this row otherwise doesn't
+ * @param {boolean} [options.accel] draw the accelerators; false stops the row
+ *   after the turbo switch (a chat's own row — see `chatnode.js`)
  * @param {HTMLElement[]} [options.trailing] appended after the accelerators —
  *   the weights pill, which belongs on this row because it is the other half of
  *   "how is this run" and nowhere else because it is not a sampler setting
@@ -726,7 +728,8 @@ function declaredPill(w, widgets, value, set, seg = false, lit = false) {
 
 export function samplingBar({ widgets, value, set, perSegment = false,
                               guide = [], turbo = [], trailing = [],
-                              family = DEFAULT_VIDEO_FAMILY, container = null }) {
+                              family = DEFAULT_VIDEO_FAMILY, container = null,
+                              accel = true }) {
   const pills = [];
 
   // A family the frontend has never seen draws its row from its own manifest —
@@ -853,6 +856,12 @@ export function samplingBar({ widgets, value, set, perSegment = false,
   // native render, which is worth being able to see at a glance. The turbo
   // switch leads them: it is the one that changes the most about the run.
   pills.push(...turbo);
+
+  // A row that is a chat's own stops here. The accelerators below are
+  // statements about this machine — what attention costs, which steps are
+  // skipped — and a chat keeps the node's for those (`chatnode.Sync.row`), so
+  // drawing them on the chat's row would offer a choice the render ignores.
+  if (!accel) return el("div", { class: "mmc-pills" }, [...pills, ...trailing]);
 
   // VDN-H3, right behind turbo and in its shape: a big half that throws the
   // switch and a small half that picks what it throws. It sits here because

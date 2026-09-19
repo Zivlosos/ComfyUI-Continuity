@@ -383,3 +383,32 @@ before any skill: what may be added, what may never change, and one worked
 exchange at that length. At 0 nothing is appended, so the tuned prompt is
 untouched and the bench's baseline stands; `tools/chat_bench.py --verbosity`
 is where the blocks are tuned.
+
+## 11. Amendment, 2026-09-19: two pills, and every setting says whose it is
+
+The gear of §7 and the pin of §9 are withdrawn. A chat could be sampling on
+a pinned row while the node was being tuned and nothing on the bar said so;
+the model pill opened the refiner's own popover, whose templates and modes
+never reach a chat turn; and the room had four things called *model*. The
+bar now carries two pills, each named for the question it answers, and the
+composer's family pills are unchanged — which family draws is the person's
+choice, never the node's.
+
+- **Thinks with** (`chatmodel.js`): the model that writes the prompt and
+  how it writes — where it runs, which file, verbosity, skill, temperature.
+  It is the refiner's choice (`settings.refiner`), so a machine set up for
+  the node's Refine button is set up for its chats. Only files that can
+  chat are listed; a file some family loads as its encoder says so.
+- **Makes with** (`chat.js openMakes`): per side, the family the composer
+  chose, the files it loads and the row it samples on, each line with a
+  badge saying whose it is (`chatnode.Sync.source`): *node* (follows the
+  node under the chat), *this machine* (`settings.weights`, changed through
+  the node's own weights popover), *this chat* (a row of the chat's own,
+  `pinned_still`/`pinned_video` on the rail) or *defaults*. A followed row
+  is read, not drawn — the node is where it is edited. *Set for chats*
+  takes a row started from what samples now; *Follow the node again* drops
+  it; the pill counts the rows a chat keeps.
+- **A chat's own row never carries the accelerators.** Block cache,
+  spectrum, attention, VDN and the machine switches are the node's where
+  the node can be followed and the family's defaults where it cannot;
+  `samplingBar` takes `accel: false` to draw a row without them.

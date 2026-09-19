@@ -38,6 +38,8 @@ chat = layout.load("prompting", "chat").chat
 
 with open(layout.js("chat.js"), encoding="utf-8") as handle:
     ROOM = handle.read()
+with open(layout.js("chatmodel.js"), encoding="utf-8") as handle:
+    THINKER = handle.read()
 
 
 # ---- the handle prefixes ------------------------------------------------------
@@ -106,7 +108,7 @@ except chat.ActionError:
 # slider says which block a position lands in, and sends the number on the
 # turn's settings block, where the route reads it by name.
 
-tiers = re.search(r"const VERBOSITY_TIERS = (\d+)", ROOM)
+tiers = re.search(r"const VERBOSITY_TIERS = (\d+)", THINKER)
 check("the room cuts the dial into as many blocks as the server",
       tiers and int(tiers.group(1)), chat.TIERS)
 block = re.search(r"function requestBlock\(.*?\n\}", ROOM, re.DOTALL)

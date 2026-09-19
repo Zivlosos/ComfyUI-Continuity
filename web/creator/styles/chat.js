@@ -46,13 +46,8 @@ export const css = `
 .mmc-ch-modelpill:hover { background: var(--mmc-surface); color: var(--mmc-text); }
 .mmc-ch-modelpill svg { flex: none; stroke: currentColor; fill: none; stroke-width: 1.8; }
 .mmc-ch-modelname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mmc-ch-gear {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 34px; height: 34px; border-radius: 50%; cursor: pointer;
-  background: none; border: 0; color: var(--mmc-dim);
-}
-.mmc-ch-gear:hover { background: var(--mmc-surface); color: var(--mmc-text); }
-.mmc-ch-gear svg { stroke: currentColor; fill: none; stroke-width: 1.7; }
+.mmc-ch-pillkey { color: var(--mmc-dim); }
+.mmc-ch-modelpill .mmc-ch-modelname { color: var(--mmc-text); }
 .mmc-ch-over .mmc-close { margin-left: 0; }
 
 /* --- the transcript -------------------------------------------------------- */
@@ -310,7 +305,7 @@ export const css = `
 .mmc-ch-send svg { stroke: currentColor; fill: none; stroke-width: 2.2; }
 .mmc-ch-send:disabled { background: var(--mmc-surface-2); color: var(--mmc-off); cursor: default; }
 .mmc-ch-tool:focus-visible, .mmc-ch-send:focus-visible, .mmc-ch-pill:focus-visible,
-.mmc-ch-try:focus-visible, .mmc-ch-thumb:focus-visible, .mmc-ch-gear:focus-visible,
+.mmc-ch-try:focus-visible, .mmc-ch-thumb:focus-visible, .mmc-ch-do:focus-visible, .mmc-ch-act:focus-visible,
 .mmc-ch-modelpill:focus-visible {
   outline: 2px solid var(--mmc-accent); outline-offset: 2px;
 }
@@ -436,35 +431,66 @@ export const css = `
 .mmc-ch-keyrow .mmc-ch-askinput { max-width: none; }
 .mmc-ch-setupnote { padding: 0 8px; font-size: calc(12.5px * var(--mmc-type)); color: var(--mmc-faint); }
 
-/* --- the gear's popover -------------------------------------------------------- */
-.mmc-ch-more { width: 420px; max-width: calc(100vw - 24px); max-height: calc(100vh - 80px); overflow-y: auto; padding: 10px 12px 12px; }
-.mmc-ch-more .mmc-pop-title { padding: 2px 0 10px; }
-/* One head per node: what it is, and the room's own size for it at the right.
-   Under each, the node's sampler row exactly as its face draws it — the same
-   pills, the same values — so the gear reads as the two nodes and not as a
-   form about them. */
+/* --- the two sheets behind the bar's pills ------------------------------------ */
+/* *Makes with*: two sections, one per kind, each line with a badge saying
+   whose the setting is. A grid so the labels, the values and the actions
+   line up down the sheet; the value cell wraps, because a row of the chat's
+   own is the node's own pills drawn in it. */
+.mmc-ch-makes { width: 540px; max-width: calc(100vw - 24px); max-height: calc(100vh - 80px); overflow-y: auto; padding: 10px 14px 12px; }
+.mmc-ch-thinker { width: 400px; max-width: calc(100vw - 24px); max-height: calc(100vh - 80px); overflow-y: auto; padding: 10px 12px 12px; }
+.mmc-ch-thinker-lead { padding: 0 8px 8px; }
+.mmc-ch-writes .mmc-ch-line:first-child { border-top: 0; }
 .mmc-ch-gearhead {
   display: flex; align-items: center; gap: 8px; min-height: var(--mmc-pill-h);
-  padding: 6px 0 4px; font-size: calc(12.5px * var(--mmc-type)); color: var(--mmc-dim);
+  padding: 6px 0 4px; font-size: calc(13px * var(--mmc-type));
 }
 .mmc-ch-gearhead:first-child { padding-top: 0; }
-/* The pin beside a side's size: lit while the room keeps its own copy of
-   that node's setup, plain while it follows the node. */
-.mmc-ch-pin { padding: 0 9px; }
-.mmc-ch-pin svg { stroke: currentColor; fill: none; stroke-width: 1.7; }
-.mmc-ch-more .mmc-pills { gap: 6px; padding: 2px 0 8px; }
-.mmc-ch-more > .mmc-ch-ask { margin: 2px 0 8px; }
-.mmc-ch-dim { color: var(--mmc-dim); font-size: calc(12.5px * var(--mmc-type)); }
+.mmc-ch-gearkind { font-weight: 600; color: var(--mmc-strong); }
+.mmc-ch-gearfamily { color: var(--mmc-dim); }
+.mmc-ch-line {
+  display: grid; grid-template-columns: 6.5em minmax(0, 1fr); column-gap: 12px;
+  align-items: center; padding: 7px 0; border-top: 1px solid var(--mmc-line);
+}
+.mmc-ch-line-foot { border-top: 0; }
+.mmc-ch-k { font-size: calc(12.5px * var(--mmc-type)); color: var(--mmc-dim); }
+.mmc-ch-v { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; font-size: calc(12.5px * var(--mmc-type)); }
+/* A row of the chat's own is the node's pills, flowing across the value cell. */
+.mmc-ch-v .mmc-pills { flex-basis: 100%; padding: 0; gap: 6px; }
+/* The summary sits beside its badge and wraps inside itself, rather than
+   dropping whole to the next line and leaving the badge alone. */
+.mmc-ch-sum { flex: 1 1 12em; min-width: 12em; color: var(--mmc-text); }
+.mmc-ch-under { flex-basis: 100%; font-size: calc(11px * var(--mmc-type)); color: var(--mmc-faint); line-height: 1.4; }
+/* A line's one action, as a link at the right end of the value's first row:
+   "Set for chats", "Change". */
+.mmc-ch-do {
+  margin-left: auto; background: none; border: 0; padding: 0; font-family: inherit; cursor: pointer;
+  font-size: calc(12px * var(--mmc-type)); color: var(--mmc-blue); white-space: nowrap;
+}
+.mmc-ch-do:hover { text-decoration: underline; }
+/* The badge: one word, in the colour of whose it is. Blue is the node (the
+   pin's old colour), the accent is this chat (the colour every "on" pill
+   already wears), green is this machine's files, and defaults are plain. */
+.mmc-ch-src {
+  display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 9px;
+  font-size: calc(11px * var(--mmc-type)); font-weight: 600; white-space: nowrap;
+  border: 1px solid var(--mmc-line-2); color: var(--mmc-dim);
+}
+.mmc-ch-src-node { color: var(--mmc-blue); border-color: color-mix(in srgb, var(--mmc-blue) 50%, transparent); background: color-mix(in srgb, var(--mmc-blue) 12%, transparent); }
+.mmc-ch-src-machine { color: var(--mmc-tag-1); border-color: color-mix(in srgb, var(--mmc-tag-1) 45%, transparent); background: color-mix(in srgb, var(--mmc-tag-1) 10%, transparent); }
+.mmc-ch-src-chat { color: var(--mmc-accent); border-color: color-mix(in srgb, var(--mmc-accent) 55%, transparent); background: color-mix(in srgb, var(--mmc-accent) 14%, transparent); }
+.mmc-ch-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 2px 0 4px; font-size: calc(11px * var(--mmc-type)); color: var(--mmc-dim); line-height: 1.4; }
+.mmc-ch-legend > span { display: inline-flex; align-items: center; gap: 2px; }
+/* The first-run form's rows (chatsetup.js): a label and one control. */
 .mmc-ch-row { display: flex; align-items: center; gap: 8px; min-height: var(--mmc-pill-h); padding: 2px 0; }
 .mmc-ch-label { flex: 1; min-width: 0; font-size: calc(12.5px * var(--mmc-type)); }
 .mmc-ch-value { max-width: 62%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mmc-ch-rule { height: 1px; margin: 8px 0; background: var(--mmc-line); }
-/* The verbosity dial: a range with the name of the block it lands in beside
-   it, the width of the gear's value pills so the rows line up. */
-.mmc-ch-verbosity { display: flex; align-items: center; gap: 8px; max-width: 62%; }
+/* The verbosity dial: a range with the name of the block it lands in beside it. */
+.mmc-ch-verbosity { display: flex; align-items: center; gap: 8px; }
 .mmc-ch-verbosity input[type="range"] { width: 140px; accent-color: var(--mmc-blue); margin: 0; }
 .mmc-ch-tier { min-width: 5.5em; text-align: right; color: var(--mmc-dim); font-size: calc(12.5px * var(--mmc-type)); white-space: nowrap; }
-/* The composer's Pictures pill on a pre-stage the room cannot draw through. */
+/* The composer's Pictures pill on a pre-stage the room cannot draw through,
+   and the bar's pill with no thinker chosen. */
 .mmc-ch-pill-off { color: var(--mmc-warn); }
 
 /* --- the shelf --------------------------------------------------------------
