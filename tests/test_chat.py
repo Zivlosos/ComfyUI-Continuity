@@ -872,6 +872,36 @@ check("a picture cited for its look is only drawn from: a blank canvas, in the a
       (beside[chat.START_BLANK_FIELD], beside["aspect"]), (True, "1:1"))
 ordered = edited({"act": "render", "kind": "still", "prompt": "@img-2 in the look of @img-1",
                   "from": ["img-1:style", "img-2"]})
+# A member's picture carries its saved renditions (`compile.Asset.mods`):
+# the room reads them off the piece and writes them onto the still's
+# reference, and the family rendering it takes the one in its own space. A
+# member built out of a mod alone is their words — a still family loads
+# pictures by name, and a mod is a latent.
+MOD_PIECE = {"subjects": [{"handle": "kim", "from": ["img-9"], "description": "a green coat"},
+                          {"handle": "lee", "from": ["img-8"], "description": "tall"}],
+             "assets": [{"handle": "img-9", "kind": "image", "role": "reference", "filename": "kim.png",
+                         "mods": {"h3_video": "refmod:cast/kim", "flux2": "refmod:cast/kim.flux2"}},
+                        {"handle": "img-8", "kind": "image", "role": "reference",
+                         "filename": "refmod:cast/lee"}]}
+MOD_CAST = chat.cast_entries(MOD_PIECE)
+check("the room reads a picture's renditions off the piece",
+      MOD_CAST[0].get("mods"), {"img-9": {"h3_video": "refmod:cast/kim", "flux2": "refmod:cast/kim.flux2"}})
+check("...and a mod-only member carries none", "mods" in MOD_CAST[1], False)
+MOD_LEDGER = EDIT_LEDGER + [
+    {"handle": "img-9", "kind": "still", "filename": "kim.png", "text": "kim"},
+    {"handle": "img-8", "kind": "still", "filename": "refmod:cast/lee", "text": "lee"}]
+with_mods = chat.still_piece(
+    chat.validate({"act": "render", "kind": "still", "prompt": "@kim at dusk"}, MOD_LEDGER,
+                  cast=["kim", "lee"]), MOD_LEDGER, ON_EDIT, cast=MOD_CAST)
+check("a member's picture rides in with its renditions",
+      with_mods["refs"], [{"handle": "img-9", "filename": "kim.png",
+                           "mods": {"h3_video": "refmod:cast/kim", "flux2": "refmod:cast/kim.flux2"}}])
+mod_only = chat.still_piece(
+    chat.validate({"act": "render", "kind": "still", "prompt": "@lee at dusk"}, MOD_LEDGER,
+                  cast=["kim", "lee"]), MOD_LEDGER, ON_EDIT, cast=MOD_CAST)
+check("a member built out of a mod alone is their words in a still",
+      (mod_only["refs"], mod_only["prompt"]), ([], "tall at dusk"))
+
 check("the picture cited plain leads whatever order it was cited in",
       [r["handle"] for r in ordered["refs"]], ["img-2", "img-1"])
 check("with the compiler's own scope kept on the other",

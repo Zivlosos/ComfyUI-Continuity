@@ -13,7 +13,7 @@
 
 import { el, icon, ICONS, dismissable, keepScroll, placeNear, svg, swappable } from "./dom.js";
 import { CastShelf } from "./cast.js";
-import { keepAsMod } from "./refmod.js";
+import { keepAsMod, modFamilies } from "./refmod.js";
 import { t } from "./i18n.js";
 import { openPicker } from "./picker.js";
 import { openLoras, loraBlock, settlePins } from "./loras.js";
@@ -30,7 +30,7 @@ import { openAspectPopover, openResolutionPopover, openChoicePopover, facesPill,
 import { blobIO, samplingBar, segmentSeedPill, seedPill } from "./sampling.js";
 import { Stage, stageSource } from "./stage.js";
 import { openRestyle } from "./restyle.js";
-import { familyPill, weightsPill, loadCatalog, adoptWeights } from "./models.js";
+import { familyPill, weightsPill, loadCatalog, adoptWeights, rememberedWeights } from "./models.js";
 import * as Turbo from "./turbo.js";
 import * as Guide from "./guide.js";
 import { viewUrl, thumbUrl, probe, probeAudio, primeSettings, buildPlate, stillUrl } from "./api.js";
@@ -1938,8 +1938,9 @@ export class CreatorEditor {
       // Their pictures as saved latents, landing on this shot's own row where
       // the pictures were. The pool is read (`getAssets` merges it) but never
       // written: a pool picture kept as a mod stays in the pool, unclaimed.
-      mod: (subject, assets, mode, onProgress) => keepAsMod(subject, assets, mode, {
+      mod: (subject, assets, mode, onProgress, family = null) => keepAsMod(subject, assets, mode, {
         vae: (this.piece ?? this.state).models?.vae ?? "",
+        family,
         onProgress,
         list: () => (this.state.assets ??= []),
         nextHandle: (kind) => S.nextHandle(this.state, kind),
@@ -1950,6 +1951,9 @@ export class CreatorEditor {
         },
       }).then((rows) => { this.commit(); this.render(); return rows; }),
       vae: () => (this.piece ?? this.state).models?.vae ?? "",
+      // The families a member's pictures can be saved for, the piece's first.
+      families: () => modFamilies(S.pieceFamily(this.piece ?? this.state),
+                                  (this.piece ?? this.state).models?.vae ?? "", rememberedWeights()),
       // The ledger's estimate of a `match` picture is this shot's own canvas.
       canvas: () => this.frame(),
       // Recasting rewrites every sentence that wrote the departed name. This

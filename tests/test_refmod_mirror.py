@@ -36,6 +36,9 @@ API = layout.STUBS["api.js"].replace(
           size: 1, mtime: 1, mod: true, mode: "training", tokens: 64, preview: true },
         { path: "refmod:walk", name: "walk", subfolder: "", kind: "video",
           size: 1, mtime: 1, mod: true, mode: "encode", tokens: 768, preview: false },
+        { path: "refmod:cast/anna.flux2", name: "anna.flux2", subfolder: "cast", kind: "image",
+          size: 1, mtime: 1, mod: true, mode: "training", tokens: 1024, preview: true, space: "flux2",
+          space_label: "Flux 2" },
       ], folders: ["cast"], truncated: false }) };
     }
     if (String(url).startsWith("/continuity/refmod/make")) {
@@ -46,9 +49,12 @@ API = layout.STUBS["api.js"].replace(
           { path: `refmod:cast/${body.name}`, kind: "video", tokens: 64 * (body.sources.length + 5),
             mode: "training", source: "stack" }] } }) };
       }
+      const space = body.family === "flux2klein" ? "flux2" : "h3_video";
+      const suffix = space === "h3_video" ? "" : `.${space}`;
       return { ok: true, status: 200, json: async () => ({ result: { mods: body.sources.map(
-        (source, i) => ({ path: `refmod:cast/${body.name}${i ? `-${i + 1}` : ""}`,
-                          kind: "image", tokens: 64, mode: body.mode })) } }) };
+        (source, i) => ({ path: `refmod:cast/${body.name}${i ? `-${i + 1}` : ""}${suffix}`,
+                          kind: body.mode === "clip" ? "video" : "image",
+                          tokens: space === "flux2" ? 1024 : 64, mode: body.mode, space })) } }) };
     }
     return { ok: true, status: 200, json: async () => ({}) };""").replace(
     "  async fetchApi(url) {", "  async fetchApi(url, options = {}) {")
@@ -56,7 +62,7 @@ API = layout.STUBS["api.js"].replace(
 SCRIPT = layout.DOMSHIM if hasattr(layout, "DOMSHIM") else ""
 SCRIPT = __import__("domshim").DOM + """
 import * as S from "./web/creator/state.js";
-import { cost, costMark, keepable, keepAsMod, ledger, modRows, modeRows } from "./web/creator/refmod.js";
+import { cost, costMark, familySections, keepable, keepAsMod, ledger, modFamilies, modRows, modeRows } from "./web/creator/refmod.js";
 import { CastShelf } from "./web/creator/cast.js";
 import { openPicker } from "./web/creator/picker.js";
 
@@ -79,7 +85,7 @@ const piece = S.parseState(JSON.stringify({
 }));
 out.blob = JSON.parse(JSON.stringify({ assets: piece.assets, subjects: piece.subjects, prompt: piece.prompt }));
 
-// Keeping her: the picture goes, the mod takes its place, the words follow.
+// Keeping her: the picture stays, and carries the mod for the family.
 const list = piece.assets;
 const rows = await keepAsMod(piece.subjects[0], list, "compressed", {
   vae: "h3_vae.safetensors",
@@ -91,9 +97,32 @@ const rows = await keepAsMod(piece.subjects[0], list, "compressed", {
 });
 out.made = globalThis.__made;
 out.rows = rows.map((r) => r.path);
-out.after = { assets: piece.assets.map((a) => [a.handle, a.filename]),
+out.after = { assets: piece.assets.map((a) => [a.handle, a.filename, a.mods ?? null]),
               from: piece.subjects[0].from, notes: piece.subjects[0].notes ?? null };
 out.keepableAfter = keepable(piece.subjects[0], piece.assets).length;
+out.keepableForKlein = keepable(piece.subjects[0], piece.assets, "compressed", "flux2").map((a) => a.handle);
+out.afterBlob = JSON.parse(S.serializeTimeline({ ...piece, segments: [] })).assets
+  .map((a) => [a.handle, a.mods ?? null]);
+
+// ...and for Klein too, from the same picture, through Klein's VAE.
+const families = modFamilies("h3", "h3_vae.safetensors", { flux2klein: { vae: "flux2-vae.safetensors" } });
+out.families = families.map((f) => [f.id, f.space, f.vae, f.clips]);
+await keepAsMod(piece.subjects[0], list, "full", {
+  family: families.find((f) => f.id === "flux2klein"),
+  list: () => list, nextHandle: (kind) => S.nextHandle(piece, kind),
+  texts: () => [piece.prompt], cast: () => piece.subjects, drop: () => {},
+});
+out.madeKlein = { family: globalThis.__made.family, vae: globalThis.__made.vae, mode: globalThis.__made.mode };
+out.bothMods = piece.assets[0].mods;
+out.sections = familySections(
+  [{ filename: "c.png", kind: "image", ref_size: "max" }],
+  modFamilies("h3", "h3_vae.safetensors", {}), () => {}).map((section) => [
+    section.head, section.rows.map((row) => [row.label, Boolean(row.disabled)])]);
+// A new frame forgets the renditions: they were latents of the old window.
+const framed = { handle: "img-5", kind: "image", role: "reference", filename: "d.png",
+                 mods: { h3_video: "refmod:cast/d" } };
+S.dropMods(framed);
+out.dropped = framed.mods ?? null;
 
 // A picture somebody else claims, or the prompt writes, stays.
 const shared = S.parseState(JSON.stringify({
@@ -156,15 +185,22 @@ const canvas = { width: 992, height: 576 };
 const matchPic = { filename: "a.png", kind: "image", ref_size: "match" };
 const maxPic = { filename: "b.png", kind: "image", ref_size: "max" };
 const modEntry = { filename: "refmod:cast/anna", kind: "image" };
+const bound = { filename: "anna.png", kind: "image", ref_size: "max",
+                mods: { h3_video: "refmod:cast/anna", flux2: "refmod:cast/anna.flux2" } };
 const c1 = cost([matchPic], canvas);
 const c2 = cost([maxPic], canvas);
 const c3 = cost([modEntry], canvas);
 const c4 = cost([matchPic, modEntry], canvas);
+const c5 = cost([bound], canvas);
+const c6 = cost([bound], canvas, null, "flux2");
+const c7 = cost([{ ...bound, mods: { h3_video: "refmod:cast/anna" } }], canvas, null, "flux2");
 out.cost = {
   match: [c1.pictures, c1.picTokens, c1.exact],
   max: [c2.pictures, c2.picTokens, c2.exact],
   mod: [c3.mods, c3.modTokens, c3.exact],
   mixed: [c4.pictures, c4.mods, c4.picTokens + c4.modTokens, c4.exact],
+  bound: [[c5.mods, c5.modTokens, c5.exact], [c6.mods, c6.modTokens, c6.exact],
+          [c7.pictures, c7.mods, c7.picTokens]],
   marks: [costMark([maxPic], canvas), costMark([modEntry], canvas), costMark([], canvas)],
 };
 const text = (node) => node.text.replace(/\\s+/g, " ").trim();
@@ -257,16 +293,43 @@ check("the job is asked for her picture, under her name, as her kind of thing",
        got["made"]["mode"], got["made"]["concept"], got["made"]["vae"]),
       (["anna.png"], "anna", "cast", "compressed", "identity", "h3_vae.safetensors"))
 check("one mod comes back per picture", got["rows"], ["refmod:cast/anna"])
-check("the picture leaves and the mod takes its place",
+check("the picture stays, carrying the mod for the family",
       got["after"]["assets"],
-      [["img-2", "refmod:cast/anna"], ["img-3", "b.png"], ["img-4", "refmod:cast/anna"]])
-check("...her looks point at the mods", got["after"]["from"], ["img-4", "img-2"])
-check("...and her words follow", got["after"]["notes"], {"img-4": "her face"})
-check("there is nothing left to keep", got["keepableAfter"], 0)
+      [["img-1", "anna.png", {"h3_video": "refmod:cast/anna"}], ["img-2", "refmod:cast/anna", None],
+       ["img-3", "b.png", None]])
+check("...her looks and her words are untouched",
+      (got["after"]["from"], got["after"]["notes"]), (["img-1", "img-2"], {"img-1": "her face"}))
+check("there is nothing left to keep for H3", got["keepableAfter"], 0)
+check("...but the same picture is still unsaved for Klein", got["keepableForKlein"], ["img-1"])
+check("the blob carries the renditions", got["afterBlob"],
+      [["img-1", {"h3_video": "refmod:cast/anna"}], ["img-2", None], ["img-3", None]])
+bound_blob = compiler.compile_request(
+    {"prompt": "@anna", "assets": [{"handle": "img-1", "kind": "image", "role": "reference",
+                                    "filename": "anna.png", "mods": {"h3_video": "refmod:cast/anna"}}],
+     "subjects": [{"handle": "anna", "from": ["img-1"], "takes": "person"}],
+     "duration_s": 6, "aspect": "16:9", "short_edge": 768},
+    image_size_lookup=lambda _f: (1500, 1000))
+check("...and compile.py reads them off the picture",
+      (bound_blob.ref_images[0].mod, bound_blob.ref_images[0].mod_for("h3_video"),
+       bound_blob.ref_images[0].mod_for("flux2")), (False, "refmod:cast/anna", None))
+check("the families a member can be saved for, the piece's first",
+      got["families"], [["h3", "h3_video", "h3_vae.safetensors", True],
+                        ["flux2klein", "flux2", "flux2-vae.safetensors", False]])
+check("saving for Klein asks for that family and its VAE",
+      got["madeKlein"], {"family": "flux2klein", "vae": "flux2-vae.safetensors", "mode": "full"})
+check("...and the picture carries both renditions",
+      got["bothMods"], {"h3_video": "refmod:cast/anna", "flux2": "refmod:cast/anna.flux2"})
+check("the menu is a section per family, and a family with no VAE picked is offered disabled",
+      got["sections"],
+      [["For MiniMax H3", [["Compressed — ≈576 tokens", False], ["Full — ≈1,024 tokens", False]]],
+       ["For Flux 2 Klein", [["Compressed — ≈1,024 tokens", True], ["Full — ≈4,096 tokens", True]]]])
+check("a new frame forgets the renditions", got["dropped"], None)
 
 # A stack.
-check("the menu leads with the stack where there is something to stack", got["stackMenu"],
-      ["One file — everything stacked — ≈512 tokens", "Compressed — ≈1,152 tokens", "Full — ≈2,048 tokens"])
+check("the menu leads with the stack where there is something to stack, and offers the clip on its own",
+      got["stackMenu"],
+      ["One file — everything stacked — ≈512 tokens", "Compressed — ≈1,152 tokens", "Full — ≈2,048 tokens",
+       "Each clip — its own file — ≈2,016 tokens"])
 check("...and not for one still", got["soloMenu"], ["Compressed — ≈576 tokens", "Full — ≈1,024 tokens"])
 check("a stack takes the clip; the per-picture modes do not",
       (got["stackable"], got["perPicture"]), (["img-1", "img-2", "vid-1"], ["img-1", "img-2"]))
@@ -283,9 +346,9 @@ check("and compile.py cites the stack as one video",
       ([step["label"] for step in stacked_blob.plan],
        "<Subject 1> is the person in <Video 1>" in stacked_blob.prompt), (["<Video 1>"], True))
 
-check("a picture another member claims stays, and so does one the prompt writes",
-      got["shared"], {"assets": ["img-1", "img-9", "img-2", "img-3"],
-                      "anna": ["img-2", "img-3"], "ben": ["img-1"]})
+check("a picture two members share is saved once and stays both of theirs",
+      got["shared"], {"assets": ["img-1", "img-9"],
+                      "anna": ["img-1", "img-9"], "ben": ["img-1"]})
 check("nothing to keep is refused before the queue", got["empty"],
       "Nothing to save — hang a picture on them first.")
 
@@ -294,6 +357,9 @@ check("a match picture costs the canvas over 32x32", got["cost"]["match"], [1, 5
 check("a max picture costs a 2048 edge over 32x32 (square, unmeasured)", got["cost"]["max"], [1, 4096, False])
 check("a mod costs what its header says, exactly", got["cost"]["mod"], [1, 64, True])
 check("...and the two add", got["cost"]["mixed"], [1, 1, 622, False])
+check("a picture carrying a rendition costs the rendition, in each family's own space — and is a picture "
+      "where it has none for that family",
+      got["cost"]["bound"], [[1, 64, True], [1, 1024, True], [1, 0, 4096]])
 check("the shut line's mark is ≈ for a picture, plain and amber for a mod, absent for nobody",
       got["cost"]["marks"], [{"text": "≈4.1k tok", "saved": False}, {"text": "64 tok", "saved": True}, None])
 check("before: the line says what it costs and offers to save",
@@ -318,8 +384,8 @@ check("an open card has the ledger and the footer, and none of the three icons",
       got["openCard"], {"ledger": True, "foot": True, "cube": False, "star": False, "swap": False})
 
 check("the picker has a RefMod tab", got["picker"]["tabs"], ["Image", "RefMod"])
-check("...whose cells say what a mod costs", got["picker"]["cells"],
-      ["compressed · 64 tokens", "full · 768 tokens"])
+check("...whose cells say what a mod costs, and whose it is when not H3's", got["picker"]["cells"],
+      ["compressed · 64 tokens", "full · 768 tokens", "Flux 2 · compressed · 1024 tokens"])
 check("...with an import in the upload slot and nothing to organize",
       (got["picker"]["upload"], got["picker"]["organize"]),
       ([[None, "+  Import RefMod"]], ["none"]))

@@ -39,7 +39,12 @@ def _boot():
     import server
 
     loop = asyncio.new_event_loop()
-    server.PromptServer(loop)          # server_routes.py registers against .instance
+    try:
+        # Core 2026-09 hands the server an asset manager; older cores take none.
+        from app.assets.manager import default_asset_manager
+        server.PromptServer(loop, default_asset_manager())  # server_routes.py registers against .instance
+    except (ImportError, TypeError):
+        server.PromptServer(loop)
     asyncio.set_event_loop(loop)
     loop.run_until_complete(nodes.init_extra_nodes(init_custom_nodes=False))
 

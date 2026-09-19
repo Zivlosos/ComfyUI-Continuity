@@ -31,7 +31,7 @@ modelled here at all.
 
 from dataclasses import dataclass, field
 
-from . import neural
+from . import neural, refmod
 from .compile import HANDLE_RE, CompileError, collect_triggers
 from .families import registry
 
@@ -112,6 +112,12 @@ class ImagePayload:
     checkpoint_field: str
     loras: list = field(default_factory=list)        # [{"name", "strength"}]
     refs: list = field(default_factory=list)         # filenames, on the families that read them
+    # The saved rendition a slot is read from instead of its picture, by slot
+    # index: `{0: "refmod:cast/anna.flux2"}`. Only the family's own latent
+    # space (`declare.REFMOD["space"]`) is written here — a picture carrying
+    # an H3 mod alone is a picture to Klein. The emitter loads the file as a
+    # latent (`refmodnode`) where the slot has one, and the picture otherwise.
+    mods: dict = field(default_factory=dict)
     init: dict = None                                # {"filename", "denoise"} or None
     # The framing on each picture that has one, keyed "ref:<slot>" / "init":
     # `{"crop": crop.to_dict(...), "size": [w, h]}`, the source size resolved
@@ -294,6 +300,12 @@ def _parse_refs(raw, limit=MAX_STYLE_REFS, reason=REFS_LIMIT_REASON,
 
     A handle is optional: a hand-written blob may carry filenames alone, and a
     reference nothing cites still rides in as a slot. Only a citation needs one.
+
+    Each entry is `(handle, filename, crop, mods)`; `mods` is the picture's
+    saved renditions by latent space (`refmod.parse_mods`), `{}` where it has
+    none. A mod cannot itself be a still family's picture — the graph loads a
+    picture by name and a mod is a latent — so `refmod:` here is refused with
+    the way it does work named: hang it on the picture it was made of.
     """
     refs = []
     for item in raw or []:
@@ -301,8 +313,18 @@ def _parse_refs(raw, limit=MAX_STYLE_REFS, reason=REFS_LIMIT_REASON,
         if not filename or not isinstance(filename, str):
             raise CompileError(f"every {noun[0]} must carry a filename")
         handle = item.get("handle") if isinstance(item, dict) else None
+        if refmod.is_mod(filename):
+            raise CompileError(
+                f"{'@' + handle if isinstance(handle, str) else filename} is a saved "
+                f"reference, and a {noun[0]} here is loaded as a picture — attach "
+                f"the picture it was made of; its mods ride on it")
+        try:
+            mods = refmod.parse_mods(item.get("mods") if isinstance(item, dict) else None,
+                                     owner=f"@{handle}: " if isinstance(handle, str) else "")
+        except refmod.RefModError as exc:
+            raise CompileError(str(exc)) from exc
         refs.append((handle if isinstance(handle, str) else None, filename,
-                     item.get("crop") if isinstance(item, dict) else None))
+                     item.get("crop") if isinstance(item, dict) else None, mods))
     if len(refs) > limit:
         raise CompileError(f"at most {limit} {noun[0] if limit == 1 else noun[1]} "
                            f"— {reason}")
@@ -411,10 +433,18 @@ def compile_prestage(data, family, image_size_lookup=None):
     short_edge = data.get("short_edge", DEFAULT_SHORT_EDGE)
     ratio_clamped = False
     framed = {}
-    for slot, (_, filename, crop) in enumerate(refs):
+    for slot, (_, filename, crop, _mods) in enumerate(refs):
         entry = _framed(f"picture {slot + 1}", filename, crop, image_size_lookup)
         if entry:
             framed[f"ref:{slot}"] = entry
+    # The renditions this family reads: a slot whose picture carries a mod in
+    # the family's own latent space is read from the file. The slot keeps its
+    # picture too — the init promotion above and the framing are about the
+    # picture, and the latent stands in only where the picture would have
+    # been encoded.
+    space = (getattr(family, "REFMOD", None) or {}).get("space")
+    mods = {slot: entry[3][space] for slot, entry in enumerate(refs)
+            if space and entry[3].get(space)}
     if init is not None:
         entry = _framed("the init image", init["filename"], init.get("crop"), image_size_lookup)
         if entry:
@@ -442,8 +472,8 @@ def compile_prestage(data, family, image_size_lookup=None):
         checkpoint_field=checkpoint_field, loras=loras,
         # Filenames alone from here on: the handles did their work above and the
         # graph loads these by name, in this order, into the encoder's slots.
-        refs=[filename for _, filename, _ in refs], init=init,
-        framing=framed,
+        refs=[filename for _, filename, _, _ in refs], init=init,
+        framing=framed, mods=mods,
         schedule=schedule or {}, ratio_clamped=ratio_clamped,
         neural=neural_block(data),
     )

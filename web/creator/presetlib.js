@@ -37,7 +37,7 @@ import { el, icon, mountOverlay } from "./dom.js";
 import { t } from "./i18n.js";
 import { deleteRefMod, describeRefMod, isRefMod, makeRefMod, moveRefMod, renderMeta, stillUrl,
          uploadRefMod, viewUrl } from "./api.js";
-import { SUBFOLDER as MOD_FOLDER, ledger, modRow, modRows, modeRows, modeWord, remakeMods, remakeRows } from "./refmod.js";
+import { DEFAULT_SPACE, SUBFOLDER as MOD_FOLDER, familySections, ledger, modIn, modRow, modRows, modeWord, remakeMods, remakeRows } from "./refmod.js";
 import { atlasRef } from "./presets/atlasref.js";
 import { openPicker } from "./picker.js";
 import { downloadMod, openLoraMenu, openMenu, noteField, sizeRows, triggerField, MARKER_LABEL,
@@ -1494,17 +1494,27 @@ class PresetLibrary {
   lookEntries(member) {
     return (member.files ?? [])
       .filter((file) => file.slot === "from" && ["image", "video"].includes(file.kind ?? "image"))
-      .map((file) => ({ filename: file.filename, kind: file.kind ?? "image", ref_size: file.ref_size ?? "max" }));
+      .map((file) => ({ filename: file.filename, kind: file.kind ?? "image", ref_size: file.ref_size ?? "max",
+                        ...(file.mods ? { mods: file.mods } : {}) }));
   }
 
+  /** The families a stored member's pictures can be saved for — the piece's
+   *  own first, off the target — or none without a piece behind the library. */
+  modFamilies() { return this.target?.families?.() ?? []; }
+  ownFamily() { return this.modFamilies()[0] ?? null; }
+
   sheetLedger(member) {
+    const families = this.modFamilies();
+    const unsaved = (families.length ? families : [null]).some(
+      (family) => this.modSources(member, "stack", family?.space ?? DEFAULT_SPACE).length);
     const row = ledger({
       entries: this.lookEntries(member),
       canvas: null,
       busy: this.encoding,
       note: this.modNote,
+      family: this.ownFamily(),
       // Only with a piece behind the library — the VAE is the piece's.
-      onSave: this.target?.vae && !this.encoding && this.modSources(member, "stack").length
+      onSave: this.target?.vae && !this.encoding && unsaved
         ? (anchor) => this.pickMod(anchor, member) : null,
       onRemake: this.target?.vae && !this.encoding ? (anchor) => this.pickRemake(anchor, member) : null,
       onLibrary: (path) => { this.reveal = path; this.closeSheet(); this.renderInspector(); },
@@ -1711,33 +1721,37 @@ class PresetLibrary {
   /** What a member can be saved out of, per mode: their looks, not already
    *  mods, not sheets; clips only for a stack. Mirrors `refmod.keepable` for a
    *  stored member. */
-  modSources(member, mode = "stack") {
+  modSources(member, mode = "stack", space = DEFAULT_SPACE) {
     return (member.files ?? []).filter((file) =>
       file.slot === "from" && ["image", "video"].includes(file.kind ?? "image")
-      && !isRefMod(file.filename) && !file.panels?.length
-      && (mode === "stack" || (file.kind ?? "image") === "image"));
+      && !modIn(file, space) && !file.panels?.length
+      && (mode === "stack" || (file.kind ?? "image") === (mode === "clip" ? "video" : "image")));
   }
 
-  /** Compressed or full, as a menu on the ledger's button, each row naming
-   *  what it would cost. */
+  /** The ways to save their pictures, as a menu on the ledger's button: a
+   *  section per family the piece behind the library could encode for, each
+   *  row naming what it would cost. */
   pickMod(anchor, member) {
-    const sources = this.modSources(member);
+    const sources = (member.files ?? []).filter((file) =>
+      file.slot === "from" && ["image", "video"].includes(file.kind ?? "image")
+      && !isRefMod(file.filename) && !file.panels?.length);
     openMenu(anchor, {
       title: t(sources.length === 1
         ? "Save {count} file as a RefMod → refmods/{folder}/{handle}"
         : "Save {count} files as RefMods → refmods/{folder}/{handle}",
         { count: sources.length, folder: MOD_FOLDER, handle: member.handle || "subject" }),
-      sections: [{ rows: modeRows(
-        sources.map((file) => ({ filename: file.filename, kind: file.kind ?? "image", ref_size: file.ref_size ?? "max" })),
-        (mode) => this.keepAsMod(member, mode),
-        () => { if (!this.sheetTyping()) this.renderSheet(); }) }],
+      sections: familySections(sources, this.modFamilies(),
+                               (mode, family) => this.keepAsMod(member, mode, family),
+                               () => { if (!this.sheetTyping()) this.renderSheet(); }),
     });
   }
 
-  /** The mods among their looks, as listing rows — what a re-encode is of. */
+  /** The mods among their looks for the piece's family, as listing rows —
+   *  what a re-encode is of. */
   modLooks(member) {
-    return this.lookEntries(member).filter((entry) => isRefMod(entry.filename))
-      .map((entry) => modRow(entry.filename)).filter(Boolean);
+    const space = this.ownFamily()?.space ?? DEFAULT_SPACE;
+    return this.lookEntries(member).map((entry) => modIn(entry, space))
+      .filter(Boolean).map((path) => modRow(path)).filter(Boolean);
   }
 
   /** The other mode for their saved looks, as a menu on the ledger's button. */
@@ -1785,12 +1799,13 @@ class PresetLibrary {
    * piece changes — a member cast out of the library afterwards arrives with
    * the mods, and one cast before keeps the pictures they arrived with.
    */
-  async keepAsMod(member, mode) {
+  async keepAsMod(member, mode, family = null) {
     if (this.encoding) return;
     const stack = mode === "stack";
-    const sources = this.modSources(member, mode);
+    const space = family?.space ?? DEFAULT_SPACE;
+    const sources = this.modSources(member, mode, space);
     if (!sources.length) return;
-    this.encoding = { count: sources.length, mode, progress: 0 };
+    this.encoding = { count: sources.length, mode, progress: 0, family };
     this.modNote = null;
     this.say(null);
     this.renderSheet();
@@ -1802,10 +1817,11 @@ class PresetLibrary {
         name: member.handle || "subject",
         subfolder: MOD_FOLDER,
         sources: sources.map((file) => file.filename),
-        mode: stack ? "stack" : mode === "full" ? "full" : "compressed",
+        mode: stack ? "stack" : mode === "clip" ? "clip" : mode === "full" ? "full" : "compressed",
         description: [member.description ?? "", ...noted].filter(Boolean).join("; "),
         concept: { person: "identity", object: "generic", scene: "background", style: "style" }[member.takes ?? "person"] ?? "generic",
-        vae: this.target?.vae?.() ?? "",
+        vae: family?.vae ?? this.target?.vae?.() ?? "",
+        ...(family?.id ? { family: family.id } : {}),
       }, { onProgress: (fraction) => {
         if (!this.encoding) return;
         this.encoding.progress = fraction;
@@ -1825,12 +1841,11 @@ class PresetLibrary {
                 ...(file.takes ? { takes: file.takes } : {}) }
             : file));
       } else {
-        const swapped = new Map(sources.map((file, index) => [file, rows[index]]).filter(([, row]) => row));
-        member.files = member.files.map((file) => {
-          const row = swapped.get(file);
-          if (!row) return file;
-          const { ref_size, trim, ...rest } = file;
-          return { ...rest, filename: row.path, kind: "image" };
+        // One mod per file, hung on the file it was made of: the picture
+        // stays theirs and carries its rendition for that family.
+        sources.forEach((file, index) => {
+          const row = rows[index];
+          if (row) file.mods = { ...(file.mods ?? {}), [row.space ?? space]: row.path };
         });
       }
       await this.flushSave();

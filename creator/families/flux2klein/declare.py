@@ -23,3 +23,11 @@ PROMPT_PIPELINE = "plain"
 LORA_STACK = "core"
 DURATION_HEAD = None
 ROUTED = ()
+
+# Saved references (`creator/refmod.py`). Klein reads a reference as a Flux 2
+# VAE latent chained onto the conditioning, and that VAE packs a 2x2 into its
+# channels: a 1 MP picture is a 64x64 grid and every cell is a token, so a
+# full mod is 4,096 of them. Compressed pools the grid to 32 on its long edge
+# — a quarter of the tokens; unmeasured against the picture, which is what the
+# lab run after this lands is for. Stills only: the family draws no clips.
+REFMOD = {"space": "flux2", "megapixels": 1.0, "grid": 32, "clips": False}

@@ -91,7 +91,94 @@ check("an old file with no version is version 1",
       refmod.header(write_mod("old", {"kind": "image"}))["format_version"], 1)
 
 refused("a newer format is refused",
-        lambda: refmod.header(write_mod("new", {"kind": "image", "_format_version": 5})), "newer")
+        lambda: refmod.header(write_mod("new", {"kind": "image", "_format_version": 6})), "newer")
+
+# ---- the spaces ----------------------------------------------------------------
+#
+# A latent belongs to one VAE. The sibling pack's files say nothing and are
+# H3's, read off their 24 channels; ours name the space, and a Flux 2 mod is a
+# 4-D 128-channel latent whose every cell is a token.
+
+check("a sibling file is in H3's space", refmod.header(good)["space"], "h3_video")
+klein = write_mod("cast/anna.flux2", {"kind": "image", "mode": "encode", "vae_kind": "flux2"},
+                  shape=(1, 128, 48, 64))
+kmeta = refmod.header(klein)
+check("a Flux 2 mod reads in its own space",
+      (kmeta["space"], kmeta["latent_t"], kmeta["latent_h"], kmeta["latent_w"]), ("flux2", 1, 48, 64))
+check("...and a cell is a token there", kmeta["tokens"], 48 * 64)
+check("...with an odd grid allowed", refmod.header(write_mod(
+    "odd2", {"kind": "image", "vae_kind": "flux2"}, shape=(1, 128, 47, 63)))["tokens"], 47 * 63)
+check("a nameless 4-D 128-channel file is Flux 2's too",
+      refmod.header(write_mod("bare4", {"kind": "image"}, shape=(1, 128, 8, 8)))["space"], "flux2")
+refused("a space this pack does not read is refused",
+        lambda: refmod.header(write_mod("wan", {"kind": "image", "vae_kind": "wan22"},
+                                        shape=(1, 48, 1, 8, 8))), "does not read")
+refused("a Flux 2 file with H3's shape is refused",
+        lambda: refmod.header(write_mod("mixed", {"kind": "image", "vae_kind": "flux2"},
+                                        shape=(1, 24, 1, 16, 16))), "Flux 2")
+refused("a clip in a still space is refused",
+        lambda: refmod.header(write_mod("kclip", {"kind": "video", "vae_kind": "flux2"},
+                                        shape=(1, 128, 8, 8))), "still space")
+check("the row says whose it is",
+      (refmod.row_for(klein, "cast/anna.flux2")["space"],
+       refmod.row_for(klein, "cast/anna.flux2")["space_label"]), ("flux2", "Flux 2"))
+
+# ---- a version-5 bundle -------------------------------------------------------
+#
+# The sibling pack's newer files: several references as `ref_<i>` tensors
+# under one header. One visual reference is one mod and reads as one, off its
+# own key; several is several labels behind one handle and is refused.
+
+
+def write_bundle(name, members, shapes):
+    table = {}
+    offset = 0
+    for index, shape in enumerate(shapes):
+        count = 1
+        for dim in shape:
+            count *= dim
+        table[f"ref_{index}"] = {"dtype": "F16", "shape": list(shape),
+                                 "data_offsets": [offset, offset + count * 2]}
+        offset += count * 2
+    meta = {"_format_version": 5, "kind": "bundle", "name": name, "members": members}
+    table["__metadata__"] = {refmod.META_KEY: json.dumps(meta)}
+    body = json.dumps(table).encode("utf-8")
+    path = os.path.join(ROOT, name + refmod.EXT)
+    with open(path, "wb") as handle:
+        handle.write(struct.pack("<Q", len(body)))
+        handle.write(body)
+        handle.write(b"\0" * offset)
+    return path
+
+
+one = write_bundle("walk5", [{"_format_version": 4, "kind": "video", "mode": "training",
+                              "description": "her walk", "latent_t": 6}],
+                   [(1, 24, 6, 16, 16)])
+bmeta = refmod.header(one)
+check("a one-reference bundle reads as that reference",
+      (bmeta["kind"], bmeta["latent_t"], bmeta["tokens"], bmeta["tensor"], bmeta["description"]),
+      ("video", 6, 6 * 64, "ref_0", "her walk"))
+with_voice = write_bundle("pair5", [{"kind": "audio"}, {"kind": "image", "mode": "encode"}],
+                          [(1, 32, 2, 40), (1, 24, 1, 16, 16)])
+check("...and its voice is skipped, the picture read off its own key",
+      (refmod.header(with_voice)["kind"], refmod.header(with_voice)["tensor"]), ("image", "ref_1"))
+refused("a bundle of several is refused by count",
+        lambda: refmod.header(write_bundle("two5", [{"kind": "image"}, {"kind": "image"}],
+                                           [(1, 24, 1, 16, 16), (1, 24, 1, 16, 16)])), "bundle of 2")
+refused("a bundle of voices alone is an audio mod",
+        lambda: refmod.header(write_bundle("voice5", [{"kind": "audio"}], [(1, 32, 2, 40)])), "audio")
+
+# ---- an asset's renditions ---------------------------------------------------------
+
+check("mods parse by space", refmod.parse_mods({"h3_video": "refmod:cast/anna", "flux2": ""}),
+      {"h3_video": "refmod:cast/anna"})
+check("...and nothing is nothing", refmod.parse_mods(None), {})
+refused("a space nobody reads is refused in mods",
+        lambda: refmod.parse_mods({"wan22": "refmod:x"}), "does not read")
+refused("a mod that is not one is refused in mods",
+        lambda: refmod.parse_mods({"flux2": "anna.png"}), "not a RefMod name")
+refused("...and a name walking out of the folder",
+        lambda: refmod.parse_mods({"flux2": "refmod:../x"}), "not a RefMod name")
 refused("an audio mod is refused",
         lambda: refmod.header(write_mod("voice", {"kind": "audio"}, shape=(1, 32, 2, 40))), "audio")
 refused("...under the sibling's audio key too",
@@ -182,6 +269,27 @@ expect_error("an audio mod is refused",
 expect_error("a bad name is refused",
              lambda: build("@img-1", [{"handle": "img-1", "kind": "image", "role": "reference",
                                        "filename": "refmod:../x"}]), "not a RefMod name")
+
+# A picture carrying its renditions: the picture is the reference, and the
+# family rendering it asks for the mod in its own space.
+bound = build("@img-1 walks", [picture("img-1", mods={"h3_video": "refmod:cast/anna",
+                                                        "flux2": "refmod:cast/anna.flux2"})])
+asset = bound.ref_images[0]
+check("a picture with renditions is still a picture", (asset.mod, asset.filename), (False, "img-1.png"))
+check("...and answers each family in its space",
+      (asset.mod_for("h3_video"), asset.mod_for("flux2"), asset.mod_for("ltx_video")),
+      ("refmod:cast/anna", "refmod:cast/anna.flux2", None))
+check("a mod answers itself", build("@img-1", [mod("img-1")]).ref_images[0].mod_for("h3_video"),
+      "refmod:cast/img-1")
+check("a picture without any is encoded", build("@img-1", [picture("img-1")]).ref_images[0].mods, {})
+expect_error("renditions on a keyframe are refused",
+             lambda: build("", [dict(picture("img-1"), role="first_frame",
+                                     mods={"h3_video": "refmod:cast/anna"})]), "used as it is")
+expect_error("...and on a mod",
+             lambda: build("@img-1", [mod("img-1", mods={"flux2": "refmod:cast/anna.flux2"})]),
+             "one rendition already")
+expect_error("...and for a space nobody reads",
+             lambda: build("@img-1", [picture("img-1", mods={"wan22": "refmod:x"})]), "does not read")
 
 # ---- the file itself ---------------------------------------------------------------
 #

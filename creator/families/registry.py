@@ -120,6 +120,15 @@ CUTOUT_DEFAULT = {module.ID: bool(getattr(module, "CUTOUT_DEFAULT", False))
 STORYBOARD = {module.ID: bool(getattr(module, "STORYBOARD", False))
               for module in DECLARED}
 
+# How each family keeps a saved reference (`creator/refmod.py`): the latent
+# space its mods are in and the maker's defaults, or None for a family whose
+# references never pass through a VAE it could cache — Ideogram is an API,
+# LTX 2.5 reads one composited sheet per card. Read by the make route to
+# encode for a family, by the image compiler to hand a still family the
+# rendition in its own space, and served to the frontend as
+# `capabilities.refmod` so the cast ledger knows which families to offer.
+REFMOD = {module.ID: getattr(module, "REFMOD", None) for module in DECLARED}
+
 # What each family's files are called. The folder they land in is the family id
 # and the tree is `outputs.py`'s; this is the stem every file in it is numbered
 # off. See `h3/declare.py` for why it is declared rather than lowercased off ID.

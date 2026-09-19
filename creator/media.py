@@ -189,7 +189,8 @@ def _source_size(filename):
             meta = refmod.header(path)
         except refmod.RefModError as exc:
             raise MediaError(str(exc)) from exc
-        return meta["latent_w"] * 16, meta["latent_h"] * 16
+        stride = refmod.SPACES[meta["space"]]["stride"]
+        return meta["latent_w"] * stride, meta["latent_h"] * stride
     try:
         with Image.open(path) as img:
             img = ImageOps.exif_transpose(img)

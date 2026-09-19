@@ -316,6 +316,10 @@ def manifest():
                        "segment": "sam3"},
             # Chained seams with feathering — the strip's whole grammar.
             "seams": True,
+            # Saved references: which latent space this family's mods are in
+            # and the maker's defaults — `declare.REFMOD`, the same table the
+            # make route encodes by, so the ledger offers what the route makes.
+            "refmod": dict(declare.REFMOD),
             # Whether a LoRA on this family can be held off the soundtrack.
             #
             # A capability rather than a control every family draws, because it

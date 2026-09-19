@@ -28,7 +28,8 @@ import tempfile
 from aiohttp import web
 from server import PromptServer
 
-from .. import jobs, media, refmod
+from .. import jobs, media, refmod, vaekind
+from ..families import registry
 
 log = logging.getLogger(__name__)
 
@@ -66,27 +67,101 @@ def _steps(body):
     return DEFAULT_STEPS if value in (None, "") else int(value)
 
 
-def _vae(name):
-    """Core's own VAE loader, so the encode is the one a render would do."""
+def _family(body):
+    """Which family the mod is for -> `(family id, its REFMOD table)`.
+
+    Absent means H3, which every mod was until the spaces arrived. A family
+    that keeps no mods — an API, a family that reads one sheet per card — is
+    refused by name rather than encoded into a space nothing reads.
+    """
+    family = str(body.get("family") or registry.DEFAULT_VIDEO)
+    table = registry.REFMOD.get(family)
+    if table is None:
+        known = ", ".join(f for f, t in registry.REFMOD.items() if t)
+        raise jobs.JobError(f"{family} keeps no saved references (these do: {known})")
+    return family, table
+
+
+def _vae(name, space):
+    """Core's own VAE loader, so the encode is the one a render would do —
+    checked to be the space's VAE before anything is encoded, the way the
+    families check their weights (`vaekind`): a Flux 2 VAE handed the H3
+    encoder would write a file nothing can read."""
+    import folder_paths
     import nodes
 
+    label = refmod.space_label(space)
     if not name:
-        raise jobs.JobError("pick the H3 video VAE in the node's weights control first")
+        raise jobs.JobError(f"pick the {label} VAE in the weights control first")
+    try:
+        vaekind.check(folder_paths.get_full_path("vae", name) or "", space, name)
+    except ValueError as exc:
+        raise jobs.JobError(str(exc)) from exc
     loader = nodes.NODE_CLASS_MAPPINGS["VAELoader"]()
     return loader.load_vae(name)[0]
 
 
-def _encode(vae, image, edge):
-    """One still -> its full latent, sized the way `encode.encode_image` sizes a
-    `max` reference but to `edge` rather than core's 2048."""
+def _encode_h3(vae, image, table, edge=None):
+    """One still (or a run of frames) -> its full H3 latent, sized the way
+    `encode.encode_image` sizes a `max` reference but to `edge` rather than
+    core's 2048."""
     from comfy_extras.nodes_minimax_h3 import _resize
     from ..families.h3.encode import _snap
 
+    edge = edge or table["edge"]
     height, width = image.shape[1], image.shape[2]
     scale = min(1.0, edge / min(width, height))
     target_w, target_h = _snap(width * scale), _snap(height * scale)
     resized = _resize(image, target_w, target_h, "disabled")
     return vae.encode(resized), resized
+
+
+def _encode_flux2(vae, image, table, edge=None):
+    """One still -> its Flux 2 latent, at the size Klein's graph scales a
+    reference to: `ImageScaleToTotalPixels` at the family's megapixels on a
+    16 grid, done here with the same core resampler so the file matches what
+    the render would have encoded."""
+    import math
+
+    import comfy.utils
+
+    samples = image.movedim(-1, 1)
+    total = table["megapixels"] * 1024 * 1024
+    scale = math.sqrt(total / (samples.shape[3] * samples.shape[2]))
+    width = max(16, round(samples.shape[3] * scale / 16) * 16)
+    height = max(16, round(samples.shape[2] * scale / 16) * 16)
+    resized = comfy.utils.common_upscale(samples, width, height, "lanczos", "disabled").movedim(1, -1)
+    return vae.encode(resized), resized
+
+
+# The encoder per latent space: how a family's reference pipeline sizes and
+# encodes a picture, so a mod is the latent a render would have made.
+_ENCODE = {"h3_video": _encode_h3, "flux2": _encode_flux2}
+
+
+def _encode(vae, image, table, edge=None):
+    return _ENCODE[table["space"]](vae, image, table, edge)
+
+
+def _stem(name, space):
+    """What a mod for `space` is called: the name itself in H3's space — every
+    mod made before the spaces arrived is one, and the sibling pack's files
+    carry no suffix — and `<name>.<space>` in any other, so one member's
+    renditions sit side by side under one stem."""
+    return name if space == refmod.DEFAULT_SPACE else f"{name}.{space}"
+
+
+# A clip on its own (`mode: "clip"`): how much of it is read and how many of
+# its frames are sampled by default — the stack's numbers, and the same
+# `n % 17 == 5` run core's reference path takes whole. Up to `CLIP_SECONDS_MAX`
+# on request: a long motion reference at a small grid is the whole point of a
+# clip mod (issue #53, the reporter's 15 s at few tokens).
+CLIP_SECONDS_MAX = 60
+CLIP_FRAMES_MAX = 200
+# The edge a clip is encoded at: core's own 768 reference canvas, which a
+# live clip never exceeds either (`encode.video_canvas`).
+CLIP_EDGE = 768
+CAPTURES = ("full", "motion")
 
 
 def _crops(body, sources):
@@ -111,20 +186,94 @@ def _crops(body, sources):
     return crops
 
 
-def _frames(source, count, crop=None):
-    """`count` frames of a clip, spread evenly over its first seconds, trimmed
-    to a run core's reference path encodes whole (n % 17 == 5)."""
-    frames, _ = media.load_video(source, max_seconds=STACK_SECONDS, crop=crop)
+def _frames(source, count, crop=None, seconds=STACK_SECONDS, capture="full"):
+    """`count` frames of a clip, spread evenly over its first `seconds`,
+    trimmed to a run core's reference path encodes whole (n % 17 == 5).
+
+    `capture` is what of the clip is kept: the frames, or — `motion` — what
+    moved between them (`refmod.motion_of`), taken before the trim so the
+    run that reaches the VAE is still a whole one.
+    """
+    frames, _ = media.load_video(source, max_seconds=seconds, crop=crop)
+    if capture == "motion":
+        count += 1
     if frames.shape[0] > count:
         import torch
         picks = torch.linspace(0, frames.shape[0] - 1, count).round().long()
         frames = frames[picks]
+    if capture == "motion":
+        try:
+            frames = refmod.motion_of(frames)
+        except refmod.RefModError as exc:
+            raise jobs.JobError(f"{source}: {exc}") from exc
     n = frames.shape[0]
     while n >= 5 and n % 17 != 5:
         n -= 1
     if n < 5:
-        raise jobs.JobError(f"{source} is too short to stack — five frames at least")
+        raise jobs.JobError(f"{source} is too short — five frames at least")
     return frames[:n]
+
+
+def _run_clips(body, sources, family, table):
+    """Every clip its own `video`-kind mod, whole or as motion (issue #53).
+
+    The shape the sibling pack's own motion references take: one clip, many
+    latent frames, pooled small — so fifteen seconds of movement ride into a
+    shot for a fraction of what the clip encoded live would cost, and cited as
+    one `<Video n>`. Full keeps the encode at the 768 reference canvas;
+    compressed pools each frame to `grid` on its long edge. Video families
+    only: a still space has no time axis to lay frames along.
+    """
+    if not table.get("clips"):
+        raise jobs.JobError(f"{family} keeps no clips as saved references")
+    space = table["space"]
+    name = refmod.name_of(refmod.SCHEME + str(body.get("name") or ""))
+    subfolder = str(body.get("subfolder") or "").strip().strip("/")
+    seconds = max(1, min(CLIP_SECONDS_MAX, int(body.get("seconds") or STACK_SECONDS)))
+    frames = max(5, min(CLIP_FRAMES_MAX, int(body.get("frames") or STACK_FRAMES)))
+    capture = str(body.get("capture") or "full")
+    if capture not in CAPTURES:
+        raise jobs.JobError(f"capture is {' or '.join(CAPTURES)}")
+    compressed = body.get("compressed") in (True, 1, "1", "true")
+    grid = max(4, min(64, int(body.get("grid") or table["grid"])))
+    steps = max(0, min(MAX_STEPS, _steps(body)))
+    description = str(body.get("description") or "")
+    tell = jobs.progress()
+
+    vae = _vae(str(body.get("vae") or ""), space)
+    crops = _crops(body, sources)
+    rows = []
+    for index, source in enumerate(sources):
+        base = index / len(sources)
+        progress = lambda f, base=base: tell(base + f / len(sources))  # noqa: E731
+        run = _frames(source, frames, crop=crops[index], seconds=seconds, capture=capture)
+        latent, resized = _encode(vae, run, table, edge=CLIP_EDGE)
+        latent = latent.detach().float().cpu()
+        full_shape = "x".join(str(v) for v in latent.shape[2:])
+        progress(0.3)
+        if compressed:
+            latent = refmod.compress(latent, grid, steps,
+                                     tell=lambda f, p=progress: p(0.3 + 0.7 * f))
+        pool = "x".join(str(v) for v in latent.shape[2:])
+        stem = name if index == 0 else f"{name}-{index + 1}"
+        target = f"{subfolder}/{_stem(stem, space)}" if subfolder else _stem(stem, space)
+        path = refmod.save(target, latent, {
+            "kind": "video", "mode": "training" if compressed else "encode",
+            "source": "video", "source_shape": full_shape, "pool": pool,
+            "optimize_steps": steps if compressed else 0,
+            "tags": [capture, f"{run.shape[0]} frames", f"{seconds} s"],
+            "description": description,
+            "concept_type": "pose_motion" if capture == "motion" else str(body.get("concept") or "generic"),
+            "source_file": source,
+        }, preview=resized[0], space=space)
+        row = refmod.row_for(path, target)
+        row["source"] = source
+        row["capture"] = capture
+        rows.append(row)
+        progress(1.0)
+        log.info("[Continuity] kept %s as a %s clip RefMod (%d frames, %d tokens)",
+                 source, capture, run.shape[0], row["tokens"])
+    return {"mods": rows}
 
 
 def _run_stack(body, sources):
@@ -139,7 +288,11 @@ def _run_stack(body, sources):
     frames = max(5, min(200, int(body.get("frames") or STACK_FRAMES)))
     tell = jobs.progress()
 
-    vae = _vae(str(body.get("vae") or ""))
+    family, table = _family(body)
+    if not table.get("clips"):
+        raise jobs.JobError(f"{family} keeps no clips as saved references — a stack is a clip")
+    space = table["space"]
+    vae = _vae(str(body.get("vae") or ""), space)
     crops = _crops(body, sources)
     latents, shapes, first = [], [], None
     stills = clips = 0
@@ -153,7 +306,7 @@ def _run_stack(body, sources):
         else:
             image = media.load_image(source, crop=crops[index])
             stills += 1
-        latent, resized = _encode(vae, image, min(edge, 768) if image.shape[0] > 1 else edge)
+        latent, resized = _encode(vae, image, table, min(edge, 768) if image.shape[0] > 1 else edge)
         latent = latent.detach().float().cpu()
         latents.append(latent)
         shapes.append("x".join(str(v) for v in latent.shape[2:]))
@@ -162,7 +315,7 @@ def _run_stack(body, sources):
         tell(0.3 * (index + 1) / len(sources))
     stacked, kept = refmod.stack(latents, grid, steps, max_tokens=max_tokens,
                                  tell=lambda f: tell(0.3 + 0.7 * f))
-    target = f"{subfolder}/{name}" if subfolder else name
+    target = f"{subfolder}/{_stem(name, space)}" if subfolder else _stem(name, space)
     path = refmod.save(target, stacked, {
         "kind": "video", "mode": "training", "source": "stack",
         "source_shape": " +".join(shapes),
@@ -172,7 +325,7 @@ def _run_stack(body, sources):
         "description": str(body.get("description") or ""),
         "concept_type": str(body.get("concept") or "generic"),
         "source_file": ", ".join(s.rsplit("/", 1)[-1] for s in sources),
-    }, preview=first)
+    }, preview=first, space=space)
     row = refmod.row_for(path, target)
     row["sources"] = sources
     row["kept"] = kept
@@ -181,22 +334,29 @@ def _run_stack(body, sources):
     return {"mods": [row]}
 
 
-def _settings(body):
-    """The per-picture knobs, clamped: (mode, edge, grid, steps)."""
+def _settings(body, table):
+    """The per-picture knobs, clamped: (mode, edge, grid, steps). The grid's
+    default is the family's own (`declare.REFMOD`)."""
     mode = "training" if body.get("mode") == "compressed" else "encode"
-    edge = max(256, min(4096, int(body.get("edge") or DEFAULT_EDGE)))
-    grid = max(4, min(64, int(body.get("grid") or DEFAULT_GRID)))
+    edge = max(256, min(4096, int(body.get("edge") or table.get("edge") or DEFAULT_EDGE)))
+    grid = max(4, min(64, int(body.get("grid") or table.get("grid") or DEFAULT_GRID)))
     steps = max(0, min(MAX_STEPS, _steps(body)))
     return mode, edge, grid, steps
+
+
+def _pool_of(latent):
+    """The grid a latent is, as the header's `pool` field spells it."""
+    dims = latent.shape[2:]
+    return "x".join(str(v) for v in ([1] + list(dims) if len(dims) == 2 else dims))
 
 
 def _still(latent, mode, grid, steps, tell):
     """A full latent -> what is written, and the header fields that say how."""
     full_shape = "x".join(str(v) for v in latent.shape[2:])
-    pool = f"1x{latent.shape[3]}x{latent.shape[4]}"
+    pool = _pool_of(latent)
     if mode == "training":
         latent = refmod.compress(latent, grid, steps, tell=tell)
-        pool = f"1x{latent.shape[3]}x{latent.shape[4]}"
+        pool = _pool_of(latent)
     return latent, {
         "kind": "image", "mode": mode, "source": "image",
         "source_shape": full_shape, "pool": pool,
@@ -210,37 +370,43 @@ def _run_job(body):
     sources = [str(s) for s in (body.get("sources") or []) if s]
     if not sources:
         raise jobs.JobError("nothing to keep — the member has no pictures attached")
+    family, table = _family(body)
     if body.get("mode") == "stack":
         return _run_stack(body, sources)
+    if body.get("mode") == "clip":
+        return _run_clips(body, sources, family, table)
+    space = table["space"]
     name = refmod.name_of(refmod.SCHEME + str(body.get("name") or ""))
     subfolder = str(body.get("subfolder") or "").strip().strip("/")
-    mode, edge, grid, steps = _settings(body)
+    mode, edge, grid, steps = _settings(body, table)
     description = str(body.get("description") or "")
     concept = str(body.get("concept") or "generic")
     tell = jobs.progress()
 
-    vae = _vae(str(body.get("vae") or ""))
+    vae = _vae(str(body.get("vae") or ""), space)
     crops = _crops(body, sources)
     rows = []
     for index, source in enumerate(sources):
         image = media.load_image(source, crop=crops[index])
-        latent, resized = _encode(vae, image, edge)
+        latent, resized = _encode(vae, image, table, edge)
         base = index / len(sources)
         latent, meta = _still(latent.detach().float().cpu(), mode, grid, steps,
                               tell=lambda f, base=base: tell(base + f / len(sources)))
         tell((index + 1) / len(sources))
         stem = name if index == 0 else f"{name}-{index + 1}"
+        stem = _stem(stem, space)
         target = f"{subfolder}/{stem}" if subfolder else stem
         path = refmod.save(target, latent, {
             **meta, "description": description, "concept_type": concept,
             # The path as the picker gave it, not its basename: it is what a
             # re-encode reads the picture back from (`_run_remake`).
             "source_file": source,
-        }, preview=resized[0])
+        }, preview=resized[0], space=space)
         row = refmod.row_for(path, target)
         row["source"] = source
         rows.append(row)
-        log.info("[Continuity] kept %s as a %s RefMod (%d tokens)", source, mode, row["tokens"])
+        log.info("[Continuity] kept %s as a %s %s RefMod (%d tokens)",
+                 source, refmod.space_label(space), mode, row["tokens"])
     return {"mods": rows}
 
 
@@ -260,7 +426,6 @@ def _run_remake(body):
     mods = [str(m) for m in (body.get("mods") or []) if m]
     if not mods:
         raise jobs.JobError("nothing to re-encode")
-    mode, edge, grid, steps = _settings(body)
     tell = jobs.progress()
     vae = None
     rows = []
@@ -273,6 +438,15 @@ def _run_remake(body):
         if old.get("source") == "stack":
             raise jobs.JobError(f"{filename} is a stack of several files — save the "
                                 f"member again to remake it")
+        if old.get("kind") == "video":
+            raise jobs.JobError(f"{filename} is a clip — save the member again to remake it")
+        # The space is the file's, whatever the body says: a remake writes
+        # the same file for the same family.
+        space = old["space"]
+        table = next((t for t in registry.REFMOD.values() if t and t["space"] == space), None)
+        if table is None:
+            raise jobs.JobError(f"no family here keeps {refmod.space_label(space)} references")
+        mode, edge, grid, steps = _settings(body, table)
         source = str(old.get("source_file") or "")
         base = index / len(mods)
         progress = lambda f, base=base: tell(base + f / len(mods))  # noqa: E731
@@ -283,8 +457,8 @@ def _run_remake(body):
             picture = None
         if picture is not None:
             if vae is None:
-                vae = _vae(str(body.get("vae") or ""))
-            latent, resized = _encode(vae, media.load_image(source), edge)
+                vae = _vae(str(body.get("vae") or ""), space)
+            latent, resized = _encode(vae, media.load_image(source), table, edge)
             latent = latent.detach().float().cpu()
             preview = resized[0]
         elif mode == "training" and old.get("mode") == "encode":
@@ -303,7 +477,7 @@ def _run_remake(body):
             "concept_type": old.get("concept_type", "generic"),
             "tags": old.get("tags", []),
             "source_file": source,
-        }, preview=preview)
+        }, preview=preview, space=space)
         row = refmod.row_for(path, name)
         row["source"] = source
         rows.append(row)
@@ -363,13 +537,18 @@ async def make_refmod(request):
             media.resolve(source)
         except media.MediaError as exc:
             return web.json_response({"error": str(exc)}, status=400)
-    if body.get("mode") not in (None, "", "full", "compressed", "stack"):
-        return web.json_response({"error": "mode is full, compressed or stack"}, status=400)
+    if body.get("mode") not in (None, "", "full", "compressed", "stack", "clip"):
+        return web.json_response({"error": "mode is full, compressed, stack or clip"}, status=400)
+    family = body.get("family")
+    if family and not registry.REFMOD.get(family):
+        return web.json_response(
+            {"error": f"{family} keeps no saved references"}, status=400)
     try:
         prompt_id = await jobs.submit("refmod", {
             key: body.get(key) for key in
             ("name", "subfolder", "sources", "crops", "mode", "edge", "grid", "steps",
-             "description", "concept", "vae", "max_tokens", "frames")
+             "description", "concept", "vae", "max_tokens", "frames", "family",
+             "seconds", "capture", "compressed")
         }, body.get("client_id"))
     except jobs.JobError as exc:
         return web.json_response({"error": str(exc)}, status=500)

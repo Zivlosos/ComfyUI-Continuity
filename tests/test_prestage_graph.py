@@ -38,7 +38,12 @@ def _boot():
     import server
 
     loop = asyncio.new_event_loop()
-    server.PromptServer(loop)
+    try:
+        # Core 2026-09 hands the server an asset manager; older cores take none.
+        from app.assets.manager import default_asset_manager
+        server.PromptServer(loop, default_asset_manager())
+    except (ImportError, TypeError):
+        server.PromptServer(loop)
     asyncio.set_event_loop(loop)
     loop.run_until_complete(nodes.init_extra_nodes(init_custom_nodes=False))
 
@@ -828,6 +833,42 @@ blank_klein, blank_kg = klein_graph(klein_blob(refs=["room.png"],
                                                start_blank=True))
 check("a blank start releases the picture from being the subject",
       (blank_klein.init, "EmptyFlux2LatentImage" in blank_kg), (None, True))
+
+# A picture carrying its saved rendition in Klein's space: the slot is read
+# off the file as a latent — no scale, no encode — and chained exactly as an
+# encode would have been. The picture is still the picture: it is promoted,
+# framed and sized as before, and a rendition in another family's space is
+# nothing to Klein.
+klm_payload, klm = klein_graph(klein_blob(
+    prompt="put @img-2 on the table",
+    refs=[{"filename": "room.png", "handle": "img-1",
+           "mods": {"flux2": "refmod:cast/room.flux2", "h3_video": "refmod:cast/room"}},
+          {"filename": "cup.png", "handle": "img-2", "mods": {"h3_video": "refmod:cast/cup"}}]))
+check("the payload names the rendition in Klein's own space, by slot",
+      klm_payload.mods, {0: "refmod:cast/room.flux2"})
+check("that slot is a latent read off the file",
+      [i for _, i in klm["ContinuityRefModLatent"]], [{"name": "refmod:cast/room.flux2"}])
+check("...and only the other is scaled and encoded",
+      (len(klm["ImageScaleToTotalPixels"]), len(klm["VAEEncode"]),
+       [i["image"] for _, i in klm["LoadImage"]]), (1, 1, ["cup.png"]))
+check("...both still chained onto both conditionings", len(klm["ReferenceLatent"]), 4)
+klm_latent_ids = {node_id for node_id, _ in klm["ContinuityRefModLatent"]}
+check("the chain reads the loader's latent",
+      sum(1 for _, i in klm["ReferenceLatent"] if i["latent"][0] in klm_latent_ids), 2)
+check("the picture is still the picture: promoted to the canvas",
+      klm_payload.init, {"filename": "room.png", "denoise": 1.0})
+try:
+    ci.compile_prestage(klein_blob(refs=["refmod:cast/room.flux2"]), kl)
+    mod_refusal = ""
+except ci.CompileError as exc:
+    mod_refusal = str(exc)
+check("a mod handed to a still family as a picture is refused, naming the picture it was made of",
+      "attach the picture" in mod_refusal, True)
+check("the loader is one of the pack's nodes",
+      "ContinuityRefModLatent" in [
+          node.define_schema().node_id
+          for node in asyncio.run(package.creator.creator_node.MiniMaxCreatorExtension().get_node_list())],
+      True)
 
 # The distilled checkpoint: the turbo pill's file, four steps at cfg 1, and a
 # zeroed negative in place of an encode the guider never evaluates.

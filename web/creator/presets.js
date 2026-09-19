@@ -644,6 +644,9 @@ function storedFile(asset, slot, note = "", trigger = "") {
     // sentence each is for.
     ...(trigger ? { trigger } : {}),
     ...(asset.trim ? { trim: asset.trim } : {}),
+    // The picture's saved renditions, by latent space: a member who comes
+    // back out of the library comes back with the mods their pictures had.
+    ...(asset.mods && Object.keys(asset.mods).length ? { mods: { ...asset.mods } } : {}),
     // A plate's panels, in the shape a picker answer carries them (`path`,
     // not `filename`) and without their handles — handles are the piece's,
     // and `addSubjectToPiece` issues fresh ones when the member lands.
@@ -993,7 +996,9 @@ export function factsOf(body, scope) {
       // Saved files first, whatever kind they are — a stack is a video-kind
       // mod and is a mod, not a clip. By path, so the roster's panel can read
       // who uses a file off the index, and the card counts them apart.
-      mods: built.filter((file) => S.isRefMod(file)).map((file) => file.filename),
+      // ...and the renditions their pictures carry, which are mods too.
+      mods: [...built.filter((file) => S.isRefMod(file)).map((file) => file.filename),
+             ...built.flatMap((file) => Object.values(file.mods ?? {}))],
       pictures: built.filter((file) => (file.kind ?? "image") === "image" && !S.isRefMod(file)).length,
       clips: built.filter((file) => (file.kind ?? "image") !== "image" && !S.isRefMod(file)).length,
       motion: files.some((file) => file.slot === "motion"),
@@ -1427,6 +1432,7 @@ export function addSubjectToPiece(stored, timeline, { pool = false } = {}) {
           ref_size: file.ref_size ?? "max",
           ...(file.track ? { track: file.track } : {}),
           ...(file.trim ? { trim: file.trim } : {}),
+          ...(file.mods ? { mods: { ...file.mods } } : {}),
         };
       }
       host.assets.push(asset);
@@ -1435,6 +1441,11 @@ export function addSubjectToPiece(stored, timeline, { pool = false } = {}) {
       // detail and picture 2 at match is a decision about this person, so it
       // lands on a file the piece already held as much as on a new one.
       asset.ref_size = file.ref_size;
+    }
+    // Their renditions land on the file either way — a mod the library knows
+    // of a picture the piece already holds is a mod of that picture.
+    if (file.mods && asset.role === "reference" && !asset.panels?.length) {
+      asset.mods = { ...(asset.mods ?? {}), ...file.mods };
     }
     if (file.note) notes[asset.handle] = String(file.note);
     if (file.trigger) triggers[asset.handle] = String(file.trigger);

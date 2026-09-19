@@ -28,6 +28,16 @@ keeps colours and large structure and loses detail, and the sibling pack's own
 README says so — which is why the cast is the door: the member's own words and
 pictures carry what the latent cannot.
 
+A latent belongs to one VAE. An H3 mod is a tensor in the H3 video VAE's
+space and means nothing to Flux 2 Klein, whose references are latents of a
+different VAE at a different stride — which is why "a RefMod per family" is
+really one mod per *latent space*, all made from the same picture. `SPACES`
+names the spaces this pack reads, keyed by `vaekind`'s ids, and every header
+carries (or, for the sibling pack's files, implies) which one its tensor is
+in. The picture stays the truth on the piece: an asset carries `mods`, a map
+from space to mod, and the family rendering it takes the mod for its own
+space or encodes the picture as it always has. See `compile.Asset.mods`.
+
 Header reading is stdlib only, so `compile.py` and the listing route can ask
 what a file is without torch. Loading and saving the tensor import safetensors
 and torch where they are called, on the render thread or the job queue.
@@ -55,9 +65,35 @@ PREVIEW_EXT = ".png"
 # Metadata key in the safetensors header. The sibling pack's, verbatim.
 META_KEY = "refmod_meta"
 # The newest header this reader understands. Their loader is lenient about
-# older files, and so is this; a newer one is refused by name.
-FORMAT_VERSION = 4
+# older files, and so is this; a newer one is refused by name. A version-5
+# file is a *bundle* — several references as `ref_<i>` tensors under one
+# header — and is read here when it holds exactly one visual reference, which
+# is what their Save node writes for a single mod now; a bundle of several is
+# refused by count, since one asset is one label.
+FORMAT_VERSION = 5
+BUNDLE_VERSION = 5
+# What this pack writes: a standalone file, which is their version 4 — one
+# `latent` tensor, the shape every loader of theirs and ours reads.
+STANDALONE_VERSION = 4
 LATENT_CHANNELS = 24
+
+# The latent spaces a mod can be in, by `vaekind` id. Each says the tensor
+# shape its VAE encodes to — `dims` counting the batch — and how a grid turns
+# into DiT tokens: H3 patches 2x2 latent cells into one token, Flux 2's VAE
+# already packs a 2x2 into its 128 channels so a cell is a token (the reason
+# a 1 MP Klein reference is 4,096 tokens, not 1,024). `even` is whether the
+# grid has to hold whole patches. `stride` is source pixels per latent cell,
+# which is what `media._source_size` reads a mod's picture size off.
+SPACES = {
+    "h3_video": {"channels": 24, "dims": 5, "patch": 2, "even": True, "stride": 16,
+                 "label": "MiniMax H3"},
+    "flux2": {"channels": 128, "dims": 4, "patch": 1, "even": False, "stride": 16,
+              "label": "Flux 2"},
+}
+DEFAULT_SPACE = "h3_video"
+# The header field that names the space. Ours; the sibling pack's files have
+# none and are H3's by definition, which `_space_of` reads off the channels.
+SPACE_KEY = "vae_kind"
 # What a mod can be here. Audio mods exist in the format and are refused: a
 # voice is bound to a cast member as a file with a speaker ID, and nothing in
 # that path takes a latent yet.
@@ -106,11 +142,13 @@ def filename_of(name):
 def header(path):
     """What one file says it is, without reading its tensor.
 
-    -> dict: the mod's own metadata, plus `shape`, `dtype`, `tokens` and the
-    dims read off the tensor itself. The dims come from the tensor and not from
-    the metadata: the metadata is what somebody wrote, the shape is what will be
-    handed to the DiT, and a mismatch between the two is refused here rather
-    than discovered as a wrong-sized reference mid-render.
+    -> dict: the mod's own metadata, plus `shape`, `dtype`, `tokens`, `space`
+    and the dims read off the tensor itself. The dims come from the tensor and
+    not from the metadata: the metadata is what somebody wrote, the shape is
+    what will be handed to the DiT, and a mismatch between the two is refused
+    here rather than discovered as a wrong-sized reference mid-render.
+    `tensor` is the key the latent sits under — `latent` in a standalone file,
+    `ref_0` in a one-reference bundle — which is what `load_latent` reads.
     """
     try:
         with open(path, "rb") as handle:
@@ -145,23 +183,36 @@ def header(path):
         raise RefModError(
             f"{path}: RefMod format {version} is newer than this pack reads "
             f"({FORMAT_VERSION}) — update Continuity")
+    tensor_key = "latent"
+    if version >= BUNDLE_VERSION and str(meta.get("kind")) == "bundle":
+        meta, tensor_key = _unbundle(path, meta)
     kind = str(meta.get("kind", "image") or "image")
     if kind == "audio":
         raise RefModError(f"{path}: an audio RefMod — voices are bound as files, not mods")
     if kind not in KINDS:
         raise RefModError(f"{path}: unknown RefMod kind {kind!r}")
 
-    entry = table.get("latent")
+    entry = table.get(tensor_key)
     if not isinstance(entry, dict):
-        raise RefModError(f"{path}: no 'latent' tensor in the file")
+        raise RefModError(f"{path}: no {tensor_key!r} tensor in the file")
     shape = [int(v) for v in entry.get("shape", [])]
-    if len(shape) != 5 or shape[0] != 1 or shape[1] != LATENT_CHANNELS:
-        raise RefModError(
-            f"{path}: latent is {shape}, not [1, {LATENT_CHANNELS}, T, H, W]")
-    _, _, latent_t, latent_h, latent_w = shape
+    space_id = _space_of(path, meta, shape)
+    space = SPACES[space_id]
+    if len(shape) != space["dims"] or shape[0] != 1 or shape[1] != space["channels"]:
+        want = "[1, %d, %s]" % (space["channels"], "T, H, W" if space["dims"] == 5 else "H, W")
+        raise RefModError(f"{path}: latent is {shape}, not {want} ({space['label']})")
+    if space["dims"] == 5:
+        _, _, latent_t, latent_h, latent_w = shape
+    else:
+        latent_t, latent_h, latent_w = 1, shape[2], shape[3]
+        if kind == "video":
+            raise RefModError(f"{path}: a video RefMod in a still space ({space['label']})")
     if kind == "image" and latent_t != 1:
         raise RefModError(f"{path}: an image RefMod with {latent_t} latent frames")
-    if latent_h % 2 or latent_w % 2 or latent_h < 2 or latent_w < 2:
+    patch = space["patch"]
+    if latent_h < patch or latent_w < patch:
+        raise RefModError(f"{path}: latent grid {latent_h}x{latent_w} is too small")
+    if space["even"] and (latent_h % patch or latent_w % patch):
         # The DiT patches 2x2 latent cells into one token; an odd grid has no
         # whole number of them.
         raise RefModError(f"{path}: latent grid {latent_h}x{latent_w} is not even")
@@ -174,12 +225,98 @@ def header(path):
         "latent_w": latent_w,
         "shape": shape,
         "dtype": str(entry.get("dtype", "")),
-        "tokens": latent_t * (latent_h // 2) * (latent_w // 2),
+        "tokens": latent_t * (latent_h // patch) * (latent_w // patch),
         "format_version": version,
         "mode": _mode(meta.get("mode")),
         "description": str(meta.get("description", "") or ""),
         "name": str(meta.get("name", "") or ""),
+        "space": space_id,
+        "tensor": tensor_key,
     })
+    return out
+
+
+def _space_of(path, meta, shape):
+    """Which latent space a file's tensor is in.
+
+    Ours say so (`vae_kind`); a name this build does not know is refused
+    rather than guessed at. The sibling pack's say nothing, and theirs are
+    H3's — but read off the channel count rather than assumed, so a file that
+    is neither is refused by shape rather than handed to the H3 encoder.
+    """
+    named = meta.get(SPACE_KEY)
+    if named:
+        if named not in SPACES:
+            raise RefModError(
+                f"{path}: a RefMod for {named!r}, which this pack does not read "
+                f"(it reads {', '.join(SPACES)})")
+        return str(named)
+    for space_id, space in SPACES.items():
+        if len(shape) == space["dims"] and len(shape) > 1 and shape[1] == space["channels"]:
+            return space_id
+    return DEFAULT_SPACE
+
+
+def _unbundle(path, meta):
+    """A version-5 bundle -> `(the one member's metadata, its tensor key)`.
+
+    Their bundle is an ordered `members` list, each member a version-4 header
+    of its own, with tensors under `ref_<index>`. One visual member is one
+    reference and reads as one; more than one would be several labels behind
+    one handle, which nothing here can cite, so it is refused by count with
+    the way out named.
+    """
+    members = meta.get("members")
+    if not isinstance(members, list) or not members:
+        raise RefModError(f"{path}: a RefMod bundle with no members")
+    visual = [(index, m) for index, m in enumerate(members)
+              if isinstance(m, dict) and str(m.get("kind", "image")) != "audio"]
+    if len(visual) != 1:
+        if not visual:
+            raise RefModError(f"{path}: an audio RefMod — voices are bound as files, not mods")
+        raise RefModError(
+            f"{path}: a bundle of {len(visual)} references — one RefMod is one "
+            f"reference here; split it with the sibling pack's Save node")
+    index, member = visual[0]
+    out = dict(member)
+    for key in ("name", "description", "tags", "concept_type", SPACE_KEY, "made_by", "source_file"):
+        if key not in out and key in meta:
+            out[key] = meta[key]
+    return out, f"ref_{index}"
+
+
+def space_label(space_id):
+    """The family name a space goes by in a sentence."""
+    return SPACES.get(space_id, {}).get("label", space_id)
+
+
+def parse_mods(raw, owner="", allowed=None):
+    """An asset's `mods` field -> `{space: "refmod:<name>"}`, checked.
+
+    The map a picture carries from latent space to the mod made of it for
+    that space. Every key is a space this pack reads, every value a mod name
+    that parses; `allowed` narrows the keys further where the caller knows
+    which spaces make sense. Absent or empty is `{}`.
+    """
+    if raw in (None, "", {}):
+        return {}
+    if not isinstance(raw, dict):
+        raise RefModError(f"{owner}mods must be a map of latent space to RefMod")
+    out = {}
+    for space_id, filename in raw.items():
+        if space_id not in SPACES:
+            raise RefModError(
+                f"{owner}mods names a latent space {space_id!r} this pack does "
+                f"not read (it reads {', '.join(SPACES)})")
+        if allowed is not None and space_id not in allowed:
+            raise RefModError(f"{owner}mods for {space_id!r} means nothing here")
+        if not filename:
+            continue
+        name = str(filename)
+        if not is_mod(name):
+            raise RefModError(f"{owner}mods[{space_id!r}] is not a RefMod name: {name!r}")
+        name_of(name)  # refused by name where it walks out of the folder
+        out[space_id] = name
     return out
 
 
@@ -299,6 +436,9 @@ def row_for(path, name, meta=None, stat=None):
         "mtime": stat.st_mtime,
         "mod": True,
         "mode": meta["mode"],
+        # Which VAE's latent it is, and so which families can read it.
+        "space": meta["space"],
+        "space_label": space_label(meta["space"]),
         # `stack` for a character-as-one-file — several sources end to end —
         # against `image` / `video` for one encoded source. Their word.
         "source": str(meta.get("source", "") or ""),
@@ -432,7 +572,7 @@ def load_latent(path, meta=None):
     from safetensors.torch import load_file
 
     meta = meta or header(path)
-    latent = load_file(path, device="cpu")["latent"]
+    latent = load_file(path, device="cpu")[meta.get("tensor", "latent")]
     if list(latent.shape) != meta["shape"]:
         raise RefModError(f"{path}: latent is {list(latent.shape)}, header says {meta['shape']}")
     # `.clone()` drops the file mmap so the file can be replaced under its name
@@ -440,25 +580,33 @@ def load_latent(path, meta=None):
     return latent.clone().float()
 
 
-def save(name, latent, meta, preview=None):
+def save(name, latent, meta, preview=None, space=DEFAULT_SPACE):
     """Write `<home>/<name>.safetensors` and its preview. -> the mod's path.
 
-    The metadata is the sibling pack's schema with two fields of ours beside it
-    (`made_by`, `source_file`); their loader ignores what it does not know and
-    so does ours. Written to a temporary file and renamed, so a mod is either
-    whole on disk or not there.
+    The metadata is the sibling pack's schema with three fields of ours beside
+    it (`made_by`, `source_file`, `vae_kind`); their loader ignores what it
+    does not know and so does ours. `space` is the latent space the tensor is
+    in, checked against its shape. Written to a temporary file and renamed, so
+    a mod is either whole on disk or not there.
     """
     import torch
     from safetensors.torch import save_file
 
-    if not isinstance(latent, torch.Tensor) or latent.ndim != 5 \
-            or latent.shape[0] != 1 or latent.shape[1] != LATENT_CHANNELS:
-        raise RefModError(f"a RefMod latent is [1, {LATENT_CHANNELS}, T, H, W], "
+    rules = SPACES.get(space)
+    if rules is None:
+        raise RefModError(f"{space!r} is not a latent space this pack writes")
+    if not isinstance(latent, torch.Tensor) or latent.ndim != rules["dims"] \
+            or latent.shape[0] != 1 or latent.shape[1] != rules["channels"]:
+        want = "T, H, W" if rules["dims"] == 5 else "H, W"
+        raise RefModError(f"a {rules['label']} RefMod latent is [1, {rules['channels']}, {want}], "
                           f"got {list(getattr(latent, 'shape', []))}")
     clean = name_of(name)
     path = os.path.join(home(), *clean.split("/")) + EXT
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    _, _, latent_t, latent_h, latent_w = latent.shape
+    if rules["dims"] == 5:
+        _, _, latent_t, latent_h, latent_w = latent.shape
+    else:
+        latent_t, latent_h, latent_w = 1, latent.shape[2], latent.shape[3]
     written = {
         "name": clean.rsplit("/", 1)[-1],
         "kind": str(meta.get("kind", "image")),
@@ -473,10 +621,11 @@ def save(name, latent, meta, preview=None):
         "tags": list(meta.get("tags", [])),
         "description": str(meta.get("description", "") or ""),
         "concept_type": str(meta.get("concept_type", "generic") or "generic"),
-        "_format_version": FORMAT_VERSION,
+        "_format_version": STANDALONE_VERSION,
         "sample_rate": 32000,
         "made_by": "continuity",
         "source_file": str(meta.get("source_file", "") or ""),
+        SPACE_KEY: space,
     }
     fd, temporary = tempfile.mkstemp(prefix=".refmod-", suffix=".tmp", dir=os.path.dirname(path))
     os.close(fd)
@@ -544,22 +693,34 @@ def grid_for(latent_h, latent_w, long_edge):
 
 
 def compress(latent, long_edge, steps=150, lr=0.02, tell=None, grid=None):
-    """`[1, 24, T, H, W]` -> the same at a `long_edge` grid, refined `steps` times.
+    """`[1, C, T, H, W]` (or `[1, C, H, W]`) -> the same at a `long_edge` grid,
+    refined `steps` times.
 
     `grid` names the pooled `(H, W)` outright — a stack pools every source to
     one square grid whatever its aspect, since frames of different shapes
     cannot share a latent — and `long_edge` picks it at the source's aspect
-    otherwise.
+    otherwise. A still space's 4-D latent is pooled and enlarged in two
+    dimensions; the loss is the same.
     """
     import torch
     import torch.nn.functional as F
 
-    _, _, t, h, w = latent.shape
+    flat = latent.ndim == 4
+    if flat:
+        _, _, h, w = latent.shape
+        t = 1
+    else:
+        _, _, t, h, w = latent.shape
     gh, gw = grid if grid else grid_for(h, w, long_edge)
     if (gh, gw) == (h, w):
         return latent
     full = latent.detach().float()
-    small = F.adaptive_avg_pool3d(full, (t, gh, gw))
+    if flat:
+        small = F.adaptive_avg_pool2d(full, (gh, gw))
+        size, mode = (h, w), "bilinear"
+    else:
+        small = F.adaptive_avg_pool3d(full, (t, gh, gw))
+        size, mode = (t, h, w), "trilinear"
     if steps <= 0:
         return small
     # The queue runs nodes under inference mode; the refinement needs autograd.
@@ -569,12 +730,29 @@ def compress(latent, long_edge, steps=150, lr=0.02, tell=None, grid=None):
         opt = torch.optim.Adam([param], lr=lr)
         for i in range(steps):
             opt.zero_grad()
-            up = F.interpolate(param, size=(t, h, w), mode="trilinear", align_corners=False)
+            up = F.interpolate(param, size=size, mode=mode, align_corners=False)
             F.mse_loss(up, target).backward()
             opt.step()
             if tell and (i + 1) % 10 == 0:
                 tell((i + 1) / steps)
         return param.detach()
+
+
+def motion_of(frames):
+    """`[T, H, W, 3]` frames -> `[T-1, H, W, 3]` of what moved between them.
+
+    The sibling pack's motion-only capture: the absolute frame difference,
+    normalised to the clip's own peak so a still stretch is black and the
+    largest movement is white. Not optical flow and not a pose track — a
+    picture of *where* things changed, which is what the DiT is then shown as
+    the clip's content. Their README says the same, and that fast motion
+    smears; the render decodes the same frames for the tokenizer's 2 fps look.
+    """
+    if frames.shape[0] < 2:
+        raise RefModError("a motion reference needs at least two frames")
+    diff = (frames[1:].float() - frames[:-1].float()).abs()
+    peak = float(diff.max())
+    return diff / peak if peak > 0 else diff
 
 
 # ---- a stack: one character, one file ------------------------------------------

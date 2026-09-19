@@ -11,7 +11,7 @@ import { api } from "../../../scripts/api.js";
 import { compiledPrompt, probe, viewUrl, primeSettings, buildPlate, stillUrl } from "./api.js";
 import { openRestyle } from "./restyle.js";
 import { CastShelf } from "./cast.js";
-import { keepAsMod } from "./refmod.js";
+import { keepAsMod, modFamilies } from "./refmod.js";
 import { clearButton } from "./clear.js";
 import { el, icon, mountOverlay, swappable } from "./dom.js";
 import { CreatorEditor, pickTakes, takesHelp } from "./editor.js";
@@ -31,7 +31,7 @@ import { refine, refineButton, chosenModel as refineModel } from "./refine.js";
 import { adopted, blobIO, samplingBar } from "./sampling.js";
 import { Stage, stageSource } from "./stage.js";
 import { watchSubmittedPrompts, submittedPrompt } from "./queue.js";
-import { familyPill, weightsPill, loadCatalog, adoptWeights } from "./models.js";
+import { familyPill, weightsPill, loadCatalog, adoptWeights, rememberedWeights } from "./models.js";
 import * as S from "./state.js";
 import * as Turbo from "./turbo.js";
 import * as Guide from "./guide.js";
@@ -1004,11 +1004,12 @@ class Timeline {
         .then(() => { this.renderStrip(); this.renderPool(); this.renderCast(); }),
       // Their pictures as saved latents, landing where the shelf's own "+"
       // lands a picture: the lone shot's row, or the pool.
-      mod: (subject, assets, mode, onProgress) => {
+      mod: (subject, assets, mode, onProgress, family = null) => {
         const single = this.timeline.segments.length === 1;
         const host = single ? this.timeline.segments[0] : this.timeline;
         return keepAsMod(subject, assets, mode, {
           vae: this.timeline.models?.vae ?? "",
+          family,
           onProgress,
           list: () => (host.assets ??= []),
           nextHandle: (kind) => (single ? S.nextHandle(host, kind) : S.nextPoolHandle(this.timeline)),
@@ -1022,6 +1023,9 @@ class Timeline {
         }).then((rows) => { this.commit(); this.renderStrip(); this.renderPool(); return rows; });
       },
       vae: () => this.timeline.models?.vae ?? "",
+      // The families a member's pictures can be saved for, the piece's first.
+      families: () => modFamilies(S.pieceFamily(this.timeline), this.timeline.models?.vae ?? "",
+                                  rememberedWeights()),
       // The ledger's estimate of a `match` picture is the piece's canvas.
       canvas: () => timelineGeometry(this.timeline),
       // Recasting somebody rewrites every sentence that wrote their name — the
@@ -1105,8 +1109,11 @@ class Timeline {
       family: () => S.pieceFamily(this.timeline),
       // The VAE a kept member's pictures are encoded through when the library
       // keeps them as RefMods — the piece's own, so a mod made from the roster
-      // is the mod a render here would read.
+      // is the mod a render here would read — and every family this machine
+      // could encode for beside it.
       vae: () => this.timeline.models?.vae ?? "",
+      families: () => modFamilies(S.pieceFamily(this.timeline), this.timeline.models?.vae ?? "",
+                                  rememberedWeights()),
       // What the picker needs to cut a picture out — the scissors ride into
       // the library's own attach flow through this. The pool's spec, because a
       // member's pictures are individual files, not one sheet.
@@ -1353,6 +1360,7 @@ class Timeline {
     }
     if (answer.crop) asset.crop = answer.crop;
     else delete asset.crop;
+    S.dropMods(asset);
     this.commit();
     this.renderPool();
   }
@@ -1389,6 +1397,7 @@ class Timeline {
     else delete asset.trim;
     if (picked.crop) asset.crop = picked.crop;
     else delete asset.crop;
+    S.dropMods(asset);
     if (asset.kind === "video") asset.track = S.trackFor(picked);
     this.commit();
   }
@@ -3629,6 +3638,8 @@ export class TimelineBody {
       label: t("this piece"),
       family: () => S.pieceFamily(this.timeline),
       vae: () => this.timeline.models?.vae ?? "",
+      families: () => modFamilies(S.pieceFamily(this.timeline), this.timeline.models?.vae ?? "",
+                                  rememberedWeights()),
       // See `Timeline.pieceTarget`: the scissors in the library's attach flow.
       // Built here rather than borrowed — `poolPlate` is the window's, and
       // this target is the node body's.

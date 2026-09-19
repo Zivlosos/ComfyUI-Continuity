@@ -760,17 +760,39 @@ def _encode_frames(clip, vae, audio_vae, compiled, loaded):
     return cond, latent
 
 
-def _mod_key(asset, print_of_vae):
-    """What a saved reference's render-time work depends on: the file, and the
-    VAE that decodes its picture. Not the canvas and not `ref_size` — the latent
-    was sized when the mod was made, and the same tensor goes to the DiT
+def _mod_key(filename, print_of_vae):
+    """What a saved reference's render-time work depends on: the mod file, and
+    the VAE that decodes its picture. Not the canvas and not `ref_size` — the
+    latent was sized when the mod was made, and the same tensor goes to the DiT
     whatever the generation is. None where the file cannot be stamped, which
     `_cached` treats as "encode, do not cache" and `media` then names."""
     try:
-        stamp = media.stamp(asset.filename)
+        stamp = media.stamp(filename)
     except (media.MediaError, OSError):
         return None
     return {"kind": "refmod", "file": stamp, "vae": print_of_vae}
+
+
+def _mod_of(asset, entry):
+    """The mod this family reads `asset` from, as a path, or None to encode.
+
+    A mod asset was resolved by `media.load_all`; a picture carrying a
+    rendition in H3's space (`Asset.mods`) is resolved here, and its pixels —
+    a `Deferred` in `entry`, which decodes on its first read, so `entry` is
+    not so much as looked in — are never opened. A rendition that has gone
+    missing is refused by name rather than falling back to the picture: the
+    piece says it renders from that file, and a render that quietly did
+    something else is the failure this pack is built to avoid.
+    """
+    if asset.mod:
+        return entry["mod"]
+    bound = asset.mod_for(refmod.DEFAULT_SPACE)
+    if not bound:
+        return None
+    try:
+        return refmod.resolve(bound)
+    except refmod.RefModError as exc:
+        raise ValueError(f"@{asset.handle}: {exc}") from exc
 
 
 def _mod_tensors(vae, asset, path):
@@ -852,11 +874,12 @@ def _encode_references(clip, vae, audio_vae, compiled, loaded, checkpoints=None)
     for step in compiled.plan:
         asset = step["asset"]
         entry = loaded[asset.handle]
+        mod_path = _mod_of(asset, entry) if step["op"] in ("image", "video") else None
 
-        if step["op"] == "image" and asset.mod:
+        if step["op"] == "image" and mod_path:
             tensors, meta = _cached(
-                f"@{asset.handle} mod", _mod_key(asset, print_of_vae),
-                lambda entry=entry, asset=asset: _mod_tensors(vae, asset, entry["mod"]), tally)
+                f"@{asset.handle} mod", _mod_key(asset.mod_for(refmod.DEFAULT_SPACE), print_of_vae),
+                lambda asset=asset, path=mod_path: _mod_tensors(vae, asset, path), tally)
             items.append({"type": "image", "data": _present(tensors["presentation"])})
             blocks.append({
                 "kind": "image",
@@ -865,10 +888,10 @@ def _encode_references(clip, vae, audio_vae, compiled, loaded, checkpoints=None)
                 "latent": _restore(vae, tensors["latent"]),
             })
 
-        elif step["op"] == "video" and asset.mod:
+        elif step["op"] == "video" and mod_path:
             tensors, meta = _cached(
-                f"@{asset.handle} mod", _mod_key(asset, print_of_vae),
-                lambda entry=entry, asset=asset: _mod_tensors(vae, asset, entry["mod"]), tally)
+                f"@{asset.handle} mod", _mod_key(asset.mod_for(refmod.DEFAULT_SPACE), print_of_vae),
+                lambda asset=asset, path=mod_path: _mod_tensors(vae, asset, path), tally)
             items.append({
                 "type": "video",
                 "data": _present(tensors["presentation"]),

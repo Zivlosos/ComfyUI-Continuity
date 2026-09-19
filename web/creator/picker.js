@@ -1169,7 +1169,8 @@ export class Picker {
       cell.appendChild(el("div", {
         class: "mmc-cell-mod",
         title: asset.description || "",
-        text: `${t(asset.source === "stack" ? "stack" : asset.mode === "training" ? "compressed" : "full")} · ${
+        text: `${asset.space && asset.space !== "h3_video" ? `${asset.space_label} · ` : ""}${
+          t(asset.source === "stack" ? "stack" : asset.mode === "training" ? "compressed" : "full")} · ${
           t("{count} tokens", { count: asset.tokens ?? 0 })}`,
       }));
     } else if (!this.organize) {

@@ -56,7 +56,7 @@ import { refmodFileUrl, viewUrl } from "./api.js";
 import { dismissable, el, icon, placeNear } from "./dom.js";
 import { t } from "./i18n.js";
 import { loraBase, openLoras } from "./loras.js";
-import { SUBFOLDER as MOD_FOLDER, costMark, keepable, ledger, looks, modRow, modeRows, remakeMods, remakeRows } from "./refmod.js";
+import { DEFAULT_SPACE, SUBFOLDER as MOD_FOLDER, costMark, familySections, keepable, ledger, looks, modIn, modRow, remakeMods, remakeRows } from "./refmod.js";
 import * as S from "./state.js";
 
 /** The four things a file can lend a subject, and what tells them apart on
@@ -233,10 +233,12 @@ function assetThumb(asset, className = "mmc-asset-thumb") {
  *  step — so it is the one worth reading off a row at a glance, and the mark is
  *  set in the same monospace the marker wears: this is what the model is handed.
  *  Exported for the library sheet, whose tiles say the same thing. */
-export function sizeMark(asset) {
+export function sizeMark(asset, space = DEFAULT_SPACE) {
   // A saved reference wears what it is rather than a size: it was encoded
   // when it was made, and the mark says the tile is a latent, not a picture.
-  if (asset && S.isRefMod(asset)) return [el("span", { class: "mmc-cast-size", text: "mod" })];
+  // A picture carrying its rendition for this family wears the same mark —
+  // that is what the render reads it from.
+  if (asset && modIn(asset, space)) return [el("span", { class: "mmc-cast-size", text: "mod" })];
   if (!asset || !S.sizeable(asset) || S.refSize(asset) !== "max") return [];
   return [el("span", { class: "mmc-cast-size", text: "max" })];
 }
@@ -502,7 +504,7 @@ export function loraChip(entry, onclick) {
  */
 export class CastShelf {
   constructor({ getCast, setCast, getAssets, addAsset, whereCited, cite, touch, commit,
-                keep = null, library = null, mod = null, vae = null, rename = null,
+                keep = null, library = null, mod = null, vae = null, families = null, rename = null,
                 dropAssets = null, canvas = null, family = null }) {
     this.getCast = getCast;
     this.family = family ?? (() => S.DEFAULT_VIDEO_FAMILY);
@@ -517,6 +519,7 @@ export class CastShelf {
     this.keep = keep;
     this.library = library;
     this.mod = mod;
+    this.families = families;
     this.vae = vae;
     this.canvas = canvas;
     // Whose pictures are on the queue being encoded — `{subject, mode, count,
@@ -841,9 +844,16 @@ export class CastShelf {
   /** Their looks as the ledger reads them: every still in `from`, mod or not. */
   looks(subject) { return looks(subject, this.getAssets()); }
 
+  /** The families a member can be saved for, the piece's own first — or
+   *  H3's alone where the host names none. */
+  modFamilies() { return this.families?.() ?? []; }
+  /** The family the ledger and the tiles count for: the piece's. */
+  ownFamily() { return this.modFamilies()[0] ?? null; }
+
   /** What they cost, on their shut line. Amber once every look is a mod. */
   costMark(subject) {
-    const mark = costMark(this.looks(subject), this.canvas?.(), () => this.renderSoon());
+    const mark = costMark(this.looks(subject), this.canvas?.(), () => this.renderSoon(),
+                          this.ownFamily()?.space ?? DEFAULT_SPACE);
     if (!mark) return [];
     return [el("span", {
       class: `mmc-cast-line-cost${mark.saved ? " saved" : ""}`,
@@ -855,12 +865,18 @@ export class CastShelf {
 
   ledgerRow(subject) {
     const busy = this.encoding?.subject === subject ? this.encoding : null;
+    // Something is left to save where any family this machine encodes for
+    // has a picture (or a clip) of theirs without a rendition yet.
+    const families = this.modFamilies();
+    const unsaved = (families.length ? families : [null]).some(
+      (family) => keepable(subject, this.getAssets(), "stack", family?.space ?? DEFAULT_SPACE).length);
     const row = ledger({
       entries: this.looks(subject),
       canvas: this.canvas?.(),
       busy,
+      family: this.ownFamily(),
       note: this.modNote?.subject === subject ? this.modNote.text : null,
-      onSave: this.mod && !this.encoding && keepable(subject, this.getAssets(), "stack").length
+      onSave: this.mod && !this.encoding && unsaved
         ? (anchor) => this.pickMod(anchor, subject) : null,
       onRemake: this.vae && !this.encoding ? (anchor) => this.pickRemake(anchor, subject) : null,
       onLibrary: this.library ? (path) => this.library({ reveal: path }) : null,
@@ -1017,27 +1033,29 @@ export class CastShelf {
     this.render();
   }
 
-  /** The two ways to save somebody's pictures, as a menu on the ledger's
-   *  button, each row naming what it would cost. */
+  /** The ways to save somebody's pictures, as a menu on the ledger's button:
+   *  a section per family this machine can encode for, each row naming what
+   *  it would cost. Everything that could go is offered — stills and clips —
+   *  and each row says which of them it takes. */
   pickMod(anchor, subject) {
-    // Everything that could go: stills and clips. The per-picture rows take
-    // the stills alone and say so.
-    const sources = keepable(subject, this.getAssets(), "stack");
+    const sources = looks(subject, this.getAssets()).filter((a) => !S.isRefMod(a) && !S.isPlate(a));
     openMenu(anchor, {
       title: t(sources.length === 1
         ? "Save {count} file as a RefMod → refmods/{folder}/{handle}"
         : "Save {count} files as RefMods → refmods/{folder}/{handle}",
         { count: sources.length, folder: MOD_FOLDER, handle: subject.handle }),
-      sections: [{ rows: modeRows(sources, (mode) => this.keepAsMod(subject, mode),
-                                  () => this.renderSoon()) }],
+      sections: familySections(sources, this.modFamilies(),
+                               (mode, family) => this.keepAsMod(subject, mode, family),
+                               () => this.renderSoon()),
     });
   }
 
   /** The other mode for their saved looks, as a menu on the ledger's button:
    *  the mods they are built out of, written again from their pictures. */
   pickRemake(anchor, subject) {
-    const rows = this.looks(subject).filter((a) => S.isRefMod(a))
-      .map((a) => modRow(a.filename)).filter(Boolean);
+    const space = this.ownFamily()?.space ?? DEFAULT_SPACE;
+    const rows = this.looks(subject).map((a) => modIn(a, space))
+      .filter(Boolean).map((path) => modRow(path)).filter(Boolean);
     openMenu(anchor, {
       title: t("Re-encode @{handle}'s saved looks", { handle: subject.handle }),
       sections: [{ rows: remakeRows(rows, (mode, mods) => this.remake(subject, mode, mods)) }],
@@ -1053,7 +1071,7 @@ export class CastShelf {
     this.render();
     try {
       await remakeMods(mods, mode, {
-        vae: this.vae(),
+        vae: this.ownFamily()?.vae ?? this.vae(),
         onProgress: (fraction) => {
           if (this.encoding?.subject !== subject) return;
           this.encoding.progress = fraction;
@@ -1071,10 +1089,10 @@ export class CastShelf {
 
   /** Encode them. The host does the work and the attaching; the ledger says
    *  how it is going, and afterwards it says what it became. */
-  async keepAsMod(subject, mode) {
+  async keepAsMod(subject, mode, family = null) {
     if (!this.mod || this.encoding) return;
-    const count = keepable(subject, this.getAssets(), mode).length;
-    this.encoding = { subject, mode, count, progress: 0 };
+    const count = keepable(subject, this.getAssets(), mode, family?.space ?? DEFAULT_SPACE).length;
+    this.encoding = { subject, mode, count, progress: 0, family };
     this.modNote = null;
     this.render();
     try {
@@ -1082,7 +1100,7 @@ export class CastShelf {
         if (this.encoding?.subject !== subject) return;
         this.encoding.progress = fraction;
         this.renderSoon();
-      });
+      }, family);
     } catch (error) {
       this.modNote = { subject, text: t("Could not save @{handle} — {error}",
                                         { handle: subject.handle, error: error.message ?? error }) };
@@ -1593,7 +1611,7 @@ export class CastShelf {
       onclick: (event) => this.pickRole(event.currentTarget, subject, handle, role),
     }, [
       assetThumb(asset, "mmc-cast-ref-thumb"),
-      ...sizeMark(asset),
+      ...sizeMark(asset, this.ownFamily?.()?.space ?? DEFAULT_SPACE),
       // The shelf shares these files with the reference row, including mute.
       // Keep the role/wake marks and the menu usable; waking a file still goes
       // through the host's reference-cap checks in the reference row.

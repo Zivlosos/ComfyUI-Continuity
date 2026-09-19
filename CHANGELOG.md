@@ -6,6 +6,43 @@ exactly as it was written, wall of text and all.
 
 ## Unreleased
 
+**A RefMod is for one family, a picture carries one per family, and the
+family picks its own.** A latent belongs to one VAE: the H3 mod that made
+RefMods worth having is a tensor in the H3 video VAE's space, and it means
+nothing to Flux 2 Klein, whose references are Flux 2 VAE latents chained
+onto the conditioning. So "a RefMod per family" is one mod per latent
+space, all made from the same picture — and the picture now stays. Saving a
+member's looks used to replace each picture with its mod and drop the
+picture from the piece, which was the one thing that made a second family
+impossible: nothing was left to encode for it, and a still family handed a
+mod would have pushed `refmod:` into `LoadImage`. Now the picture is the
+reference and carries its saved renditions by space (`asset.mods`,
+`{"h3_video": "refmod:cast/anna", "flux2": "refmod:cast/anna.flux2"}`), the
+family rendering it reads the one in its own space or encodes the picture as
+it always has, and nobody chooses at render time — a clip on an H3 piece, a
+chat still drawn on Klein, a family with neither all take what is theirs.
+The save menu is a section per family this machine can encode for, the
+piece's own first and the others by the VAE remembered in their weights
+controls; each family declares its space and its maker's defaults
+(`declare.REFMOD`), served as `capabilities.refmod`, and the make route
+encodes through that family's VAE — Klein's at 1 MP on a 16 grid, as its
+graph scales a reference, pooled to a 32-grid when compressed (a quarter of
+the 4,096 tokens a full Klein reference is; the VAE packs a 2×2 into its
+channels, so a cell is a token there). Klein's graph loads a slot's
+rendition through one new node, `ContinuityRefModLatent`, in place of the
+scale and the encode. Files say whose they are (`vae_kind` in the header;
+the sibling pack's say nothing and are H3's by their 24 channels), the
+picker's RefMod tab says so on a row that is not H3's, and the sibling
+pack's newer one-reference bundles read too. The clip the reporter of #53
+was after is the fourth shape: *Each clip — its own file*, a clip encoded
+whole at the 768 reference canvas, up to a minute of it, kept as one video
+RefMod and cited as one `<Video n>`; the route also takes their
+frame-difference `capture: "motion"`. A picture framed again forgets its
+renditions, which were latents of the old window. The stack keeps its old
+behaviour: one file in the place of everything, H3 only. Unmeasured, and
+what the next lab run is for: a Klein still from a compressed rendition
+against the picture, and identity across hops on a bound picture.
+
 **The chat's bar says whose every setting is, and the node is set up once.**
 The room had four things called *model*, three seeds, two *skills*, and a
 gear whose pin nobody could see: a chat could be sampling on a row of its own

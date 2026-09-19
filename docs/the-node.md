@@ -174,13 +174,32 @@ wake on its own words.
 A picture's reference tokens ride through every sampling step, and a member
 built out of three stills at `max` is several thousand tokens. The **ledger**
 under a member's tiles says what their looks cost a render — *Encoded on every
-render · 2 pictures + 1 clip at max · ≈8,200+ tokens* — and offers *Save as
-RefMod*. A RefMod is a reference encoded once and kept as a file: the
-saved-latent format
+render · MiniMax H3 · 2 pictures + 1 clip at max · ≈8,200+ tokens* — and
+offers *Save as RefMod*. A RefMod is a reference encoded once and kept as a
+file: the saved-latent format
 [ComfyUI-MiniMaxH3Mod](https://github.com/Luisacaotica/ComfyUI-MiniMaxH3Mod)
 reads and writes, so a character made or downloaded there works here and one
-saved here loads in their nodes. The menu offers three shapes and names what
-each costs:
+saved here loads in their nodes (their newer one-reference *bundles* read
+too; a bundle of several is refused by count).
+
+**A mod is for one family.** A latent belongs to one VAE: an H3 mod is a
+tensor in the H3 video VAE's space and means nothing to Flux 2 Klein, whose
+references are Flux 2 VAE latents. So the picture stays the member's look,
+and it *carries* its saved renditions, one per family that keeps them —
+`refmods/cast/anna` for H3, `refmods/cast/anna.flux2` for Klein — and the
+family rendering the picture reads the one in its own space, or encodes the
+picture as it always has. Nothing about that is chosen at render time by
+anyone: a clip on an H3 piece reads the H3 mod, a chat still drawn on Klein
+reads the Klein mod, a family with neither reads the picture. The save menu
+is a section per family this machine can encode for (the piece's own first,
+the others by the VAE remembered in their weights controls), each row naming
+what it would cost there; a tile wears *mod* when it carries one for the
+piece's family, and the shut line's amber count is that family's. Families
+that keep none — Ideogram is an API, LTX 2.5 reads one composited sheet per
+card — are not offered. A picture framed again forgets its renditions: they
+were latents of the old window.
+
+The menu's shapes, and what each costs:
 
 * **One file — everything stacked.** Every still and clip in their looks,
   each pooled to a 16×16 grid, laid end to end as one *video* RefMod — which
@@ -195,18 +214,29 @@ each costs:
   and unusable for a person), which is why the grid is where it is. Stills
   only.
 * **Full**, per picture: the encode at a 1024 short edge, about a thousand
-  tokens. Stills only.
+  tokens. Stills only. On Flux 2 Klein the same two rows are the family's
+  own numbers — a 1 MP picture is a 64×64 grid there and every cell is a
+  token, so Full is 4,096 and Compressed (a 32-grid) a quarter of it.
+* **Each clip — its own file.** A clip encoded whole at the 768 reference
+  canvas, up to a minute of it, kept as one *video* RefMod and cited as one
+  `<Video n>`: long motion for a few hundred tokens a frame, read off the
+  file instead of decoded every render — the shape the sibling pack's own
+  motion references take (issue #53). The route also takes `capture:
+  "motion"`, their frame-difference capture, which nothing in the UI offers
+  yet. H3 only: a still family has no time axis.
 
 Either way the render reads the latent off the file and shows the model a
 picture decoded from it as the label it cites.
 
-The mods land where the pictures were, the member's looks point at them, and
-the pictures leave the piece unless another member or a hand-written `@handle`
-still needs them; the ledger then reads *Saved as a RefMod · compressed · 432
-tokens · refmods/cast/anna* with *Download* and *Show in library* beside it. A
-mod tile wears `mod` where a picture's would wear `max`, and its menu hands out
-the `.safetensors`. A shut line shows the cost too, amber once every look is a
-mod.
+The per-picture shapes hang the mod on the picture: the member's looks, the
+handles in the prompt and the words on each file are untouched, and the
+ledger reads *Saved as a RefMod · MiniMax H3 · compressed · 432 tokens ·
+refmods/cast/anna* with *Download* and *Show in library* beside it. The
+stack is the exception, as it always was: one file in the place of every
+still and clip, and the pictures leave the piece unless another member or a
+hand-written `@handle` still needs them. A mod tile wears `mod` where a
+picture's would wear `max`, and its menu hands out the `.safetensors`. A shut
+line shows the cost too, amber once every look is a mod.
 
 **Importing a RefMod is casting them.** A RefMod is a character, so a
 `.safetensors` dropped on the **Cast** tab's Import — or the picker's RefMod
@@ -226,8 +256,11 @@ What a mod is not: a concept extractor. Pooling keeps colour, build and large
 structure and loses fine detail, and nothing about it stops identity, clothing
 and background mixing any more than a picture does — that is still what the
 member's words and `takes` are for. Audio mods are not taken; a voice is bound
-as a file. Saving needs the H3 video VAE picked in the weights control; a mod
-made elsewhere needs nothing.
+as a file. Saving for a family needs that family's VAE picked in its weights
+control; a mod made elsewhere needs nothing. A mod file on its own is a
+reference only where its family renders — a member built out of an H3 mod
+alone is their words in a Klein still, since a still family loads its
+pictures by name and a mod is a latent.
 
 A cast member can be swapped for another with *Recast from library* at the foot of their card: the
 replacement takes over their clips, their slot in the cast order, and every

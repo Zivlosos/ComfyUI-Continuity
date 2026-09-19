@@ -125,6 +125,9 @@ def manifest():
                      "needs_lora": False, "edits_first": True,
                      "noun": list(still.REFS_NOUN),
                      "start_blank": compile_image.START_BLANK_FIELD},
+            # Saved references in the Flux 2 VAE's space — `declare.REFMOD`,
+            # the table the make route encodes by and the ledger offers from.
+            "refmod": dict(declare.REFMOD),
         },
         "prompt": {
             # Plain prose; references are cited as the pack's shared slot

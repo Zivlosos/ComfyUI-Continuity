@@ -146,7 +146,7 @@ class Compiled:
 
 vae = FakeVAE()
 asset = Asset("img-1", "refmod:cast/anna-small")
-key = encoder._mod_key(asset, "vae-print")
+key = encoder._mod_key(asset.filename, "vae-print")
 check("the key is the file and the VAE, nothing about the canvas",
       sorted(key), ["file", "kind", "vae"])
 tensors, meta = encoder._mod_tensors(vae, asset, compressed)
@@ -157,6 +157,35 @@ check("the tokenizer half is decoded from it, at the latent's own size",
       list(tensors["presentation"].shape), [1, 160, 256, 3])
 check("...as 8-bit, like every presentation", tensors["presentation"].dtype, torch.uint8)
 check("the block dims are the latent's", (meta["latent_h"], meta["latent_w"]), (10, 16))
+
+# A picture carrying its rendition in H3's space is read from the file, and
+# its pixels are never opened: the entry is a `Deferred` whose decode is the
+# failure. A rendition for another family alone is a picture to H3.
+
+
+class Bound(Asset):
+    def __init__(self, handle, filename, mods, kind="image"):
+        super().__init__(handle, filename, kind)
+        self.mod = False
+        self.mods = mods
+
+    def mod_for(self, space):
+        return self.mods.get(space)
+
+
+never = media.Deferred(lambda: (_ for _ in ()).throw(AssertionError("the picture was decoded")))
+bound = Bound("img-3", "anna.png", {"h3_video": "refmod:cast/anna-small", "flux2": "refmod:cast/anna.flux2"})
+check("a bound picture is read from its H3 rendition, pixels unopened",
+      encoder._mod_of(bound, never), compressed)
+check("...and a picture whose only rendition is Klein's is encoded here",
+      encoder._mod_of(Bound("img-4", "anna.png", {"flux2": "refmod:cast/anna.flux2"}), never), None)
+try:
+    encoder._mod_of(Bound("img-5", "anna.png", {"h3_video": "refmod:cast/gone"}), never)
+    missing = ""
+except ValueError as exc:
+    missing = str(exc)
+check("a rendition that has gone is refused by name, not encoded around",
+      ("@img-5" in missing, "gone" in missing), (True, True))
 
 # A mod made elsewhere has no picture; the first decode writes one beside it.
 foreign = refmod.save("theirs", torch.rand(1, 24, 1, 16, 16), {"kind": "image"})
@@ -174,10 +203,10 @@ check("a clip mod presents its first frame per half second",
 # Through the cache, the second read is a hit and hands back the same tensors.
 media.resolve = lambda filename: refmod.resolve(filename)
 latents.forget()
-first, _ = encoder._cached("@img-1 mod", encoder._mod_key(asset, "vae-print"),
+first, _ = encoder._cached("@img-1 mod", encoder._mod_key(asset.filename, "vae-print"),
                            lambda: encoder._mod_tensors(vae, asset, compressed))
 decodes = vae.decoded
-second, _ = encoder._cached("@img-1 mod", encoder._mod_key(asset, "vae-print"),
+second, _ = encoder._cached("@img-1 mod", encoder._mod_key(asset.filename, "vae-print"),
                             lambda: encoder._mod_tensors(vae, asset, compressed))
 check("a second render reads the cache, not the VAE", vae.decoded, decodes)
 check("...and gets the same latent", torch.equal(first["latent"], second["latent"]), True)
@@ -215,7 +244,7 @@ except Exception as exc:  # noqa: BLE001
 if remake_routes is not None:
     jobs = _pkg.jobs
     jobs.progress = lambda: (lambda fraction: None)
-    remake_routes._vae = lambda name: vae
+    remake_routes._vae = lambda name, space=None: vae
     # One picture in the "input folder", by name; everything else is gone.
     picture = torch.rand(1, 640, 1024, 3)
     media.resolve = lambda filename: (refmod.resolve(filename) if refmod.is_mod(filename)

@@ -166,3 +166,10 @@ CONTROL_NODE = "MiniMaxH3FunControlNetApply"
 # drawing, read through the same apply node's `mask`/`source_video` inputs, and
 # `render.emit_control` is where the two part ways.
 CONTROL_TRACINGS = ("edges", "lines", "depth", "pose", "matte")
+
+# Saved references (`creator/refmod.py`). The latent space a mod for this
+# family is in, and how one is made by default: a still is encoded at a 1024
+# short edge and, compressed, pooled to a 48-grid on its long edge — measured
+# 2026-09-12, the grid below which a face comes back stained. Clips are taken
+# too: a video mod is the sibling pack's own shape for motion.
+REFMOD = {"space": "h3_video", "edge": 1024, "grid": 48, "clips": True}

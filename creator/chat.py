@@ -1501,9 +1501,17 @@ def still_piece(action, ledger, rail, base=None, cast=None):
     # description alone where the family reads no picture — and a member with
     # neither is a name the picture could not draw.
     prompt = action["prompt"]
+    # A member's picture, and the renditions it carries: the still family
+    # reads the one in its own space, if any, and the picture otherwise.
+    renditions = {}
     for member in _cited_members(prompt, cast):
         files = _cited(None, ledger, member.get("from") or [])
-        picture = next((f for f in files if f[1] == "image"), None)
+        # A picture, never a saved reference: a still family loads its
+        # pictures by name and a mod is a latent, read only as a rendition
+        # hung on the picture it was made of. A member built out of a mod
+        # alone is their words here, which the branch below already says.
+        picture = next((f for f in files if f[1] == "image" and not f[2].startswith("refmod:")), None)
+        renditions.update(member.get("mods") or {})
         text = member.get("description") or ""
         if picture and pictures.get("takes"):
             handle = picture[0]
@@ -1535,7 +1543,8 @@ def still_piece(action, ledger, rail, base=None, cast=None):
                 f"@{handle}:{scope} — a picture has no start or end frame; cite "
                 f"it plain, or ask for a clip.")
         entries.append(({"handle": handle, "filename": filename,
-                         **({"takes": scope} if scope and scope != ROLE_REF else {})},
+                         **({"takes": scope} if scope and scope != ROLE_REF else {}),
+                         **({"mods": renditions[handle]} if renditions.get(handle) else {})},
                         scope))
 
     canvas = _canvas(action, rail, "still")
@@ -1629,6 +1638,14 @@ def cast_entries(piece):
     node wrote. Every file behind them counts as theirs (`from`, motion,
     voice, the clip they stand in), which is what keeps any of them from
     being made a keyframe by the model."""
+    # The saved renditions their pictures carry (`compile.Asset.mods`), by
+    # handle, off the pool and every card: what a still family reads a
+    # member's picture from when it has one in the family's own space.
+    renditions = {}
+    for owner in [piece or {}, *((piece or {}).get("segments") or [])]:
+        for asset in (owner.get("assets") or []) if isinstance(owner, dict) else []:
+            if isinstance(asset, dict) and asset.get("handle") and isinstance(asset.get("mods"), dict):
+                renditions[str(asset["handle"])] = dict(asset["mods"])
     out = []
     for subject in (piece or {}).get("subjects") or []:
         if not isinstance(subject, dict) or not subject.get("handle"):
@@ -1639,9 +1656,12 @@ def cast_entries(piece):
             files += [value] if isinstance(value, str) else list(value or [])
         if subject.get("voice"):
             files.append(subject["voice"])
+        handles = [str(h) for h in files if h]
+        mods = {h: renditions[h] for h in handles if renditions.get(h)}
         out.append({"name": subject["handle"], "takes": subject.get("takes") or "person",
-                    "from": [str(h) for h in files if h],
-                    "description": subject.get("description") or ""})
+                    "from": handles,
+                    "description": subject.get("description") or "",
+                    **({"mods": mods} if mods else {})})
     return out
 
 

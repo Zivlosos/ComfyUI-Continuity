@@ -274,6 +274,14 @@ class Asset:
     # families' graph) and reflected wherever its size is asked for. See
     # `creator/crop.py`.
     crop: framing.Crop | None = None
+    # The saved renditions of this picture, by latent space: `{"h3_video":
+    # "refmod:cast/anna", "flux2": "refmod:cast/anna.flux2"}`. The picture
+    # stays the reference on the piece — it is what every family can read and
+    # what the still families are handed — and the family rendering it takes
+    # the mod for its own space (`mod_for`) or encodes the picture as it always
+    # has. Empty on a picture nobody saved, and on a mod asset, which *is* one
+    # rendition. See `creator/refmod.py` and `families/h3/encode`.
+    mods: dict = field(default_factory=dict)
 
     @property
     def mod(self):
@@ -282,6 +290,14 @@ class Asset:
         the filename rather than stored beside it, so a blob cannot say one thing
         in two places. See `creator/refmod.py`."""
         return refmod.is_mod(self.filename)
+
+    def mod_for(self, space):
+        """The mod a family in `space` reads this reference from, or None to
+        encode the file. A mod asset answers itself; a picture answers the
+        rendition it carries for that space, if it has one."""
+        if self.mod:
+            return self.filename
+        return self.mods.get(space) or None
 
 
 @dataclass
@@ -731,6 +747,22 @@ def _parse_assets(raw):
             if kind == "video" and item.get("track") not in (None, "", "picture"):
                 raise CompileError(
                     f"@{handle}: a saved clip carries no soundtrack")
+            if item.get("mods"):
+                raise CompileError(
+                    f"@{handle}: a saved reference is one rendition already — "
+                    f"mods hang on the picture it was made of")
+
+        # The picture's saved renditions, by latent space. A reference and only
+        # that: a keyframe is pinned as pixels and a sound has no latent a mod
+        # could stand in for, so the field is refused rather than ignored there.
+        try:
+            mods = refmod.parse_mods(item.get("mods"), owner=f"@{handle}: ")
+        except refmod.RefModError as exc:
+            raise CompileError(str(exc)) from exc
+        if mods and (role != "reference" or kind == "audio"):
+            raise CompileError(
+                f"@{handle}: only a reference picture or clip carries saved "
+                f"renditions — a {role.replace('_', ' ')} {kind} is used as it is")
 
         # Defaulted per kind rather than globally — see DEFAULT_REF_SIZE. Audio
         # has no size to speak of and is left on the dataclass default, which
@@ -782,6 +814,7 @@ def _parse_assets(raw):
             # grows, and a guide naming one this build has never heard of is
             # still a drawing the branch can read.
             op=str(item.get("op") or "") if role == "guide" else "",
+            mods=mods,
         ))
     return assets
 

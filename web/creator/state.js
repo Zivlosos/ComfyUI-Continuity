@@ -348,6 +348,14 @@ export const refSize = (asset) => asset.ref_size || DEFAULT_REF_SIZE[asset.kind]
  *  Mirrors `compile.Asset.mod`. */
 export const isRefMod = (asset) => String(asset?.filename ?? "").startsWith("refmod:");
 
+/** Forget a picture's saved renditions: a mod is the latent of the window
+ *  the picture was framed to when it was made, so a new frame — or a new
+ *  file under the handle — makes every one of them a picture of something
+ *  else. Called wherever `asset.crop` or `asset.filename` is set. */
+export function dropMods(asset) {
+  if (asset && asset.mods) delete asset.mods;
+}
+
 /** Whether a file has a picture to frame — crop, turn, mirror (`picture.js`).
  *  A still or a clip; not a saved reference, which was encoded before any
  *  window could be drawn on it; not a clip taken for its sound alone; and
@@ -1914,6 +1922,9 @@ function serializeAssets(assets) {
     // editor rendered whole and was forgotten on reload, and a cut-out came
     // back as the flat composite with its panels' handles gone.
     if (asset.crop) out.crop = { ...asset.crop };
+    // The picture's saved renditions, by latent space (`compile.Asset.mods`).
+    // Only where there are any, so a picture nobody saved adds nothing.
+    if (asset.mods && Object.keys(asset.mods).length) out.mods = { ...asset.mods };
     if (isPlate(asset)) {
       out.panels = asset.panels.map((panel) => ({
         handle: panel.handle, filename: panel.filename,
