@@ -4297,6 +4297,9 @@ export function emptyPreStage() {
     edition: PRESTAGE_DEFAULT_EDITION,
     // Ideogram's speed axis: which official preset shapes the schedule.
     quality: PRESTAGE_DEFAULT_QUALITY,
+    // The rows dialled for the arches this node is not on — `{arch: row}`,
+    // the piece's `sampling_spare` on the still side. See `PreStageRow.setArch`.
+    sampling_spare: {},
     // The video family's branch: its own settings, and its generation in the
     // Creator's shape. Nothing above it applies to that branch — see
     // `emptyStill`. The key is the arch's frozen blob name.
@@ -4379,6 +4382,21 @@ export function emptyPreStageModels() {
   return empty;
 }
 
+/** The rows this node dialled for the arches it is not on — `{arch: row}`.
+ *  The piece's `parseSamplingSpare`, keyed by arch: `cfg` is spelled the same
+ *  on Krea and Ideogram and means numbers an order apart, so a row carried
+ *  across the arch pill is one model's guidance quietly in force on another's
+ *  weights. `PreStageRow.setArch` sets it aside and hands it back instead. */
+export function parsePreStageSamplingSpare(raw) {
+  const out = {};
+  if (!raw || typeof raw !== "object") return out;
+  for (const arch of PRESTAGE_ARCHES) {
+    const row = parseSampling(raw[arch]);
+    if (Object.keys(row).length) out[arch] = row;
+  }
+  return out;
+}
+
 export function parsePreStage(raw) {
   try {
     const parsed = JSON.parse(raw);
@@ -4436,6 +4454,7 @@ export function parsePreStage(raw) {
       // list. A still architecture that wants a row of its own would ask for it
       // here, the way `parseTimeline` asks for the piece's family's.
       state.sampling = parseSampling(state.sampling);
+      state.sampling_spare = parsePreStageSamplingSpare(state.sampling_spare);
       if (!PRESTAGE_REF_METHODS.includes(state.ref_method)) {
         state.ref_method = PRESTAGE_DEFAULT_REF_METHOD;
       }
@@ -4506,6 +4525,8 @@ export function serializePreStage(state) {
     ...(state.edition !== PRESTAGE_DEFAULT_EDITION ? { edition: state.edition } : {}),
     [PRESTAGE_STILL_ARCH]: serializeStill(state[PRESTAGE_STILL_ARCH]),
     ...serializeSampling(state.sampling),
+    ...(Object.keys(parsePreStageSamplingSpare(state.sampling_spare)).length
+      ? { sampling_spare: parsePreStageSamplingSpare(state.sampling_spare) } : {}),
     ...(Object.keys(models).length ? { models } : {}),
     ...(state.peer != null ? { peer: state.peer } : {}),
   }, null, 2);

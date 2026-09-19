@@ -277,6 +277,30 @@ export class Sync {
     this.save(kind);
   }
 
+  /**
+   * Move the room onto another family, the pinned copy with it. A row is a
+   * family's: the copy goes through the same switch the node's blob does —
+   * `PreStageRow.setArch` for a still, `state.setFamily` for a clip — so the
+   * leaving family's numbers are set aside under its name and the arriving
+   * one's come back, or its defaults where it was never dialled. Writing the
+   * rail alone left Ideogram's guidance in force on Krea.
+   */
+  moveStill(arch) {
+    const copy = this.copy("still");
+    if (copy && copy.arch !== arch) {
+      const io = blobIO(() => ({}), () => copy.sampling, (block) => { copy.sampling = block; });
+      new PreStageRow({ state: copy, widgetIO: () => io, commit: () => {} }).setArch(arch);
+      this.save("still");
+    }
+    this.setRail({ still_arch: arch });
+  }
+
+  moveVideo(family) {
+    const copy = this.copy("video");
+    if (copy && S.setFamily(copy, family)) this.save("video");
+    this.setRail({ video_family: family });
+  }
+
   /** Drop the room's own row; the side follows the node again. */
   follow(kind) {
     this.copies[kind] = null;

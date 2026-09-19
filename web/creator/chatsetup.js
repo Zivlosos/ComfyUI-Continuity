@@ -388,13 +388,12 @@ export class FirstRun {
       weights[family.id] = { ...(rememberedWeights()[family.id] ?? {}), ...(picks?.[family.id] ?? family.picks) };
     }
     patchSettings({ weights });
-    const patch = {};
-    if (video) patch.video_family = video.id;
+    // Through the room's own switches, so a pinned row moves with its family.
+    if (video) this.host.sides.moveVideo(video.id);
     if (still) {
       const arch = Object.keys(STILL_ARCHES).find((key) => STILL_ARCHES[key] === still.id);
-      if (arch) patch.still_arch = arch;
+      if (arch) this.host.sides.moveStill(arch);
     }
-    if (Object.keys(patch).length) this.host.setRail(patch);
   }
 
   families() {

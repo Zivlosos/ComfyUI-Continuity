@@ -1765,7 +1765,7 @@ class Room {
           title: t("Image model"),
           options: PICTURE_ARCHES, value: arch,
           label: (which) => t(S.PRESTAGE_ARCH_LABEL[which]),
-          onPick: (which) => setRail({ still_arch: which }),
+          onPick: (which) => this.sync.moveStill(which),
         }),
       }, [icon("image", 14), el("span", { text: t(S.PRESTAGE_ARCH_LABEL[arch]) })]),
       // Only where the image model cannot read a cited picture: a model that
@@ -1791,7 +1791,7 @@ class Room {
           title: t("Video model"),
           options: VIDEO_FAMILIES, value: family,
           label: (which) => t(S.FAMILY_LABEL[which] ?? which),
-          onPick: (which) => setRail({ video_family: which }),
+          onPick: (which) => this.sync.moveVideo(which),
         }),
       }, [icon("video", 14), el("span", { text: t(S.FAMILY_LABEL[family] ?? family) })]),
       el("button", {
