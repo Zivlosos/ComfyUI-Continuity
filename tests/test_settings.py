@@ -292,6 +292,17 @@ check("the split edges and the setup flag are stored",
       settings.clean({"chat": SPLIT})["chat"], SPLIT)
 refuses("a picture edge of no pixels", {"chat": {"still_edge": 0}}, "1 or more")
 
+# The verbosity dial is a fraction and the edit family a name; both were
+# dropped on the way through and reset on every reload.
+WRITES = {"verbosity": 0.45, "edit_arch": "qwenedit"}
+check("the verbosity dial and the edit family are stored",
+      settings.clean({"chat": WRITES})["chat"], WRITES)
+check("the reply budget is stored as a count",
+      settings.clean({"chat": {"reply_tokens": 1024}})["chat"], {"reply_tokens": 1024})
+check("the dial's ends are stored", settings.clean({"chat": {"verbosity": 1}})["chat"], {"verbosity": 1.0})
+refuses("a dial past its end", {"chat": {"verbosity": 1.5}}, "0 to 1")
+refuses("a dial that is a switch", {"chat": {"verbosity": True}}, "0 to 1")
+
 # ---- the prompt refiner -------------------------------------------------------
 #
 # The refiner's choices used to live in localStorage, per browser profile. They

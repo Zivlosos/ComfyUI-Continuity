@@ -597,16 +597,20 @@ def clean_weights(raw, label="weights"):
 # happens to it after a render, the Refine switch, and a skill appended to
 # the room's own prompting. A field this build has never heard of is dropped
 # on read, the same way a field a newer build wrote is.
-CHAT_NAMES = ("aspect", "skill", "pinned_still", "pinned_video", "video_family", "still_arch")
+CHAT_NAMES = ("aspect", "skill", "pinned_still", "pinned_video", "video_family", "still_arch",
+              "edit_arch")
 # `setup` is whether the room's first run has been answered on this machine —
 # the three questions are asked until it is, and "Set up again" clears it.
 CHAT_FLAGS = ("refine", "setup")
 # `short_edge` is what a rail saved before the edge was split per kind holds;
 # the room reads it for both and writes the two it has now.
-CHAT_COUNTS = (("short_edge", 1), ("still_edge", 1), ("video_edge", 1), ("seed", 0))
+CHAT_COUNTS = (("short_edge", 1), ("still_edge", 1), ("video_edge", 1), ("seed", 0),
+               ("reply_tokens", 1))
 # What the seed does after a render: kept, or rolled — the room's version of
 # the node's `control_after_generate`.
 SEED_POLICIES = ("fixed", "random")
+# The verbosity dial, 0 to 1: a fraction, not a count, so it has its own check.
+CHAT_DIALS = ("verbosity",)
 
 
 def clean_chat(raw):
@@ -646,6 +650,14 @@ def clean_chat(raw):
         if int(value) < floor:
             raise ValueError(f"chat.{key} must be {floor} or more")
         kept[key] = int(value)
+    for key in CHAT_DIALS:
+        if raw.get(key) is None:
+            continue
+        value = raw[key]
+        if isinstance(value, bool) or not isinstance(value, (int, float)) \
+                or not 0 <= value <= 1:
+            raise ValueError(f"chat.{key} must be a number from 0 to 1")
+        kept[key] = float(value)
     if raw.get("seed_policy") is not None:
         if raw["seed_policy"] not in SEED_POLICIES:
             raise ValueError("chat.seed_policy must be one of " + ", ".join(SEED_POLICIES))

@@ -134,13 +134,6 @@ export function settings() {
     const { localModel, backend, url, ...rest } = stored;
     stored = { ...rest, model: localModel };
   }
-  // `saveSettings` writes the whole object, so every install that ever saved
-  // anything has the old 0.7 default baked in as if it were a choice. It was
-  // not one — 0.7 was the default — so it moves with the default.
-  if (stored.temperature === 0.7) {
-    const { temperature, ...rest } = stored;
-    stored = rest;
-  }
   // A pin written while the template was one setting rather than one per
   // family. It was made against the only family there was, so that is the one
   // it is kept for; every other family reads "auto" and is offered its own list.
