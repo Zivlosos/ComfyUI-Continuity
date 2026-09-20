@@ -4,6 +4,50 @@ Back by request. Every entry opens with a line saying what changed; the
 paragraph under it says how and why, and from 3.0 down that paragraph is kept
 exactly as it was written, wall of text and all.
 
+## Unreleased
+
+**Ideogram 4.0 reads the caption it was trained on.** The still sent the
+prompt as plain prose, and Ideogram's own guide says a plain-text prompt
+"will not work and will likely trigger a safety warning" — which is the grey
+"blocked by safety filter" card and the mush the node was drawing. The
+compile now writes the prose into the model's JSON caption schema; a caption
+already in that shape passes through as written.
+
+**Ideogram's step count is the preset's, and a cfg of 1 off the turbo pill
+is refused.** The blob carried a copy of the row the preset pill had written,
+and the copy went stale: a still saved under the older preset table queued 12
+steps at cfg 1.0 under a pill reading "turbo · 18", and the frame came back
+dark, soft and unguided with nothing on screen to say why. The compile now
+reads the count off the preset (or the turbo pill's stop), the pre-stage no
+longer draws a steps stepper or a scheduler pill for Ideogram, and a row at
+cfg 1 with the turbo LoRA off is refused by name instead of sampled.
+
+**A LoRA over Ideogram is patched onto both checkpoints, each at its own
+weight.** Ideogram guides between a conditional and an unconditional model,
+and a LoRA only ever reached the first. It now goes on both — the
+unconditional side at a second "Unconditional" slider in the LoRA manager,
+the same weight as the strength unless it is set apart, which is how the
+model's own workflows run it (0.4 under 0.9).
+
+**Ideogram's turbo pill opens on TurboTime's own row.** The pill threw
+the distillation at strength 1.0 for 4 steps on res_2m behind the shift;
+its author runs it at 0.6 for 8 steps on euler, unshifted, and says lower
+step counts break the image. Measured: at 1.0 under a content LoRA at 0.9
+the frame came back oversaturated and plastic; at 0.6 alone it is clean.
+The pill now opens on "good" (8 steps) at 0.6 on euler, and the turbo run
+skips the shift, which only ever placed the guidance tail that turbo drops.
+
+**A turbo LoRA added after the page loaded can be picked.** The turbo
+source lists were a cache taken once at load, so a distillation dropped into
+models/loras afterwards was not offered until a reload, on the pre-stage and
+on the video pill alike. Both now ask the folder again behind the open list
+and redraw it when the answer changed.
+
+**The pre-stage's aspect pill opens again.** Its handler had moved into
+the wrong class in a refactor, so every click on it threw silently, on both
+image families. The LoRA manager opened from the pre-stage also stops
+offering H3's soundtrack slider on an image LoRA.
+
 ## 3.1.3
 
 **A sampler row stays with its family.** Switching the image model

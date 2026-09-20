@@ -30,6 +30,17 @@ const out = {};
   out.audioBack = state.loras[0].audio;
 }
 
+// 1b. The unconditional weight is written only where it differs from the
+//     strength — absent means the same weight on both of Ideogram's checkpoints.
+{
+  const loras = [{ name: "a.safetensors", strength: 0.9, uncond: 0.4, modes: [] },
+                 { name: "b.safetensors", strength: 0.9, uncond: 0.9, modes: [] },
+                 { name: "c.safetensors", strength: 0.9, modes: [] }];
+  const written = S.serializeLoras(loras, "ideogram4");
+  out.uncond = [written[0].uncond, Object.hasOwn(written[1], "uncond"), Object.hasOwn(written[2], "uncond")];
+  out.uncondCaps = [S.loraUncondOf("ideogram4"), S.loraUncondOf("krea2"), S.loraAudioOf("krea2"), S.loraAudioOf("h3")];
+}
+
 // 2. Picking "action" narrows the reference to motion, not to full.
 {
   const asset = { handle: "img-1", kind: "image", role: "reference", filename: "a.png" };
@@ -69,6 +80,9 @@ with layout.pack(skip=["atlas"]) as target:
 
 check("a turned-down soundtrack is written, a full one is not", result["audio"], [0.5, False])
 check("...and reads back", result["audioBack"], 0.5)
+check("an unconditional weight is written only where it differs", result["uncond"], [0.4, False, False])
+check("the second slider is Ideogram's alone, and the soundtrack one is H3's",
+      result["uncondCaps"], [True, False, False, True])
 check("action narrows to motion", result["action"], ["motion", 1])
 check("a removed card leaves the cast's picture in the pool",
       result["rescued"], {"pool": ["ana.png"], "from": ["ref-1"], "cast": 1})

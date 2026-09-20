@@ -383,6 +383,8 @@ export const ja = {
  "Both": "両方",
  "Strength": "強度",
  "Soundtrack": "サウンドトラック",
+ "Unconditional": "無条件側",
+ "This LoRA's weight on the unconditional checkpoint. Ideogram 4 guides between two models and the LoRA is patched onto both; run this side lighter than the strength to lean further into what the LoRA taught. Same as the strength by default.": "この LoRA の無条件チェックポイントへの重み。Ideogram 4 は 2 つのモデルの間でガイダンスを取り、LoRA は両方に適用されます。こちら側を強度より軽くすると、LoRA が学んだ方向へさらに寄ります。既定では強度と同じです。",
  "How much of this LoRA reaches the soundtrack. Turn it down for a file whose training clips had poor sound: H3 generates picture and sound together, so an adapter carries what it heard as well as what it saw. It damps rather than mutes.": "この LoRA がサウンドトラックにどれだけ届くか。学習クリップの音声が悪かったファイルでは下げてください。H3 は映像と音声を同時に生成するため、アダプターは見たものだけでなく聞いたものも持ち込みます。ミュートではなく減衰です。",
  "Idle — {targets} are routed here.": "アイドル — {targets} がここにルーティングされています。",
  "Idle — {targets} is routed here.": "アイドル — {targets} がここにルーティングされています。",

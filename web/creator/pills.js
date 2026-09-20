@@ -253,6 +253,10 @@ export function openChoicePopover(anchor, { title, options, value, onPick, extra
     close = dismissable(pop);
   }
   pop.querySelector('[aria-checked="true"]')?.scrollIntoView({ block: "center" });
+  // For a caller whose list can change under it — a picker over a folder
+  // that is re-asked while it is open: whether it is still up, and how to
+  // take it down before drawing the new one.
+  return { open: () => pop.isConnected, close: () => close() };
 }
 
 /** A popover that only says something — "scanning…", a reason nothing opened

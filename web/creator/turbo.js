@@ -46,6 +46,19 @@ export function loadLoraNames(onReady) {
  *  again" has to reach every copy of the list, not just the manager's own. */
 export function forgetLoraNames() { names = null; }
 
+/** Ask the folder again behind a list that is already drawn, and say so only
+ *  when it came back different. A distillation dropped into models/loras
+ *  after the page loaded was invisible to every turbo picker until a reload,
+ *  and a picker that cannot see a file that is there reads as one that will
+ *  not take it. Same shape as `models.refreshCatalog`. */
+export function refreshLoraNames(onChanged) {
+  listLoraNames().then((listed) => {
+    const same = JSON.stringify(listed) === JSON.stringify(names);
+    names = listed;
+    if (!same) onChanged?.();
+  }).catch(() => {});           // a failed re-ask leaves what is already here
+}
+
 export const loraNames = () => names ?? [];
 
 /** Whether a filename says it is a distillation LoRA. Every released H3 family
@@ -88,7 +101,16 @@ function openTurboChoice(anchor, { value, onPick, includeNone = false, all = fal
   const matched = loraNames().filter(looksTurbo);
   const showAll = all || !matched.length;
   const listed = showAll ? loraNames() : matched;
-  openChoicePopover(anchor, {
+  // Drawn from the cache at once, re-asked behind it: a file added since the
+  // page loaded replaces the open list rather than waiting for a reload.
+  if (!retried) {
+    refreshLoraNames(() => {
+      if (!popover?.open() || !anchor.isConnected) return;
+      popover.close();
+      openTurboChoice(anchor, { value, onPick, includeNone, all, retried: true });
+    });
+  }
+  const popover = openChoicePopover(anchor, {
     title: showAll ? t("Turbo LoRA — all files") : t("Turbo LoRA"),
     find: true,
     options: [

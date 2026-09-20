@@ -384,6 +384,8 @@ export const zh = {
  "Both": "两者",
  "Strength": "强度",
  "Soundtrack": "音轨",
+ "Unconditional": "无条件侧",
+ "This LoRA's weight on the unconditional checkpoint. Ideogram 4 guides between two models and the LoRA is patched onto both; run this side lighter than the strength to lean further into what the LoRA taught. Same as the strength by default.": "此 LoRA 在无条件检查点上的权重。Ideogram 4 在两个模型之间进行引导，LoRA 会同时打到两者上；把这一侧调得比强度轻，会更偏向 LoRA 学到的内容。默认与强度相同。",
  "How much of this LoRA reaches the soundtrack. Turn it down for a file whose training clips had poor sound: H3 generates picture and sound together, so an adapter carries what it heard as well as what it saw. It damps rather than mutes.": "这个 LoRA 对音轨的影响程度。训练片段声音不好的文件请调低。H3 同时生成画面与声音，所以适配器会把听到的和看到的一起带进来。这是衰减，不是静音。",
  "Idle — {targets} are routed here.": "闲置——路由到这里的是{targets}。",
  "Idle — {targets} is routed here.": "闲置——路由到这里的是{targets}。",

@@ -86,7 +86,8 @@ with layout.pack(skip=["atlas"]) as target:
 
 ideo = r["onIdeogram"]
 check("switching the node to Ideogram writes Ideogram's own row", ideo["arch"], "ideogram4")
-check("...not Krea's guidance", ideo["row"]["cfg"] != 3.5 and ideo["row"]["steps"] != 30, True)
+check("...not Krea's guidance, and no steps at all — the preset owns them",
+      (ideo["row"]["cfg"] != 3.5, "steps" in ideo["row"]), (True, False))
 check("...and sets Krea's dialled row aside", ideo["spare"], {"krea2": {"cfg": 3.5, "steps": 30}})
 back = r["back"]
 check("coming back hands Krea its row", (back["row"]["cfg"], back["row"]["steps"]), (3.5, 30))

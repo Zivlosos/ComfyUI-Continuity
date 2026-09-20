@@ -383,6 +383,8 @@ export const ko = {
  "Both": "둘 다",
  "Strength": "강도",
  "Soundtrack": "사운드트랙",
+ "Unconditional": "무조건 측",
+ "This LoRA's weight on the unconditional checkpoint. Ideogram 4 guides between two models and the LoRA is patched onto both; run this side lighter than the strength to lean further into what the LoRA taught. Same as the strength by default.": "이 LoRA가 무조건 체크포인트에 적용되는 가중치입니다. Ideogram 4는 두 모델 사이에서 가이던스를 잡고 LoRA는 양쪽에 패치됩니다. 이쪽을 강도보다 가볍게 두면 LoRA가 배운 방향으로 더 기웁니다. 기본값은 강도와 같습니다.",
  "How much of this LoRA reaches the soundtrack. Turn it down for a file whose training clips had poor sound: H3 generates picture and sound together, so an adapter carries what it heard as well as what it saw. It damps rather than mutes.": "이 LoRA가 사운드트랙에 얼마나 영향을 미치는지. 학습 클립의 소리가 좋지 않았던 파일이라면 낮추세요. H3는 영상과 소리를 함께 생성하므로 어댑터는 본 것뿐 아니라 들은 것도 함께 가져옵니다. 음소거가 아니라 감쇠입니다.",
  "Idle — {targets} are routed here.": "대기 중 — {targets}이(가) 여기로 라우팅됩니다.",
  "Idle — {targets} is routed here.": "대기 중 — {targets}이(가) 여기로 라우팅됩니다.",

@@ -469,46 +469,98 @@ check("...and the guider reads it as its conditional model",
 check("the text encoder is loaded as Ideogram's",
       ideo["CLIPLoader"][0][1]["type"], "ideogram4")
 
+# The prompt is the model's JSON caption, not the prose — Ideogram's guide says
+# a plain line "will not work" and trips the safety filter; a caption the user
+# wrote themselves goes through as written.
+caption = json.loads(ideo["CLIPTextEncode"][0][1]["text"])
+check("the prose is wrapped into the caption schema",
+      (caption["high_level_description"],
+       caption["compositional_deconstruction"]["background"],
+       caption["compositional_deconstruction"]["elements"][0]),
+      ("a red room", "a red room", {"type": "obj", "desc": "a red room"}))
+own = '{"compositional_deconstruction": {"background": "a red room", "elements": []}}'
+check("a caption already in the schema passes through verbatim",
+      by_class(build(blob(arch="ideogram4", prompt=own)).expand)["CLIPTextEncode"][0][1]["text"], own)
+with_trigger = by_class(build(blob(arch="ideogram4", loras=[
+    {"name": "ideogram_realism.safetensors", "strength": 0.9, "triggers": ["realism engine"]}])).expand)
+check("a trigger word lands inside the caption",
+      json.loads(with_trigger["CLIPTextEncode"][0][1]["text"])["high_level_description"],
+      "realism engine, a red room")
+
+# A LoRA over Ideogram is two patches — one per checkpoint, each at its own
+# weight: the conditional side at `strength`, the unconditional at `uncond`.
+paired = by_class(build(blob(arch="ideogram4", loras=[
+    {"name": "ideogram_realism.safetensors", "strength": 0.9, "uncond": 0.4}])).expand)
+patches = {i["strength_model"]: nid for nid, i in paired["LoraLoaderModelOnly"]}
+check("two patches of the same file", sorted(patches), [0.4, 0.9])
+check("the conditional patch feeds the shift",
+      paired["ModelSamplingAuraFlow"][0][1]["model"][0], patches[0.9])
+check("the unconditional patch is the guider's negative model",
+      paired["DualModelGuider"][0][1]["model_negative"][0], patches[0.4])
+check("the unconditional patch sits on the unconditional checkpoint",
+      next(i["unet_name"] for nid, i in paired["UNETLoader"]
+           if nid == next(i["model"][0] for n, i in paired["LoraLoaderModelOnly"] if n == patches[0.4])),
+      MODELS["ideogram4"]["uncond_model"])
+same = by_class(build(blob(arch="ideogram4", loras=[
+    {"name": "ideogram_realism.safetensors", "strength": 0.7}])).expand)
+check("no uncond weight means the same weight on both",
+      sorted(i["strength_model"] for _, i in same["LoraLoaderModelOnly"]), [0.7, 0.7])
+off = by_class(build(blob(arch="ideogram4", loras=[
+    {"name": "ideogram_realism.safetensors", "strength": 0.7, "uncond": 0}])).expand)
+check("an uncond weight of zero leaves that branch bare",
+      ([i["strength_model"] for _, i in off["LoraLoaderModelOnly"]],
+       off["DualModelGuider"][0][1]["model_negative"][0] in {n for n, _ in off["UNETLoader"]}),
+      ([0.7], True))
+
+# The step count is the preset's, never the row's: a stale `sampling.steps`
+# on the blob (12, under an older preset table) queued 12 steps under a pill
+# reading "turbo · 18" — the frame Felix brought in on 2026-09-20.
+stale = by_class(build(blob(arch="ideogram4", quality="turbo",
+                            sampling={"steps": 12, "cfg": 7.0, "sampler_name": "euler"}),
+                       steps=52).expand)
+check("the preset's steps win over a stale row and the widget",
+      stale["Ideogram4Scheduler"][0][1]["steps"], i4.IDEOGRAM_QUALITIES["turbo"]["steps"])
+# ...and the same blob's other stale number, cfg 1 with the turbo pill off, is
+# refused rather than sampled into an unguided, murky frame.
+expect_error("cfg 1 without the turbo LoRA is refused by name",
+             lambda: build(blob(arch="ideogram4",
+                                sampling={"steps": 12, "cfg": 1.0, "sampler_name": "euler"})),
+             "without guidance")
+
 # The quality preset owns mu/std, not the user.
 quality = by_class(build(blob(arch="ideogram4", quality="quality"), steps=48).expand)
 check("the quality preset reshapes the schedule",
       (quality["Ideogram4Scheduler"][0][1]["mu"], quality["Ideogram4Scheduler"][0][1]["std"]),
       (0.0, 1.5))
 
-# ---- the polish tail is a step count, not a percentage -----------------------
+# ---- the sampler row is the measured one, not the template's ---------------
 #
-# Each preset ends on a fixed number of steps at gw=3 — 3 of 48, 2 of 20, 1 of
-# 12 — and CFGOverride takes a percent, so the boundary has to be resolved
-# against the schedule this render will run. Ideogram 4 samples on
-# ModelSamplingDiscreteFlow at shift 1, where the sigma *is* the timestep, so
-# the percent the node converts back is exactly `1 - sigma` and the count below
-# is what the sampler will really do.
+# The conditional branch runs behind ModelSamplingAuraFlow at shift 5 and the
+# polish tail starts at a fixed percent through that same patch; the
+# unconditional checkpoint is loaded bare. res_2m is the row's sampler.
 
-
-def polish_steps(quality_name, width=1024, height=1024):
-    preset = i4.IDEOGRAM_QUALITIES[quality_name]
-    steps = preset["steps"]
-    start = i4.polish_percent(steps, preset["polish"], width, height,
-                              preset["mu"], preset["std"])
-    row = i4.sigmas(steps, width, height, preset["mu"], preset["std"])
-    return sum(1 for sigma in row[:steps] if sigma <= 1.0 - start)
-
-
-for name, preset in i4.IDEOGRAM_QUALITIES.items():
-    check(f"{name} runs exactly its {preset['polish']} polish step(s) at 1K",
-          polish_steps(name), preset["polish"])
-    check(f"{name} runs exactly its {preset['polish']} polish step(s) at 2K",
-          polish_steps(name, 2048, 1152), preset["polish"])
+shifted = ideo["ModelSamplingAuraFlow"][0]
+check("the conditional branch is shifted", shifted[1]["shift"], i4.IDEOGRAM_SHIFT)
+check("...under the polish override", override[1]["model"][0], shifted[0])
+check("the polish tail starts at the fixed percent",
+      override[1]["start_percent"], i4.IDEOGRAM_POLISH_START)
+uncond_id = next(nid for nid, i in ideo["UNETLoader"]
+                 if i["unet_name"] == MODELS["ideogram4"]["uncond_model"])
+check("the unconditional branch is the bare checkpoint",
+      guider["model_negative"][0], uncond_id)
+ideo_manifest = importlib.import_module(f"{PACKAGE}.creator.families.ideogram4.manifest").manifest()
+check("the manifest's sampler default is res_2m",
+      next(w["default"] for w in ideo_manifest["widgets"] if w["id"] == "sampler_name"),
+      "res_2m")
+check("the default preset is Turbo at 18 steps",
+      (i4.DEFAULT_IDEOGRAM_QUALITY, i4.IDEOGRAM_QUALITIES["turbo"]["steps"]),
+      ("turbo", 18))
 
 check("the mirrored schedule matches core's own",
       [round(v, 6) for v in i4.sigmas(12, 1024, 1024, 0.5, 1.75)],
       [round(float(v), 6) for v in
        importlib.import_module("comfy_extras.nodes_ideogram4")
        .ideogram4_sigmas(12, 1024, 1024, 0.5, 1.75)])
-
-# The fixed 0.7 this replaced was right for exactly one preset at one canvas.
-check("a fixed 0.7 would have run Quality's tail more than twice too long",
-      sum(1 for sigma in i4.sigmas(48, 1024, 1024, 0.0, 1.5)[:48] if sigma <= 0.3), 7)
 
 # ---- turbo as a LoRA (Ideogram 4) --------------------------------------------
 #
@@ -531,11 +583,26 @@ check("the unconditional branch is not loaded at all",
       "model_negative" in ideo_turbo["DualModelGuider"][0][1], False)
 check("and the polish tail is gone with the guidance it dropped",
       "CFGOverride" in ideo_turbo, False)
+check("...and so is the shift, which only ever placed that tail",
+      "ModelSamplingAuraFlow" in ideo_turbo, False)
+check("the pill opens on TurboTime's author's row: 8 steps, 0.6, euler, cfg 1",
+      (i4.DEFAULT_TURBO_QUALITY, i4.TURBO_STEPS[i4.DEFAULT_TURBO_QUALITY],
+       i4.DEFAULT_TURBO_STRENGTH, i4.TURBO_ROW),
+      ("good", 8, 0.6, {"cfg": 1.0, "sampler_name": "euler"}))
 check("the schedule is the Turbo preset's, which is shaped for a short run",
       (ideo_turbo["Ideogram4Scheduler"][0][1]["mu"],
        ideo_turbo["Ideogram4Scheduler"][0][1]["std"],
        ideo_turbo["Ideogram4Scheduler"][0][1]["steps"]),
-      (i4.IDEOGRAM_QUALITIES["turbo"]["mu"], i4.IDEOGRAM_QUALITIES["turbo"]["std"], 4))
+      (i4.IDEOGRAM_QUALITIES["turbo"]["mu"], i4.IDEOGRAM_QUALITIES["turbo"]["std"],
+       i4.TURBO_STEPS["medium"]))
+check("...at the turbo pill's own step count, whatever the row says",
+      by_class(build(blob(
+          arch="ideogram4",
+          turbo={"ideogram4": {"on": True, "quality": "good", "saved": None,
+                               "lora": ideo_turbo_lora}},
+          loras=[{"name": ideo_turbo_lora, "strength": 1.0}]), steps=52, cfg=1.0)
+          .expand)["Ideogram4Scheduler"][0][1]["steps"],
+      i4.TURBO_STEPS["good"])
 expect_error("turbo with no LoRA picked is refused, not sampled undistilled",
              lambda: build(blob(arch="ideogram4",
                                 turbo={"ideogram4": {"on": True, "quality": "medium"}})),
@@ -1327,13 +1394,13 @@ try:
     # not over it.
 
     # Ideogram samples through a guider rather than a KSampler, and its
-    # conditional branch carries the late-cfg drop — the override goes under
-    # both, for the same reason.
+    # conditional branch carries the shift and the late-cfg drop — the
+    # override goes under all of it, for the same reason.
     previewed_ideo = by_class(build(blob(arch="ideogram4"), steps=20, cfg=7.0).expand)
     ideo_patch = previewed_ideo["ModelPreviewOverrideKJ"]
     check("one preview patch on an Ideogram render", len(ideo_patch), 1)
-    check("...on the conditional model, under the cfg drop",
-          previewed_ideo["CFGOverride"][0][1]["model"][0], ideo_patch[0][0])
+    check("...on the conditional model, under the shift and the cfg drop",
+          previewed_ideo["ModelSamplingAuraFlow"][0][1]["model"][0], ideo_patch[0][0])
     check("...and not on the unconditional one",
           previewed_ideo["DualModelGuider"][0][1]["model_negative"][0],
           [i for i, _ in previewed_ideo["UNETLoader"]

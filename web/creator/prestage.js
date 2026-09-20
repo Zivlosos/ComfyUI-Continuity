@@ -44,7 +44,7 @@ import * as P from "./presets.js";
 import { PromptBox, focusEnd, openEditorSheet } from "./prompt.js";
 import { blobIO, samplingBar, seedPill } from "./sampling.js";
 import { clearButton } from "./clear.js";
-import { loadLoraNames, loraNames } from "./turbo.js";
+import { loadLoraNames, loraNames, refreshLoraNames } from "./turbo.js";
 import { Stage, stageSource } from "./stage.js";
 import { loadCatalog, refreshCatalog, catalogByFolder, rememberedWeights,
          rememberStillWeights } from "./models.js";
@@ -659,6 +659,7 @@ export class PreStageEditor {
 
   async manageLoras(entry = null) {
     await openLoras({ state: this.state, checkpointModes: false, scope: "prestage",
+                      family: S.preStageFamilyId(this.state.arch),
                       reveal: entry?.name ?? null, onChange: () => this.commit() });
     this.commit();
   }
@@ -667,6 +668,7 @@ export class PreStageEditor {
   async swapLora(entry) {
     await openLoras({
       state: this.state, checkpointModes: false, scope: "prestage",
+      family: S.preStageFamilyId(this.state.arch),
       swapping: entry.name, onChange: () => this.commit(),
     });
     this.commit();
@@ -797,8 +799,14 @@ export class PreStageEditor {
     // into is a second editor over the same state with no node behind it, and
     // the sampler row belongs to the node. `samplingBar` reads `widgets.seed`
     // on the way in, so an absent set is a throw rather than an empty row.
+    // Ideogram's steps are the preset pill's and its schedule is its own, so
+    // neither a steps stepper nor a scheduler pill is drawn for it: a control
+    // the render does not read is a control that lies.
+    const widgets = this.state.arch === "ideogram4"
+      ? { ...this.samplingWidgets, steps: undefined, scheduler: undefined }
+      : this.samplingWidgets;
     this.samplingHost.replaceChildren(...(this.samplingWidgets ? [samplingBar({
-      widgets: this.samplingWidgets,
+      widgets,
       ...this.widgetIO(),
       set: (name, value) => { this.widgetIO().set(name, value); this.render(); },
       perSegment: false,
@@ -1158,7 +1166,6 @@ export class PreStageEditor {
           value: state.quality,
           onPick: (picked) => {
             state.quality = picked;
-            this.widgetIO().set("steps", S.PRESTAGE_IDEOGRAM_STEPS[picked]);
             this.commit();
           },
         }),
@@ -1300,6 +1307,19 @@ export class PreStageEditor {
     placeNear(pop, anchor);
     dismissable(pop);
   }
+
+  openAspect(anchor) {
+    const pop = el("div", { class: "mmc-pop" }, [el("div", { class: "mmc-pop-title", text: t("Aspect Ratio") })]);
+    pop.appendChild(aspectGrid(
+      S.PRESTAGE_ASPECTS, this.state.aspect, this.state.aspect, (label, shut) => {
+        this.state.aspect = label;
+        if (shut) close();
+        this.commit();
+      }));
+    document.body.appendChild(pop);
+    placeNear(pop, anchor);
+    const close = dismissable(pop);
+  }
 }
 
 
@@ -1370,6 +1390,12 @@ export class PreStageRow {
       if (value !== undefined) io.set(key, value);
     }
     for (const [key, value] of Object.entries(returning ?? {})) io.set(key, value);
+    // Nothing of the leaving row survives that the arriving arch does not
+    // read: Ideogram's row has no steps, and Krea's 30 left in it would be a
+    // number the blob carries for a render that never looks at it.
+    const kept = new Set([...Object.keys(native), ...Object.keys(returning ?? {})]);
+    state.sampling = Object.fromEntries(
+      Object.entries(S.parseSampling(state.sampling)).filter(([key]) => kept.has(key)));
   }
 
   // ---- turbo -----------------------------------------------------------------
@@ -1481,11 +1507,22 @@ export class PreStageRow {
 
   /** The source popover: the distilled checkpoint where there is one, then the
    *  LoRA files, distillation-shaped names first. */
-  openTurboSource(anchor, spec, turbo, after) {
+  openTurboSource(anchor, spec, turbo, after, refreshed = false) {
     const names = loraNames();
     const matched = names.filter((name) => /turbo|distill/i.test(name));
     const listed = matched.length ? matched : names;
-    openChoicePopover(anchor, {
+    // The cache is what the page loaded with; the folder is asked again behind
+    // the open list, and a distillation dropped in since replaces it. Without
+    // this the pill could not offer a LoRA added after the page opened until a
+    // reload — which read as "cannot select a turbo LoRA".
+    if (!refreshed) {
+      refreshLoraNames(() => {
+        if (!popover?.open() || !anchor.isConnected) return;
+        popover.close();
+        this.openTurboSource(anchor, spec, turbo, after, true);
+      });
+    }
+    const popover = openChoicePopover(anchor, {
       title: t("Turbo source"),
       options: [
         ...(spec.checkpoint ? [t(TURBO_CHECKPOINT)] : []),
@@ -1557,10 +1594,12 @@ export class PreStageRow {
    *  returns to when nothing was saved, and what `setArch` writes. */
   nativeRow() {
     if (this.state.arch === "ideogram4") {
-      // The one arch whose steps are not a widget default: the quality preset
-      // owns them, and it owns the schedule they land on as well.
+      // The one arch whose row has no steps in it: the quality preset owns
+      // them, and it owns the schedule they land on as well. The compile reads
+      // the count off the preset (`ideogram4/still.plan`) — a copy written
+      // into the row went stale under an older preset table and queued 12
+      // steps under a pill reading 18.
       return {
-        steps: S.PRESTAGE_IDEOGRAM_STEPS[this.state.quality],
         cfg: S.PRESTAGE_IDEOGRAM_ROW.cfg,
         sampler_name: S.PRESTAGE_IDEOGRAM_ROW.sampler_name,
       };
@@ -1659,19 +1698,6 @@ export class PreStageRow {
   }
 
   // ---- popovers --------------------------------------------------------------
-
-  openAspect(anchor) {
-    const pop = el("div", { class: "mmc-pop" }, [el("div", { class: "mmc-pop-title", text: t("Aspect Ratio") })]);
-    pop.appendChild(aspectGrid(
-      S.PRESTAGE_ASPECTS, this.state.aspect, this.state.aspect, (label, shut) => {
-        this.state.aspect = label;
-        if (shut) close();
-        this.commit();
-      }));
-    document.body.appendChild(pop);
-    placeNear(pop, anchor);
-    const close = dismissable(pop);
-  }
 }
 
 /**

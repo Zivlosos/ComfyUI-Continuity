@@ -379,6 +379,28 @@ try {
   out.errors.push(`prestageRows: ${error.stack}`);
 }
 
+// The pre-stage's aspect pill opens its grid. It stopped doing so when the
+// handler moved into the wrong class during a refactor — the pill drew, was
+// enabled, and threw `this.openAspect is not a function` on every click, on
+// both image families, with nothing visible to say so.
+try {
+  const node = fakeNode("MiniMaxH3PreStage", "prestage_data",
+                        JSON.stringify({ arch: "ideogram4", prompt: "p" }));
+  await ext.nodeCreated(node);
+  const pills = [];
+  const find = (n) => {
+    if ((n.attrs?.title ?? n.title) === "Aspect Ratio") pills.push(n);
+    (n.children ?? []).forEach(find);
+  };
+  find(node.mmcBody.root);
+  const pill = pills[0];
+  for (const handler of pill.listeners.click ?? []) handler({ currentTarget: pill });
+  const tiles = document.body.querySelectorAll(".mmc-aspect-tile");
+  out.aspectPill = { found: pills.length, tiles: tiles.length };
+} catch (error) {
+  out.errors.push(`aspectPill: ${error.stack}`);
+}
+
 // Which property a host has to read to get the piece, and what happens when it
 // reads the wrong one. `familyOf` used to answer a missing piece with the
 // default family, so a host that reached for `.state` on a piece node got a
@@ -4156,6 +4178,9 @@ check("the press renders the other version", twin.get("label"),
       "Render it without the refiner")
 check("...with no dials over it, because taking the pass out has no settings",
       twin.get("dials"), 0)
+check("the pre-stage's aspect pill opens its grid",
+      (report.get("aspectPill", {}).get("found"), (report.get("aspectPill", {}).get("tiles") or 0) > 0),
+      (1, True))
 check("...and it says what the render did run", "natural" in twin.get("said", ""), True)
 check("...asking for the refiner off, on this file",
       {key: twin.get("asked", {}).get(key) for key in ("filename", "on", "block")},

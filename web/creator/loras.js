@@ -915,6 +915,7 @@ class LoraManager {
         // Remembered beside the strength and for the same reason: which files
         // drag the sound is a property of the collection, learned once.
         audio: Number.isFinite(entry.audio) ? entry.audio : null,
+        uncond: Number.isFinite(entry.uncond) ? entry.uncond : null,
         custom,
         modes: {
           ...(previous?.modes ?? {}),
@@ -959,6 +960,7 @@ class LoraManager {
                             strength, this.family);
     if (!entry) return;
     if (Number.isFinite(memory?.audio)) entry.audio = memory.audio;
+    if (Number.isFinite(memory?.uncond)) entry.uncond = memory.uncond;
     const claim = memory?.modes?.[this.family];
     if (this.checkpointModes && claim?.length) entry.modes = [...claim];
     if (memory) this.restored.add(row.name);
@@ -1764,6 +1766,43 @@ class LoraManager {
     ]);
   }
 
+  /**
+   * Ideogram 4 samples guidance between two checkpoints, and a LoRA is patched
+   * onto both — the conditional one at the strength above, the unconditional
+   * one at this weight. The model's own workflows run the second side lighter
+   * (0.4 under 0.9): the guidance then leans further into what the LoRA
+   * taught. Same weight on both is the neutral default, and what an absent
+   * value means. See `families/ideogram4/still.py`.
+   */
+  uncondBox(entry, row) {
+    const strength = Number.isFinite(entry.strength) ? entry.strength : S.DEFAULT_STRENGTH;
+    const uncond = Number.isFinite(entry.uncond) ? entry.uncond : strength;
+    const readout = el("output", { class: "mmc-lora-read", value: uncond.toFixed(2) });
+    const slider = el("input", {
+      type: "range", min: 0, max: 2, step: 0.05, value: uncond,
+      oninput: (event) => {
+        entry.uncond = Number(event.target.value);
+        readout.value = entry.uncond.toFixed(2);
+      },
+      onchange: () => this.changed(),
+      onpointerdown: (event) => event.stopPropagation(),
+    });
+    return el("div", { class: "mmc-lora-sound" }, [
+      el("div", { class: "mmc-lora-row" }, [
+        el("span", {
+          class: "mmc-lora-label",
+          title: t("This LoRA's weight on the unconditional checkpoint. Ideogram 4 "
+                   + "guides between two models and the LoRA is patched onto both; "
+                   + "run this side lighter than the strength to lean further into "
+                   + "what the LoRA taught. Same as the strength by default."),
+          text: t("Unconditional"),
+        }),
+        readout,
+      ]),
+      slider,
+    ]);
+  }
+
   controls(entry, row) {
     // A hand-edited creator_data can carry anything; the slider needs a number.
     if (!Number.isFinite(entry.strength)) entry.strength = S.DEFAULT_STRENGTH;
@@ -1796,6 +1835,7 @@ class LoraManager {
       slider,
       ...(this.checkpointModes ? [modes] : []),
       ...(S.loraAudioOf(this.family) ? [this.audioBox(entry, row)] : []),
+      ...(S.loraUncondOf(this.family) ? [this.uncondBox(entry, row)] : []),
       this.triggerBox(entry, row),
     ];
     // Where the settings came from, when it was not this file's author. A

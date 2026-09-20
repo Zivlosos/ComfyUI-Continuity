@@ -19,7 +19,7 @@ def _widgets():
         m.widget("cfg", "slider", label="cfg", group="sampler",
                  default=still.IDEOGRAM_CFG, min=0.0, max=100.0, step=0.1),
         m.widget("sampler_name", "combo", label="sampler", group="sampler",
-                 default="euler"),
+                 default=still.IDEOGRAM_SAMPLER),
     ]
 
 
@@ -108,14 +108,18 @@ def manifest():
             # switch refuses to engage without a file. Thrown on it also drops
             # the unconditional branch and the polish tail, both of which are
             # cfg machinery a distilled run at cfg 1 has no use for.
+            # A LoRA reaches both checkpoints, and the unconditional one at a
+            # weight of its own — the manager offers the second slider on it.
+            "lora": {"uncond": True},
             "turbo": {"steps": dict(still.TURBO_STEPS),
                       "row": dict(still.TURBO_ROW),
                       "default_quality": still.DEFAULT_TURBO_QUALITY,
-                      "lora": True, "default_strength": 1.0,
+                      "lora": True, "default_strength": still.DEFAULT_TURBO_STRENGTH,
                       "checkpoint": False},
         },
         "prompt": {
-            # Plain prose, no reference conditioning of any kind.
+            # Written as prose, no reference conditioning of any kind; the
+            # compile wraps it into the model's JSON caption (`still.format_prompt`).
             "pipeline": "plain",
             "ordinal": None,
             "max_refs": 0,

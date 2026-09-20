@@ -22,11 +22,13 @@ so `Picture 1` is what the model is actually reading — the same arrangement th
 video compile has with `<Picture N>`, and the same reason: the ordinal is
 decided by the payload, not by the user counting slots.
 
-The prompt is plain natural language for both. Ideogram was trained on
-structured JSON captions and its hosted magic-prompt expands text into that
-schema, but for the art-directed work this pipeline feeds, a clean sentence
-prompt reads better than the schema — so the schema is deliberately not
-modelled here at all.
+The prompt is written as plain natural language for both, and Krea reads it
+that way. Ideogram does not: it was trained on structured JSON captions, and
+its authors' guide says a plain-text prompt "will not work and will likely
+trigger a safety warning" — which is exactly what it did here. So the family
+gets a `format_prompt` hook and Ideogram's wraps the prose into the schema
+(`families/ideogram4/still.py`); a prompt that already is the schema passes
+through untouched.
 """
 
 import re
@@ -112,7 +114,7 @@ class ImagePayload:
     # Which weights field the DiT loads from — "model" or "turbo_model". Resolved
     # here rather than in the emitter so the payload states which file runs.
     checkpoint_field: str
-    loras: list = field(default_factory=list)        # [{"name", "strength"}]
+    loras: list = field(default_factory=list)        # [{"name", "strength", "uncond"}]
     refs: list = field(default_factory=list)         # filenames, on the families that read them
     # The saved rendition a slot is read from instead of its picture, by slot
     # index: `{0: "refmod:cast/anna.flux2"}`. Only the family's own latent
@@ -167,6 +169,21 @@ def active_image_loras(entries):
             continue
         active.append(entry)
     return active
+
+
+def uncond_strength(entry):
+    """The strength a LoRA is patched onto the *unconditional* branch at, on a
+    family that samples one — Ideogram's second checkpoint. Absent means the
+    same weight as the conditional branch; the row's own workflows run the
+    unconditional side lighter (0.4 under 0.9), which is what the slider is
+    for. Ignored by a family with one DiT."""
+    strength = float(entry.get("strength", 1.0))
+    if entry.get("uncond") is None:
+        return strength
+    try:
+        return float(entry["uncond"])
+    except (TypeError, ValueError):
+        raise CompileError(f"LoRA {entry['name']}: uncond strength must be a number")
 
 
 def turbo_block(data, arch):
@@ -492,12 +509,19 @@ def compile_prestage(data, family, image_size_lookup=None):
         raise CompileError("describe the image first — the prompt is empty")
 
     active = active_image_loras(data.get("loras"))
-    loras = [{"name": e["name"], "strength": float(e.get("strength", 1.0))} for e in active]
+    loras = [{"name": e["name"], "strength": float(e.get("strength", 1.0)),
+              "uncond": uncond_strength(e)} for e in active]
     # Trigger words in front of the prompt, same construction and same dedup as
     # the video compile — a word only counts if its LoRA is actually in the run.
     triggers = collect_triggers(active)
     if triggers:
         prompt = f"{', '.join(triggers)}, {prompt}"
+    # A family whose model reads something other than prose says so with
+    # `format_prompt` — Ideogram's is the JSON caption schema it was trained
+    # on. After the triggers, so a trigger word lands inside the caption.
+    format_prompt = getattr(family, "format_prompt", None)
+    if format_prompt is not None:
+        prompt = format_prompt(prompt)
 
     refs = _parse_refs(data.get("refs"), *ref_limit(family, data), refs_noun(family), space)
     # Cited before the family check below, so a prompt citing a reference on a

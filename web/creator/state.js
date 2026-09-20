@@ -100,9 +100,21 @@ export const raylightOf = (id) => videoFamily(id).capabilities.raylight === true
 export const controlOf = (id) => videoFamily(id).capabilities.control;
 export const stillOf = (id) => videoFamily(id).still;
 
+/** What a family lets a LoRA entry carry beyond its strength — the manifest's
+ *  `capabilities.lora`. Looked up on the family itself, image families
+ *  included: the video fallback would answer for H3 on a Krea or Ideogram
+ *  stack, and put a soundtrack slider on a still. */
+const loraCapsOf = (id) => {
+  try { return anyFamily(id).capabilities?.lora ?? {}; } catch { return videoFamily(id).capabilities?.lora ?? {}; }
+};
+
 /** Whether this family's LoRAs can be held off the soundtrack — see the same
  *  entry in `families/h3/manifest.py` for why it is a fact about the family. */
-export const loraAudioOf = (id) => Boolean(videoFamily(id).capabilities?.lora?.audio);
+export const loraAudioOf = (id) => Boolean(loraCapsOf(id).audio);
+
+/** Whether this family patches a LoRA onto a second, unconditional checkpoint
+ *  at a weight of its own — Ideogram 4's pair; see `families/ideogram4`. */
+export const loraUncondOf = (id) => Boolean(loraCapsOf(id).uncond);
 
 /** How a family runs a second pass, or a falsy value where it has none.
  *
@@ -1868,6 +1880,11 @@ export function serializeLoras(entries, family = DEFAULT_VIDEO_FAMILY) {
     // absent key means to `lora.modality`, and it was never written at all
     // before this — a clone or a reload put every slider back to 1 (#52).
     if (Number.isFinite(entry.audio) && entry.audio !== 1) out.audio = round2(entry.audio);
+    // The unconditional branch's weight, only where it was set apart from the
+    // strength: absent means the same weight on both checkpoints.
+    if (Number.isFinite(entry.uncond) && round2(entry.uncond) !== round2(entry.strength)) {
+      out.uncond = round2(entry.uncond);
+    }
     // The literal words, not a pointer at the sidecar: creator_data has to
     // still say what it means on a machine where that LoRA is missing.
     if (entry.triggers?.length) out.triggers = [...entry.triggers];
