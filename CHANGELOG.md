@@ -4,6 +4,18 @@ Back by request. Every entry opens with a line saying what changed; the
 paragraph under it says how and why, and from 3.0 down that paragraph is kept
 exactly as it was written, wall of text and all.
 
+## 3.1.3
+
+**A sampler row stays with its family.** Switching the image model
+reset the still's row to the arriving model's defaults and forgot the
+one it left; the chat room's pinned row did not move at all, so Krea
+sampled on Ideogram's cfg. Both sides now set the leaving family's row
+aside and hand it back on return, as the video node already did.
+
+**Chat: the verbosity dial and the edit family survive a reload, a
+turn decodes plainly with its own reply budget, and the simple view's
+working preview sits level with the card.**
+
 ## 3.1.2
 
 **The step preview plays itself again, whatever Preview playback says.** KJNodes
