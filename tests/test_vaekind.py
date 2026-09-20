@@ -44,6 +44,9 @@ FLUX2 = {"bn.running_mean": [128], "decoder.conv_in.weight": [512, 32, 3, 3]}
 QWEN = {"decoder.middle.0.residual.0.gamma": [384],
         "decoder.head.2.weight": [3, 96, 3, 3, 3]}
 WAN22 = {**QWEN, "decoder.upsamples.0.upsamples.0.residual.2.weight": [384, 384, 3, 3, 3]}
+# The 2.2 layout with no time axis to speak of: a head conv one frame deep, and
+# four output channels for the alpha it carries.
+QWEN21 = {**WAN22, "decoder.head.2.weight": [4, 96, 1, 3, 3]}
 H3_VIDEO = {"decoder.transformer_blocks.0.scale1": [1],
             "encoder.down.5.block.0.conv1.weight": [512, 512, 3, 3, 3]}
 H3_AUDIO = {"pre_block.attn.zero_k_bias": [1024]}
@@ -58,6 +61,7 @@ for label, tensors, want in (
     ("the Flux 2 VAE", FLUX2, "flux2"),
     ("the Qwen image (Wan 2.1) VAE", QWEN, "qwen_image"),
     ("the Wan 2.2 VAE, which shares Qwen's layout at 48 channels", WAN22, "wan22"),
+    ("the Qwen Image 2.1 VAE, the 2.2 layout with a one-frame head", QWEN21, "qwen_image21"),
     ("the H3 video VAE", H3_VIDEO, "h3_video"),
     ("the H3 audio VAE", H3_AUDIO, "h3_audio"),
     ("LTX's diffusion decoder", LTX_DIFF, "ltx_video"),
@@ -108,3 +112,11 @@ check("an unknown file passes — the loader downstream gets to complain",
 check("Wan 2.2 is not Qwen's VAE, though it shares the layout",
       "Wan 2.2" in (refused(safetensors("wan22.safetensors", WAN22), "qwen_image") or ""),
       True)
+# The two Qwen VAEs sit one row apart in the picker and neither name says
+# which family it belongs to: each is refused on the other's render, by name.
+qwen21 = safetensors("qwen_image_2.1_vae_bf16.safetensors", QWEN21)
+check("the 2.1 VAE on a Qwen Image Edit render is refused by name",
+      "Qwen Image 2.1 VAE" in (refused(qwen21, "qwen_image") or ""), True)
+check("...and the old Qwen image VAE on a 2.1 render",
+      "the Qwen image VAE" in (refused(qwen, "qwen_image21") or ""), True)
+check("the 2.1 file passes its own family", refused(qwen21, "qwen_image21"), None)

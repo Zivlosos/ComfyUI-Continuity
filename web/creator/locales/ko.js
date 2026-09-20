@@ -2429,4 +2429,8 @@ export const ko = {
  "Fold the cast shelf away. Who is in the picture stays as it is.": "캐스트 선반을 접습니다. 누가 있는지는 그대로입니다.",
  "Who is in the picture: somebody from the cast library, or cast here — name them once, write @anna in the prompt, and their picture and what they wear on this model ride in with them.": "그림 속 인물: 캐스트 라이브러리의 누군가, 또는 여기서 캐스팅한 사람. 한 번 이름을 붙이고 프롬프트에 @anna 라고 쓰면 사진과 이 모델에서 착용하는 것이 함께 전달됩니다.",
  "Their description alone is sent. Their pictures stay for the other families.": "설명만 전달됩니다. 사진은 다른 패밀리를 위해 남습니다.",
+ "Qwen Image 2.1 — Alibaba's open-weights DiT that draws from prose and edits from pictures on one checkpoint, up to ten of them in, native 2K, transparent output on request.": "Qwen Image 2.1 — Alibaba의 오픈 웨이트 DiT. 체크포인트 하나로 문장에서 그리고 사진에서 편집합니다. 최대 10장 입력, 네이티브 2K, 요청 시 투명 출력.",
+ "Qwen-Image-2.1 — the DiT, one file for drawing and editing. bf16 or the int8 convrot cut Comfy-Org publishes.": "Qwen-Image-2.1 — DiT 본체. 그리기와 편집 모두 한 파일. bf16 또는 Comfy-Org가 공개한 int8 convrot 버전.",
+ "Qwen3-VL 8B, loaded as CLIPLoader type 'qwen_image' — the same file Ideogram 4 loads. It reads the pictures as well as the sentence.": "Qwen3-VL 8B. CLIPLoader 타입 'qwen_image'로 읽히며, Ideogram 4가 읽는 것과 같은 파일입니다. 문장뿐 아니라 사진도 읽습니다.",
+ "The Qwen Image 2.1 VAE — 2.1's own, with an alpha channel. Not the Qwen image VAE the edit family and Krea 2 decode with.": "Qwen Image 2.1 VAE — 2.1 전용, 알파 채널 포함. 편집 패밀리와 Krea 2가 디코딩에 쓰는 Qwen image VAE가 아닙니다.",
 };

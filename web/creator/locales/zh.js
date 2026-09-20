@@ -2430,4 +2430,8 @@ export const zh = {
  "Fold the cast shelf away. Who is in the picture stays as it is.": "收起演员栏。画面里有谁保持不变。",
  "Who is in the picture: somebody from the cast library, or cast here — name them once, write @anna in the prompt, and their picture and what they wear on this model ride in with them.": "画面里有谁：来自演员库的人，或在这里选定的人 — 命名一次，在提示词里写 @anna，他们的图片和在这个模型上挂的东西就会一起送入。",
  "Their description alone is sent. Their pictures stay for the other families.": "只发送描述。图片留给其他模型家族。",
+ "Qwen Image 2.1 — Alibaba's open-weights DiT that draws from prose and edits from pictures on one checkpoint, up to ten of them in, native 2K, transparent output on request.": "Qwen Image 2.1——阿里巴巴的开放权重 DiT，一个检查点既能从文字作画也能从图片编辑。最多输入十张，原生 2K，按需输出透明图。",
+ "Qwen-Image-2.1 — the DiT, one file for drawing and editing. bf16 or the int8 convrot cut Comfy-Org publishes.": "Qwen-Image-2.1——DiT 本体，作画与编辑同一个文件。bf16，或 Comfy-Org 发布的 int8 convrot 版本。",
+ "Qwen3-VL 8B, loaded as CLIPLoader type 'qwen_image' — the same file Ideogram 4 loads. It reads the pictures as well as the sentence.": "Qwen3-VL 8B，以 CLIPLoader 类型 'qwen_image' 加载——与 Ideogram 4 加载的是同一个文件。它既读句子也读图片。",
+ "The Qwen Image 2.1 VAE — 2.1's own, with an alpha channel. Not the Qwen image VAE the edit family and Krea 2 decode with.": "Qwen Image 2.1 的 VAE——2.1 专属，带 alpha 通道。不是编辑系列和 Krea 2 用来解码的 Qwen image VAE。",
 };

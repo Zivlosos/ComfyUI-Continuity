@@ -91,6 +91,13 @@ REFS_LIMIT_REASON = ("the Qwen edit encoder the model reads them through has "
 # `families/qwenedit/still.REFS_NOUN`.
 REFS_NOUN = ("style reference", "style references")
 
+# How a cited picture is spelled in the prompt, where a family does not say:
+# `Picture N`, the label core's Qwen-edit encoder writes in front of each image
+# slot and the one every family read until Qwen Image 2.1's tokenizer arrived
+# writing `<imageN>` instead — see `families/qwen21/still.REFS_CITATION`. A
+# format with the slot's 1-based number as `n`.
+REFS_CITATION = "Picture {n}"
+
 # The blob field that releases an edit family's first picture from being the
 # thing edited. Named here rather than in the family because the shared flow is
 # what reads it — see the promotion in `compile_prestage`.
@@ -309,6 +316,11 @@ def refs_noun(family):
     return getattr(family, "REFS_NOUN", REFS_NOUN)
 
 
+def refs_citation(family):
+    """The spelling a cited picture takes in this family's prompt."""
+    return getattr(family, "REFS_CITATION", REFS_CITATION)
+
+
 def _parse_refs(raw, limit=MAX_STYLE_REFS, reason=REFS_LIMIT_REASON,
                 noun=REFS_NOUN, space=None):
     """The attached pictures, as `[(handle, filename)]` in slot order.
@@ -361,20 +373,21 @@ def _parse_refs(raw, limit=MAX_STYLE_REFS, reason=REFS_LIMIT_REASON,
     return refs
 
 
-def _cite_refs(prompt, refs, noun=REFS_NOUN):
+def _cite_refs(prompt, refs, noun=REFS_NOUN, citation=REFS_CITATION):
     """Replace every `@handle` with the label its slot will carry.
 
     `Picture N`, 1-based in slot order, because that is the string core's
     `TextEncodeQwenImageEditPlus` writes in front of each image. Plain, not
     `<Picture N>` — the angle brackets are MiniMax H3's convention and this is
-    Qwen's.
+    Qwen's. Qwen Image 2.1's encoder writes `<imageN>` and its family says so
+    through `citation`; the substitution is the same either way.
 
     A handle-shaped token naming nothing is an error rather than prose left
     alone, exactly as it is in the video compile: it means a reference was
     removed and the sentence still points at it. Ordinary prose survives, since
     only handles that name an attached reference are touched.
     """
-    labels = {handle: f"Picture {slot}"
+    labels = {handle: citation.format(n=slot)
               for slot, (handle, *_) in enumerate(refs, start=1) if handle}
     dangling = sorted({h for h in HANDLE_RE.findall(prompt) if h not in labels})
     if dangling:
@@ -527,7 +540,7 @@ def compile_prestage(data, family, image_size_lookup=None):
     # Cited before the family check below, so a prompt citing a reference on a
     # family that reads none is refused for the reference rather than for the
     # citation — one mistake, and the one the user actually made.
-    prompt = _cite_refs(prompt, refs, refs_noun(family))
+    prompt = _cite_refs(prompt, refs, refs_noun(family), refs_citation(family))
     if refs and not family.TAKES_REFS:
         # Refused rather than dropped, in the family's own words: a render that
         # silently ignored the attached images is the failure this package

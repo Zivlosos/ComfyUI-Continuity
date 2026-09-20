@@ -13,6 +13,7 @@ Skips itself with a message if ComfyUI cannot be imported.
 
 import asyncio
 import importlib
+import math
 import json
 import os
 import sys
@@ -994,6 +995,115 @@ expect_error("a missing distilled file is refused when the pill asks for it",
                                        scheduler="simple"),
                  NODE_ID, kl),
              "Turbo checkpoint")
+
+# ---- Qwen Image 2.1 ----------------------------------------------------------
+#
+# The template shape, and the shortest graph here: loaders, one encoder node
+# that reads the sentence and every picture together and hands back both
+# conditionings, an empty latent, `KSampler`, decode. No shift node — core
+# detects the schedule — no CFG-norm, no second encoder for a text-only
+# render: the same node encodes with no pictures and no `vae` read.
+
+q21 = importlib.import_module(f"{PACKAGE}.creator.families.qwen21.still")
+MODELS["qwen21"] = {
+    "model": "qwen_image_2.1_int8_convrot.safetensors",
+    "clip": "qwen3vl_8b_int8_convrot.safetensors",
+    "vae": "qwen_image_2.1_vae_bf16.safetensors",
+}
+Q21_WEIGHTS = ri.ImageWeights(arch="qwen21", files=MODELS["qwen21"])
+
+
+def qwen21_blob(**overrides):
+    data = {"arch": "qwen21", "prompt": "a red room", "aspect": "16:9",
+            "short_edge": 1024, "refs": [], "loras": []}
+    data.update(overrides)
+    return data
+
+
+def qwen21_graph(data=None, size_lookup=None, **row):
+    settings = dict(seed=11, steps=25, cfg=1.0, sampler_name="euler",
+                    scheduler="simple")
+    settings.update(row)
+    payload = ci.compile_prestage(data if data is not None else qwen21_blob(),
+                                  q21, size_lookup)
+    return payload, by_class(ri.emit(payload, Q21_WEIGHTS,
+                                     sampling_mod.Sampling(**settings),
+                                     NODE_ID, q21).finalize())
+
+
+q21_payload, qt2i = qwen21_graph()
+q21_encode = qt2i["TextEncodeQwenImage21"][0]
+
+check("the checkpoint loads and the encoder is typed qwen_image",
+      (qt2i["UNETLoader"][0][1]["unet_name"], qt2i["CLIPLoader"][0][1]["type"]),
+      (MODELS["qwen21"]["model"], "qwen_image"))
+check("one encoder node, the sentence and an empty negative, no pictures",
+      (len(qt2i["TextEncodeQwenImage21"]), q21_encode[1]["prompt"],
+       q21_encode[1]["negative_prompt"],
+       [k for k in q21_encode[1] if k.startswith("images.")]),
+      (1, "a red room", "", []))
+check("no shift node and no CFG-norm — the schedule is core's own",
+      ("ModelSamplingAuraFlow" in qt2i, "CFGNorm" in qt2i, "CLIPTextEncode" in qt2i),
+      (False, False, False))
+q21_sampler = qt2i["KSampler"][0][1]
+check("the sampler reads both conditionings off the encoder node",
+      (q21_sampler["positive"], q21_sampler["negative"]),
+      ([q21_encode[0], 0], [q21_encode[0], 1]))
+check("the latent is core's empty one at the canvas — the sampler rescales it to /16",
+      qt2i["EmptyLatentImage"][0][1],
+      {"width": q21_payload.width, "height": q21_payload.height, "batch_size": 1})
+check("the references' pixel budget is the canvas's own area, on the vision grid",
+      q21_encode[1]["resolution"],
+      round(math.sqrt(q21_payload.width * q21_payload.height) / 32) * 32)
+check("the row is the template's", (q21_sampler["steps"], q21_sampler["cfg"], q21_sampler["denoise"]),
+      (25, 1.0, 1.0))
+
+# Pictures: each loaded into its numbered slot on the one encoder node, cited
+# the way the 2.1 tokenizer spells them, the first promoted so the canvas
+# follows it — but its latent stays the template's empty one.
+q21e_payload, q21e = qwen21_graph(qwen21_blob(
+    prompt="put @img-2 on the table in @img-1",
+    refs=[{"filename": "room.png", "handle": "img-1"},
+          {"filename": "cup.png", "handle": "img-2"}]),
+    size_lookup=lambda name: (1920, 1080) if name == "room.png" else (640, 640))
+q21e_encode = q21e["TextEncodeQwenImage21"][0][1]
+q21e_loads = {node_id: inputs["image"] for node_id, inputs in q21e["LoadImage"]}
+check("each picture lands in its numbered slot, in attachment order",
+      [q21e_loads[q21e_encode[f"images.image_{n}"][0]] for n in (1, 2)],
+      ["room.png", "cup.png"])
+check("a citation becomes the tokenizer's own label",
+      q21e_encode["prompt"], "put <image2> on the table in <image1>")
+check("the VAE reaches the encoder, so the pictures become reference latents",
+      q21e_encode["vae"], [q21e["VAELoader"][0][0], 0])
+check("no VAE encode of the first picture — it reaches the model as a reference",
+      ("VAEEncode" in q21e, "EmptyLatentImage" in q21e), (False, True))
+check("the first picture is promoted, so the canvas follows it",
+      (q21e_payload.init, q21e_payload.width > q21e_payload.height),
+      ({"filename": "room.png", "denoise": 1.0}, True))
+blank_q21, blank_qg = qwen21_graph(qwen21_blob(refs=["room.png"], start_blank=True))
+check("a blank start releases the picture from being the subject",
+      (blank_q21.init, "EmptyLatentImage" in blank_qg), (None, True))
+
+# An explicit partial-denoise init is img2img as any other: the init encoded
+# through the 2.1 VAE and the leftover noise the row asks for.
+_, q21init = qwen21_graph(qwen21_blob(init={"filename": "plate.png", "denoise": 0.6}),
+                          size_lookup=lambda name: (1024, 1024))
+check("a partial denoise encodes the init and keeps the row's denoise",
+      ("VAEEncode" in q21init, "EmptyLatentImage" in q21init,
+       q21init["KSampler"][0][1]["denoise"]), (True, False, 0.6))
+
+# Ten pictures fill ten slots; an eleventh is refused with the pack's reason.
+ten = [f"p{n}.png" for n in range(1, 11)]
+_, q21ten = qwen21_graph(qwen21_blob(refs=ten))
+check("ten pictures fill ten numbered slots",
+      sorted(int(k.rsplit("_", 1)[1]) for k in q21ten["TextEncodeQwenImage21"][0][1]
+             if k.startswith("images.")), list(range(1, 11)))
+expect_error("an eleventh picture is refused with the pack's own reason",
+             lambda: ci.compile_prestage(qwen21_blob(refs=ten + ["p11.png"]), q21),
+             "official Qwen Image 2.1 workflow stops")
+expect_error("the turbo pill refuses to engage without a Lightning LoRA",
+             lambda: ci.compile_prestage(qwen21_blob(turbo={"qwen21": {"on": True}}), q21),
+             "Lightning LoRA")
 
 # ---- refusals ----------------------------------------------------------------
 

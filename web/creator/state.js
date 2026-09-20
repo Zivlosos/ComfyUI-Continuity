@@ -4083,7 +4083,8 @@ const IDEOGRAM = IMAGE_FAMILY.ideogram4;
 const widgetDefaults = (family, ids) => Object.fromEntries(
   family.widgets.filter((w) => ids.includes(w.id)).map((w) => [w.id, w.default]));
 
-/** How many style references the arch takes — its encoder's own slot count. */
+/** How many style references Krea 2 takes — its encoder's own slot count,
+ *  and what an arch that declares no cap of its own falls back to. */
 export const PRESTAGE_MAX_REFS = KREA.prompt.max_refs;
 
 /** The sampler row each image arch runs with nothing distilled on it — the
@@ -4160,6 +4161,10 @@ export const PRESTAGE_REFS = Object.fromEntries(
       editions: refs?.editions ?? null,
       defaultEdition: refs?.default_edition ?? null,
       editionHints: refs?.edition_hints ?? [],
+      // How many the family reads where that is one number for every file it
+      // loads — the served cap, which is the compile's. Qwen Image 2.1 reads
+      // ten where the Qwen-edit encoder has three slots.
+      max: IMAGE_FAMILY[arch].prompt.max_refs ?? PRESTAGE_MAX_REFS,
     }];
   }));
 
@@ -4242,8 +4247,8 @@ export function syncPreStageGuesses(state) {
  *  changed between releases. Mirrors `compile_image.ref_limit`. */
 export function preStageMaxRefs(state) {
   const refs = PRESTAGE_REFS[state?.arch];
-  if (!refs?.editions) return PRESTAGE_MAX_REFS;
-  return refs.editions[state.edition] ?? refs.editions[refs.defaultEdition] ?? PRESTAGE_MAX_REFS;
+  if (!refs?.editions) return refs?.max ?? PRESTAGE_MAX_REFS;
+  return refs.editions[state.edition] ?? refs.editions[refs.defaultEdition] ?? refs.max;
 }
 
 /** Ideogram's official preset table. The presets own steps *and* the schedule

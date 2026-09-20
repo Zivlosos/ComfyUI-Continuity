@@ -83,6 +83,11 @@ const TURBO_TITLE = {
     medium: "4 steps — what the Klein distillation was trained for.",
     good: "6 steps — a little headroom over the distillation's own number.",
   },
+  qwen21: {
+    draft: "4 steps — what the 4-step Lightning LoRA was distilled for.",
+    medium: "6 steps — a little more than the short LoRA's own number.",
+    good: "8 steps — what the 8-step Lightning LoRA was distilled for.",
+  },
 };
 
 /** The distilled-checkpoint answer in the turbo source picker: not a file, and
@@ -424,7 +429,7 @@ export class PreStageEditor {
       kinds: ["image", "renders", "refmods"], kind: "image",
       aspect: this.pickerAspect(),
       plate: this.plateSpec(),
-      capacity: () => ({ used: this.state.refs.length, max: S.PRESTAGE_MAX_REFS, filesLeft: room }),
+      capacity: () => ({ used: this.state.refs.length, max: S.preStageMaxRefs(this.state), filesLeft: room }),
     });
     if (!chosen?.length) return null;
     const ref = applyPick({ handle: S.nextPreStageHandle(this.state), kind: "image", role: "reference" }, chosen[0]);
@@ -508,7 +513,7 @@ export class PreStageEditor {
     // this door was pressed rather than typed into.
     const blocked = this.refBlocked();
     if (blocked) return this.flash(blocked);
-    const room = S.PRESTAGE_MAX_REFS - this.state.refs.length;
+    const room = S.preStageMaxRefs(this.state) - this.state.refs.length;
     if (fromVideo) {
       const clip = await openPicker({
         kinds: ["video", "renders"], kind: "video", single: true,
@@ -526,7 +531,7 @@ export class PreStageEditor {
       kinds: ["image", "renders"], kind: "image",
       aspect: this.pickerAspect(),
       plate: this.plateSpec(),
-      capacity: () => ({ used: this.state.refs.length, max: S.PRESTAGE_MAX_REFS, filesLeft: room }),
+      capacity: () => ({ used: this.state.refs.length, max: S.preStageMaxRefs(this.state), filesLeft: room }),
     });
     if (!chosen) return;
     for (const asset of chosen.slice(0, room)) {

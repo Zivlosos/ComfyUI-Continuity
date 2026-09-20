@@ -153,6 +153,23 @@ two sizes: 4B (Apache 2.0) or 9B (non-commercial).
 The VAE is the same file Ideogram loads. The turbo pill swaps in the distilled
 checkpoint; there is no turbo LoRA for this family.
 
+## Qwen Image 2.1 (stills, drawn or edited from pictures)
+
+Published by [Comfy-Org/Qwen-Image-2.1](https://huggingface.co/Comfy-Org/Qwen-Image-2.1)
+(also on [ModelScope](https://modelscope.cn/models/Comfy-Org/Qwen-Image-2.1)).
+
+| Slot | File | Folder |
+|---|---|---|
+| Checkpoint | `qwen_image_2.1_bf16.safetensors` or `qwen_image_2.1_int8_convrot.safetensors` | `diffusion_models` |
+| Text encoder | `qwen3vl_8b_bf16.safetensors` or `qwen3vl_8b_int8_convrot.safetensors` | `text_encoders` |
+| VAE | `qwen_image_2.1_vae_bf16.safetensors` | `vae` |
+
+The text encoder is the same Qwen3-VL 8B file Ideogram 4.0 loads. The VAE is
+2.1's own — not the `qwen_image_vae` file Qwen Image Edit and Krea 2 decode
+with, which sits one row away in the picker and is refused by name. One
+checkpoint draws and edits; the turbo pill takes a Lightning LoRA when one is
+published for 2.1, and refuses to engage until then.
+
 ## Cutouts and the faces pass
 
 | For | File | Folder |

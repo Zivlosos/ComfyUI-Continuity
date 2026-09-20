@@ -52,6 +52,15 @@ def _channels(header, key):
     return shape[1]
 
 
+def _time_kernel(header, key):
+    """The temporal extent of a 3D conv weight — index 2 of a 5-long shape —
+    or None when the key is absent or the weight is not a 3D conv."""
+    shape = header.get(key, {}).get("shape")
+    if not isinstance(shape, list) or len(shape) != 5:
+        return None
+    return shape[2]
+
+
 # Ordered: an entry's test may assume the ones above it said no, the way core's
 # `elif` chain does. The keys are quoted from `comfy/sd.py`'s VAE branches.
 KINDS = (
@@ -69,7 +78,14 @@ KINDS = (
     Kind("ltx_audio", "the LTX audio VAE",
          lambda h: "vocoder.resblocks.0.convs1.0.weight" in h
          or "vocoder.vocoder.resblocks.0.convs1.0.weight" in h),
-    # The Wan layout: 2.1's 16 channels are Qwen Image's VAE, 2.2's 48 are not.
+    # The Wan layout, three ways. 2.1's 16 channels are Qwen Image's VAE; 2.2's
+    # 48 are not; and Qwen Image 2.1's VAE is the 2.2 layout with a temporal
+    # kernel of 1 — core's own tell is the head conv's time axis (`sd.py`:
+    # `head.ndim == 5 and head.shape[2] == 1`), and it is read the same way
+    # off the header, before the 2.2 test that would otherwise claim it.
+    Kind("qwen_image21", "the Qwen Image 2.1 VAE",
+         lambda h: "decoder.upsamples.0.upsamples.0.residual.2.weight" in h
+         and _time_kernel(h, "decoder.head.2.weight") == 1),
     Kind("wan22", "the Wan 2.2 VAE",
          lambda h: "decoder.middle.0.residual.0.gamma" in h
          and "decoder.upsamples.0.upsamples.0.residual.2.weight" in h),

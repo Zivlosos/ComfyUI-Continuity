@@ -68,6 +68,7 @@ MODULES = {
     "ideogram4_still": "families.ideogram4.still",
     "qwenedit_still": "families.qwenedit.still",
     "flux2klein_still": "families.flux2klein.still",
+    "qwen21_still": "families.qwen21.still",
     "h3_declare": "families.h3.declare",
     "guidelora": "families.h3.guidelora",
     "h3_models": "families.h3.models",

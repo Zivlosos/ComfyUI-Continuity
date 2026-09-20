@@ -6,6 +6,25 @@ exactly as it was written, wall of text and all.
 
 ## Unreleased
 
+**Qwen Image 2.1 arrives as a family of its own, drawing and editing on one
+checkpoint.** Alibaba's second-generation Qwen-Image, on the pre-stage's
+model pill as `qwen21`. The graph is the official ComfyUI template's:
+`TextEncodeQwenImage21` reads the sentence and every attached picture
+together and hands back both conditionings, the sampler starts from an empty
+latent, and there is no shift node and no CFG-norm — core detects the
+schedule. The first picture is the one edited, the canvas follows it and
+"start blank" releases it, exactly as on Qwen Image Edit and Flux 2 Klein;
+up to ten pictures, the official workflow's own cap, each resized to about
+the canvas's area before the encoder reads it. Citations are spelled the way
+the 2.1 tokenizer names its pictures (`<image1>`), which is the first family
+to cite other than `Picture 1`, so the shared compile now asks the family
+for the spelling. It is not an edition of Qwen Image Edit — a different DiT,
+a new 64-channel RGBA VAE, the Qwen3-VL 8B encoder Ideogram already loads —
+and the VAE picker tells 2.1's file from the 16-channel Qwen image VAE by
+the same header test core uses, so each is refused on the other's render by
+name rather than after sampling. The turbo pill is a Lightning LoRA or
+nothing; none had been published for 2.1 when this was written.
+
 **Ideogram 4.0 reads the caption it was trained on.** The still sent the
 prompt as plain prose, and Ideogram's own guide says a plain-text prompt
 "will not work and will likely trigger a safety warning" — which is the grey

@@ -1706,7 +1706,7 @@ export function applyToPreStage(body, keys, state, io, { from = "prestage" } = {
     if (from === "prestage") {
       state.init = body.refs?.init ? { ...body.refs.init } : null;
       state.refs = [];
-      for (const ref of (body.refs?.refs ?? []).slice(0, S.PRESTAGE_MAX_REFS)) {
+      for (const ref of (body.refs?.refs ?? []).slice(0, S.preStageMaxRefs(state))) {
         // Re-issued rather than trusted even here: a body written by an older
         // build may have none, and a handle-less chip cannot be removed alone.
         state.refs.push({ handle: ref.handle || S.nextPreStageHandle(state),
@@ -1726,13 +1726,13 @@ export function applyToPreStage(body, keys, state, io, { from = "prestage" } = {
       const frame = assets.find((a) => a.role === "first_frame");
       state.init = frame ? { filename: frame.filename, denoise: state.init?.denoise ?? 0.6 } : null;
       //
-      // Capped at the encoder's three slots, because a preset must not be able
-      // to put a node into a state the editor could not have produced — a piece
+      // Capped at the arch's own slots, because a preset must not be able to
+      // put a node into a state the editor could not have produced — a piece
       // may hold nine reference images and Krea 2's edit path has room for three.
       state.refs = [];
       for (const asset of assets) {
         if (asset.role !== "reference" || asset.kind !== "image") continue;
-        if (state.refs.length >= S.PRESTAGE_MAX_REFS) break;
+        if (state.refs.length >= S.preStageMaxRefs(state)) break;
         state.refs.push({ handle: S.nextPreStageHandle(state), filename: asset.filename });
       }
     }

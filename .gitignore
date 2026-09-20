@@ -7,6 +7,7 @@ __pycache__/
 # Claude Code's working files. The whole directory, not just the settings: notes
 # and resume files land in here too, and `git add -A` does not know the difference.
 .claude/
+CLAUDE.md
 
 # Anything a run actually writes lives in ComfyUI's user/, temp/ and input/ dirs,
 # reached through folder_paths — never in here. These patterns are the guard for

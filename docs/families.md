@@ -13,6 +13,7 @@ same node on all of them; the model pill picks which one a render lands on.
 | Ideogram 4.0 | stills | none, prose only |
 | Qwen Image Edit | stills | up to three; the first is the picture being edited |
 | Flux 2 Klein | stills | up to three; the first is the picture being edited |
+| Qwen Image 2.1 | stills | up to ten; the first is the picture being edited |
 
 Every render files into a folder named after its family
 (`output/continuity/renders/ltx25/`, `output/continuity/stills/krea2/`) and
@@ -108,6 +109,34 @@ Stills, drawn from prose or edited from a picture, natively.
   this family.
 - The base checkpoint runs around 20 steps at cfg 5. There is no scheduler
   control: the schedule is a function of the step count and the canvas.
+
+## Qwen Image 2.1
+
+Stills, drawn from prose or edited from pictures, on one checkpoint.
+
+- Alibaba's second-generation Qwen-Image, behind the Qwen3-VL 8B encoder
+  Ideogram 4.0 already uses. Native 2K; ask for "an RGBA image with a
+  transparent background" and the PNG comes out with an alpha channel.
+- Same arrangement as Qwen Image Edit and Flux 2 Klein: the first picture is
+  the one being edited and the canvas follows it, with "start blank" as the
+  way out. Up to ten pictures, the official workflow's own cap. Cite them with
+  `@` handles as anywhere else; in the prompt the model reads them as
+  `<image1>`, `<image2>`, which is how its own tokenizer names them.
+- Every reference is resized to about the canvas's area before the encoder
+  reads it — the official note is to keep the two close, or the edit shifts.
+- The row is 40 steps at cfg 3, euler/simple — Qwen's card asks 40-50 steps,
+  and cfg 3 over an empty negative gave better contrast and skin than the
+  template's cfg 1 in a side-by-side. Drop cfg to 1 for a flatter, faster
+  render (the negative is unused there).
+- **Turbo** is a Lightning LoRA or nothing: there is no distilled 2.1
+  checkpoint, and no Lightning LoRA for 2.1 had been published when this was
+  written. The pill is where one goes.
+- An edit inherits the *look* of the first picture: a stylised source — a
+  high-contrast greyscale editorial, say — comes back stylised and sharpened,
+  and the model is reluctant to dress or restage it. Feed edits a photo.
+- It is not an edition of Qwen Image Edit. Different DiT, different VAE,
+  different encoder file, no shift node, no editions pill, no built-in
+  ControlNet table — a guide attached here is a picture like any other.
 
 ## Mixing families
 

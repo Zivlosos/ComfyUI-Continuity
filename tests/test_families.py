@@ -21,6 +21,7 @@ from harness import FAILURES, check, passed
 _pkg = layout.load("canvas", "accel", "sampling", "contextir", "compile",
                    "compile_image", "models", "registry", "manifest",
                    "still", "krea2_still", "ideogram4_still", "flux2klein_still",
+                   "qwen21_still",
                    "grammar", "h3_declare", "h3_models", "h3_grammar",
                    "ltx25_declare",
                    "ltx25_models", "ltx25_sampling")
@@ -38,6 +39,7 @@ h3s = _pkg.still
 k2 = _pkg.krea2_still
 i4 = _pkg.ideogram4_still
 kl = _pkg.flux2klein_still
+q21 = _pkg.qwen21_still
 lx = _pkg.ltx25_models
 lxs = _pkg.ltx25_sampling
 
@@ -478,6 +480,39 @@ check("flux2klein's matched encoder is the text-only cut, and that is declared",
       kl.REFS_NEED_VISION, False)
 check("flux2klein canvas is the shared /16 grid",
       (klein["canvas"]["multiple"], klein["canvas"]["max_pixels"]),
+      (ci.CANVAS_MULTIPLE, ci.MAX_PIXELS))
+
+# ---- Qwen Image 2.1 ----------------------------------------------------------
+
+qwen21 = manifest.describe("qwen21")
+q21widgets = {w["id"]: w for w in qwen21["widgets"]}
+for name in ("steps", "cfg", "sampler_name", "scheduler"):
+    check(f"qwen21 {name} default is QWEN21_BASE's",
+          q21widgets[name]["default"], q21.QWEN21_BASE[name])
+check("qwen21 weight slots are the family's fields",
+      [w["id"] for w in qwen21["weights"]], list(q21.FIELDS))
+check("qwen21 wants its own VAE and the shared qwen_image encoder type",
+      (q21.VAE_KIND, q21.CLIP_TYPE), ("qwen_image21", "qwen_image"))
+check("qwen21 turbo is a LoRA and only a LoRA — there is no distilled file",
+      qwen21["capabilities"]["turbo"],
+      {"steps": q21.TURBO_STEPS, "row": q21.TURBO_ROW,
+       "default_quality": q21.DEFAULT_TURBO_QUALITY,
+       "lora": True, "default_strength": 1.0, "checkpoint": False})
+check("qwen21 references are native and the first is the one edited",
+      (qwen21["capabilities"]["refs"]["methods"],
+       qwen21["capabilities"]["refs"]["needs_lora"],
+       qwen21["capabilities"]["refs"]["edits_first"],
+       qwen21["capabilities"]["refs"]["start_blank"]),
+      ([], False, True, ci.START_BLANK_FIELD))
+check("qwen21 has no editions and no native-control table — one release",
+      ("editions" in qwen21["capabilities"]["refs"],
+       "native_control" in qwen21["capabilities"]["refs"]), (False, False))
+check("qwen21 reference cap is the official workflow's ten, served to the UI",
+      (qwen21["prompt"]["max_refs"], q21.REFS_LIMIT), (10, 10))
+check("qwen21 cites pictures the way its tokenizer spells them",
+      (q21.REFS_CITATION, qwen21["prompt"]["ordinal"]), ("<image{n}>", "<image N>"))
+check("qwen21 canvas is the shared /16 grid",
+      (qwen21["canvas"]["multiple"], qwen21["canvas"]["max_pixels"]),
       (ci.CANVAS_MULTIPLE, ci.MAX_PIXELS))
 
 passed("the registry serves every family and the manifests hold their sources")

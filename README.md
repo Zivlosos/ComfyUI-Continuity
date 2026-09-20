@@ -138,6 +138,7 @@ directory, not in the pack folder.
 | Ideogram 4.0 | stills | [Comfy-Org/Ideogram-4](https://huggingface.co/Comfy-Org/Ideogram-4) |
 | Qwen Image Edit | stills, edited from a picture | [Comfy-Org/Qwen-Image-Edit_ComfyUI](https://huggingface.co/Comfy-Org/Qwen-Image-Edit_ComfyUI) |
 | Flux 2 Klein | stills, edited from a picture | [Black Forest Labs](https://huggingface.co/black-forest-labs) |
+| Qwen Image 2.1 | stills, drawn or edited from pictures | [Comfy-Org/Qwen-Image-2.1](https://huggingface.co/Comfy-Org/Qwen-Image-2.1) |
 
 See [docs/models.md](docs/models.md) for which files you need and where they go.
 
