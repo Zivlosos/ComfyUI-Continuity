@@ -20,6 +20,8 @@ pill never forgets the other side's files — the same reason `models.Weights`
 keeps both video checkpoints.
 """
 
+import dataclasses
+import hashlib
 from dataclasses import dataclass, field
 
 from . import models as core, neural, outputs
@@ -174,6 +176,35 @@ def check_vision(weights, payload, family):
     )
 
 
+def edit_seed(sampling, payload, family):
+    """`sampling` with the seed an edit actually samples on.
+
+    On a family whose first picture is the one edited (`EDITS_FIRST_REF`),
+    every attached picture reaches the model as a reference latent and the
+    sampler starts from an empty latent — so the render is *nothing but* the
+    noise the seed makes and the pictures it is told to change. Hand it the
+    seed that made one of those pictures and it collapses back onto the
+    picture: the same noise that drew it is the strongest possible pull toward
+    drawing it again, and the instruction loses. That is the default path a
+    user walks — render a still, attach it, write what changes, press Render
+    with the seed still sitting in the widget — and on the lab it produced a
+    sharpened copy with the edit ignored, on every one of three edit families,
+    until the seed moved.
+
+    So the seed the sampler sees is derived from the widget's seed *and* the
+    pictures: the same widget value and the same pictures give the same render
+    (a re-queue is still a cache hit), and no render can start from the noise
+    that made a picture it is attached to. Only where there are pictures on
+    such a family; a text-to-image still keeps the widget's seed exactly, and
+    so does every family whose references are not the subject.
+    """
+    if not payload.refs or not getattr(family, "EDITS_FIRST_REF", False):
+        return sampling
+    digest = hashlib.blake2b((f"{sampling.seed}:" + "|".join(payload.refs)).encode(),
+                             digest_size=8).digest()
+    return dataclasses.replace(sampling, seed=int.from_bytes(digest, "big"))
+
+
 def emit_unet(graph, weights, name):
     """One DiT loader, GGUF-aware the way `models.Links` is: a `.gguf`
     filename swaps the class through `loader_for`, and `weight_dtype` is only a
@@ -232,8 +263,8 @@ def emit(payload, weights, sampling, unique_id, family, filename_prefix=None):
     # its guider.
     model = core.graph_preview(graph, model, weights, PREVIEW_FPS)
 
-    family.emit_graph(graph, payload, sampling, weights, clip, vae, model,
-                      unique_id, filename_prefix)
+    family.emit_graph(graph, payload, edit_seed(sampling, payload, family),
+                      weights, clip, vae, model, unique_id, filename_prefix)
     return graph
 
 

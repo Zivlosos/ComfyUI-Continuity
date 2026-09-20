@@ -131,12 +131,20 @@ Stills, drawn from prose or edited from pictures, on one checkpoint.
 - **Turbo** is a Lightning LoRA or nothing: there is no distilled 2.1
   checkpoint, and no Lightning LoRA for 2.1 had been published when this was
   written. The pill is where one goes.
-- An edit inherits the *look* of the first picture: a stylised source — a
-  high-contrast greyscale editorial, say — comes back stylised and sharpened,
-  and the model is reluctant to dress or restage it. Feed edits a photo.
+- An edit inherits the *look* of the first picture: a stylised source comes
+  back stylised. Feed edits a photo where you can.
 - It is not an edition of Qwen Image Edit. Different DiT, different VAE,
   different encoder file, no shift node, no editions pill, no built-in
   ControlNet table — a guide attached here is a picture like any other.
+
+## Editing a picture you just rendered
+
+On the edit families (Qwen Image Edit, Flux 2 Klein, Qwen Image 2.1) the
+seed the sampler uses is derived from the seed widget *and* the attached
+pictures. Reusing the seed that made a picture would otherwise start the edit
+from that picture's own noise, and the model then reproduces the picture
+instead of changing it. You never have to touch the seed after a render; the
+same widget value with the same pictures is still the same edit.
 
 ## Mixing families
 

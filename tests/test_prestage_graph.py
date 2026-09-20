@@ -12,6 +12,7 @@ Skips itself with a message if ComfyUI cannot be imported.
 """
 
 import asyncio
+import hashlib
 import importlib
 import math
 import json
@@ -1104,6 +1105,36 @@ expect_error("an eleventh picture is refused with the pack's own reason",
 expect_error("the turbo pill refuses to engage without a Lightning LoRA",
              lambda: ci.compile_prestage(qwen21_blob(turbo={"qwen21": {"on": True}}), q21),
              "Lightning LoRA")
+
+# ---- an edit never starts from the noise that made its picture ---------------
+#
+# On the three edit families the render is the seed's noise plus the pictures
+# it is told to change, and the seed that drew one of those pictures pulls the
+# sampler straight back onto it (the lab, 2026-09: a sharpened copy, edit
+# ignored, on all three, until the seed moved). `render_image.edit_seed`
+# derives the sampled seed from the widget's seed and the pictures — the same
+# inputs give the same render, and a picture's own seed is never reused.
+
+def derived(seed, refs):
+    return int.from_bytes(hashlib.blake2b((f"{seed}:" + "|".join(refs)).encode(),
+                                          digest_size=8).digest(), "big")
+
+_, seeded_q21 = qwen21_graph(qwen21_blob(refs=["room.png", "cup.png"]), seed=11)
+check("qwen21 samples an edit on a seed derived from the widget's and the pictures",
+      seeded_q21["KSampler"][0][1]["seed"], derived(11, ["room.png", "cup.png"]))
+check("...and not on the widget's own", seeded_q21["KSampler"][0][1]["seed"] != 11, True)
+check("...while a text-to-image still keeps the widget's seed exactly",
+      qt2i["KSampler"][0][1]["seed"], 11)
+_, seeded_kl = klein_graph(klein_blob(refs=["room.png"]), seed=11)
+check("flux2klein's noise node takes the derived seed",
+      seeded_kl["RandomNoise"][0][1]["noise_seed"], derived(11, ["room.png"]))
+_, seeded_qe = edit_graph(seed=7)
+check("qwenedit's sampler takes the derived seed",
+      seeded_qe["KSampler"][0][1]["seed"], derived(7, ["her.png", "coat.png"]))
+check("a different widget seed is a different derived seed",
+      derived(7, ["her.png"]) != derived(8, ["her.png"]), True)
+check("Krea 2's style references are not the subject, so its seed stands",
+      refs_graph(seed=5)["KSampler"][0][1]["seed"], 5)
 
 # ---- refusals ----------------------------------------------------------------
 

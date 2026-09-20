@@ -6,6 +6,19 @@ exactly as it was written, wall of text and all.
 
 ## Unreleased
 
+**An edit never starts from the noise that made its picture.** On the three
+edit families — Qwen Image Edit, Flux 2 Klein, Qwen Image 2.1 — the render is
+the seed's noise plus the pictures it is told to change, and the seed that
+drew one of those pictures pulls the sampler straight back onto it: render a
+still, attach it, write what changes, press Render with the seed still in the
+widget, and what came back on the lab was a sharpened copy with the edit
+ignored, on all three families, until the seed moved. The seed the sampler
+sees is now derived from the widget's seed and the attached pictures, so the
+same widget value and the same pictures still give the same render (a
+re-queue is still a cache hit) and no edit can start from a picture's own
+noise. Text-to-image stills and Krea 2's style references keep the widget's
+seed exactly.
+
 **Qwen Image 2.1 arrives as a family of its own, drawing and editing on one
 checkpoint.** Alibaba's second-generation Qwen-Image, on the pre-stage's
 model pill as `qwen21`. The graph is the official ComfyUI template's:
