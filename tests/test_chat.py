@@ -1234,12 +1234,12 @@ check("the default is the redraw block: the whole picture written again",
 check("the edit block is an instruction with a keep clause, in the contract's shape",
       ("changed in place" in EDITING and "keep everything else unchanged" in EDITING
        and "drawn beside the old one" not in EDITING
-       and EDITING.count("Person:") == SYSTEM.count("Person:") + 2), True)
+       and EDITING.count("Person:") == SYSTEM.count("Person:") + 3), True)
 check("both point at the same heading the contract names",
       all(block.count("CHANGING A PICTURE") == 2 for block in (SYSTEM, EDITING))
       and "under CHANGING A PICTURE" in SYSTEM, True)
 edit_prompt = chat.parse(EDITING[EDITING.index("Person: put a red scarf"):
-                                 EDITING.index("Person: bluer")])[1]["prompt"]
+                                 EDITING.index("Person: now from above")])[1]["prompt"]
 check("the edit block's worked prompt leads with the change and does not repaint the fox",
       edit_prompt.startswith("Add ") and "snowy" not in edit_prompt, True)
 check("a rail whose still family edits, or has an edit family behind one that cannot read a picture, edits",
@@ -1254,6 +1254,8 @@ check("a rail whose still family edits, or has an edit family behind one that ca
 
 check("the edit block's worked exchange shows the earlier prompt and does not repeat it",
       "(made pic-1)" in EDITING and "never repeat that prompt" in EDITING, True)
+check("and a camera move is a change with nothing added",
+      "Change the viewpoint" in EDITING and "never a thing\nin the picture" in EDITING, True)
 check("a rail that edits closes the message on the instruction rule, the other on the plain line",
       (chat.context(HISTORY, LEDGER, "CARD", edits=True).endswith(chat.CLOSING_EDITS),
        chat.context(HISTORY, LEDGER, "CARD").endswith(chat.CLOSING),

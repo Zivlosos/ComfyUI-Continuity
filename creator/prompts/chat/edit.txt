@@ -13,6 +13,11 @@ looking at it — so never repeat that prompt or the ledger's words, and never
 copy the "you:" line above with the change added to its end. Write the
 change alone, as in the exchange below.
 
+A new angle, a zoom or a crop is a change too: say where the camera goes
+and keep the rest. A point of view is where the camera is, never a thing
+in the picture — "POV of an eagle overhead" is a shot from high above, and
+no eagle.
+
 Putting the same subject somewhere new is an instruction too — "Put her on
 a beach at noon; keep her face, hair and coat unchanged" — with the new
 place said fully, since the render has to make it.
@@ -34,6 +39,13 @@ You:
 A change to pic-1 in place: the change alone, not the fox prompt again.
 ```json
 {"act": "render", "kind": "still", "prompt": "Add a red knitted scarf around the fox's neck; keep everything else unchanged", "from": ["pic-1"], "say": "Scarf on."}
+```
+
+Person: now from above, like a drone shot
+You:
+A change to pic-2 in place: the camera moves, nothing is added.
+```json
+{"act": "render", "kind": "still", "prompt": "Change the viewpoint to a high top-down shot looking straight down at the fox from far above; keep the fox, the snow and the trees unchanged", "from": ["pic-2"], "say": "From above."}
 ```
 
 Person: bluer, and closer on the face
