@@ -6,8 +6,11 @@ exactly as it was written, wall of text and all.
 
 ## Unreleased
 
-**A character-sheet starter for Qwen Image 2.1.** A preset in the library
-that puts a costume designer's turnaround board on the pre-stage: three
+**Character-sheet starters for Qwen Image 2.1 and Krea 2.** Two presets in
+the library that put a costume designer's turnaround board on the pre-stage
+(the Krea 2 one existed and carried no prompt; it is now the same board,
+landscape rather than 9:16, with the character as prose since an attached
+picture is a look on that family): three
 full-body views, six heads around a full turn, and a row of eight close-ups
 — fabric, a seam, a fastening, a detail, skin, the eyes, a hand, the
 footwear — at 16:9, 2048×1152, on the model's own row. The first line is the

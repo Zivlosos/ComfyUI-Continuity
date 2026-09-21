@@ -437,14 +437,16 @@ family it was made on and won't push it onto another family's shot. **From a
 render** turns a finished MP4 or PNG back into a preset, from the workflow the
 file already carries.
 
-The library ships a few starters. One of them carries a prompt: **Character
-sheet — Qwen Image 2.1** puts a costume designer's turnaround board on the
-pre-stage — three full-body views, six heads around a full turn, a row of
-close-ups on fabric, fastenings, skin, eyes, a hand and the footwear — at
-16:9, 2048×1152. Replace its first line with your character, in whatever
-medium you name (a photograph, an oil portrait), or attach a picture of them
-and write `@` their handle there: the sheet then takes its face, outfit and
-style from the picture.
+The library ships a few starters. Two of them carry a prompt: **Character
+sheet — Qwen Image 2.1** and **Character sheet — Krea 2** put a costume
+designer's turnaround board on the pre-stage — three full-body views, six
+heads around a full turn, a row of close-ups on fabric, fastenings, skin,
+eyes, a hand and the footwear — at 16:9. Replace the first line with your
+character, in whatever medium you name (a photograph, an oil portrait). On
+Qwen Image 2.1 you can instead attach a picture of them and write `@` their
+handle there: the sheet then takes its face, outfit and style from the
+picture. On Krea 2 an attached picture is a look, not the character, so the
+character is prose there.
 
 ## The style atlas
 
