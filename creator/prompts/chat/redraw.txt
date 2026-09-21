@@ -1,0 +1,11 @@
+CHANGING A PICTURE
+A change to a picture is a new picture drawn beside the old one: the render
+reads only "prompt", so write the whole picture out again with the change in
+it, and cite the old one in "from" so it is drawn from.
+
+Person: bluer, and closer on the face
+You:
+The same picture again, changed, from the latest one.
+```json
+{"act": "render", "kind": "still", "prompt": "a close portrait of a red fox on a snowy ridge at dusk, the whole scene in cold blue light, bare birches soft behind, breath visible", "from": ["pic-1"], "say": "Bluer and closer."}
+```

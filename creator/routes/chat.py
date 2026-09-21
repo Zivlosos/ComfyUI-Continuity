@@ -623,7 +623,8 @@ def _run(body):
             "edit_arch": _arch_of(known["edit_family"]) if known["edit_family"] else None}
     # The rail's verbosity dial rides in the same block as the skill: both are
     # about how the model writes, and `chat.system_prompt` places them.
-    system = chat.system_prompt(_skill(block), verbosity=block.get("verbosity"))
+    system = chat.system_prompt(_skill(block), verbosity=block.get("verbosity"),
+                                edits=chat.changes_pictures(rail))
     message = chat.context(messages, ledger, card, strip=strip, cast=cast)
     asked = _last_user(messages)
 

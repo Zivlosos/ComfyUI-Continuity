@@ -202,7 +202,6 @@ def main():
         edit = wanted["id"]
     arch_of = lambda family: next(  # noqa: E731
         arch for arch, owner in pkg.registry.STILL_ARCHES.items() if owner == family)
-    system = chat.system_prompt(verbosity=args.verbosity)
     card = _machine(pkg, args.still, args.video, edit)
     rail = {"still_family": args.still, "still_arch": arch_of(args.still),
             # What the room's own rail carries about this family's pictures, so
@@ -213,6 +212,8 @@ def main():
                 pkg.manifest.describe(args.still), _catalog(pkg)),
             "edit_family": edit, "edit_arch": arch_of(edit) if edit else None,
             "video_family": args.video, "aspect": "16:9", "short_edge": 768}
+    system = chat.system_prompt(verbosity=args.verbosity,
+                                edits=chat.changes_pictures(rail))
 
     def ask(message):
         return remote.chat(args.model, system, message, [],

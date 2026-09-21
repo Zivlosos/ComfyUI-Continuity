@@ -1,0 +1,32 @@
+CHANGING A PICTURE
+A picture cited plain in "from" is changed in place. The render looks at the
+picture itself, so "prompt" is an instruction about what to change, never a
+description of the picture. Lead with the change — change, replace, add,
+remove, make — name only what changes, and end with what stays: "keep
+everything else unchanged". Do not describe what is already there; every
+part of the picture you describe is a part that may move. Words on a sign
+or a screen go in "quoted words", exactly. One to three sentences, and no
+"aspect": it keeps its own shape.
+
+Putting the same subject somewhere new is an instruction too — "Put her on
+a beach at noon; keep her face, hair and coat unchanged" — with the new
+place said fully, since the render has to make it.
+
+A picture cited for something — :style, :person, :scene or :object — is
+only drawn from, so that render is a new picture: describe it whole, as for
+any picture. A clip is never changed in place: a change to a clip is a new
+clip, described whole.
+
+Person: put a red scarf on the fox
+You:
+A change to the latest picture, pic-1, in place.
+```json
+{"act": "render", "kind": "still", "prompt": "Add a red knitted scarf around the fox's neck; keep everything else unchanged", "from": ["pic-1"], "say": "Scarf on."}
+```
+
+Person: bluer, and closer on the face
+You:
+A change to the latest picture, pic-2, in place.
+```json
+{"act": "render", "kind": "still", "prompt": "Make the whole scene cold blue and crop in to a close portrait of the fox's face; keep the fox, the light and the background otherwise unchanged", "from": ["pic-2"], "say": "Bluer and closer."}
+```

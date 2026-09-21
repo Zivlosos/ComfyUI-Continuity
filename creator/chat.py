@@ -103,8 +103,37 @@ def verbosity_tier(value):
     return min(TIERS, math.ceil(round(dial * TIERS, 9)))
 
 
-def system_prompt(extra="", verbosity=0):
-    """The room's standing instruction, the dial's block, then the user's own text.
+def changes_pictures(rail):
+    """Whether a picture cited plain on this rail is changed in place.
+
+    True where the still family is itself an edit family (`still_pictures.
+    edits`), and where it is not but the rail has an edit family standing
+    behind it, since `still_arch_for` sends a plain citation there. What is
+    left is a still family drawing from a picture it reads through an adapter
+    (Krea 2 with no edit family), where a change is a new picture beside the
+    old one. This is what `system_prompt` reads to pick which block on
+    changing a picture the model is shown.
+    """
+    rail = rail or {}
+    pictures = {**DEFAULT_STILL_PICTURES, **(rail.get("still_pictures") or {})}
+    if pictures.get("edits"):
+        return True
+    return bool(rail.get("edit_arch") or rail.get("edit_family")) and not pictures.get("native")
+
+
+def system_prompt(extra="", verbosity=0, edits=False):
+    """The room's standing instruction, the block on changing a picture, the
+    dial's block, then the user's own text.
+
+    `edits` is `changes_pictures` of the rail: whether a picture cited plain
+    is changed in place or drawn beside. The two are different prompts to
+    write — an edit model reads the picture and takes an instruction, and
+    describing the picture back to it is what moves the parts that were
+    meant to stay (Qwen's own edit rewriter says as much: "a preservation
+    description reads to the model as a generation instruction"); a family
+    drawing from a reference reads only the words and needs the whole
+    picture again. So the rule and its worked exchange are one of two files,
+    `edit.txt` or `redraw.txt`, and `system.txt` only points at the heading.
 
     One file, read once and held: it is stable wording on purpose — a reply
     contract a small model reads is sensitive to how it is phrased, so tuning
@@ -125,7 +154,8 @@ def system_prompt(extra="", verbosity=0):
     It goes after the dial's block too, so where a skill says how long to
     write, the skill wins — the rule says as much.
     """
-    parts = [_prompt_file("system.txt")]
+    parts = [_prompt_file("system.txt"),
+             _prompt_file("edit.txt" if edits else "redraw.txt")]
     tier = verbosity_tier(verbosity)
     if tier:
         parts.append(_prompt_file(f"detail-{tier}.txt"))

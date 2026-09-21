@@ -1225,6 +1225,33 @@ check("it carries the worked exchanges: a still, a clip, a member cited, a next 
 check("and teaches the prompt box's own three marks",
       all(mark in SYSTEM for mark in ("@pic-2", "{a|b}", "quoted words")), True)
 
+# Changing a picture is one of two blocks, picked off the rail: an edit family
+# takes an instruction over the picture it is shown, a family drawing from a
+# reference reads only the words and needs the whole picture again.
+EDITING = chat.system_prompt(edits=True)
+check("the default is the redraw block: the whole picture written again",
+      "drawn beside the old one" in SYSTEM and "changed in place" not in SYSTEM, True)
+check("the edit block is an instruction with a keep clause, in the contract's shape",
+      ("changed in place" in EDITING and "keep everything else unchanged" in EDITING
+       and "drawn beside the old one" not in EDITING
+       and EDITING.count("Person:") == SYSTEM.count("Person:") + 1), True)
+check("both point at the same heading the contract names",
+      all(block.count("CHANGING A PICTURE") == 2 for block in (SYSTEM, EDITING))
+      and "under CHANGING A PICTURE" in SYSTEM, True)
+edit_prompt = chat.parse(EDITING[EDITING.index("Person: put a red scarf"):
+                                 EDITING.index("Person: bluer")])[1]["prompt"]
+check("the edit block's worked prompt leads with the change and does not repaint the fox",
+      edit_prompt.startswith("Add ") and "snowy" not in edit_prompt, True)
+check("a rail whose still family edits, or has an edit family behind one that cannot read a picture, edits",
+      [chat.changes_pictures(rail) for rail in (
+          {"still_pictures": {"takes": True, "native": True, "edits": True}},
+          {"still_pictures": {"takes": True, "native": False, "edits": False}, "edit_arch": "klein"},
+          {"still_pictures": {"takes": False, "native": False, "edits": False}, "edit_family": "flux2klein"},
+          {"still_pictures": {"takes": True, "native": False, "edits": False}},
+          {"still_pictures": {"takes": True, "native": True, "edits": False}, "edit_arch": "klein"},
+          {}, None)],
+      [True, True, True, False, False, False, False])
+
 with_skill = chat.system_prompt("Write everything in the present tense.")
 check("a skill set to add lands after the contract, never over it",
       with_skill.startswith(SYSTEM) and "present tense" in with_skill, True)
@@ -1243,8 +1270,9 @@ blocks = [chat.system_prompt(verbosity=tier / chat.TIERS) for tier in range(1, c
 check("every block lands after the contract, never over it",
       all(block.startswith(SYSTEM) for block in blocks), True)
 check("each block is its own wording", len(set(blocks)), chat.TIERS)
-check("every block fences what the person asked for",
+check("every block fences what the person asked for, and defers a change to the block above",
       all("Never change what the person asked for" in block
+          and "follows CHANGING A PICTURE above" in block
           and '"say" stays one short' in block for block in blocks), True)
 check("and carries a worked exchange at its length, in the contract's own shape",
       all(block.count("Person:") == SYSTEM.count("Person:") + 1
