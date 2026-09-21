@@ -73,6 +73,68 @@ export function characterSheet(firstLine) {
 export const CHARACTER_SHEET = characterSheet(
   "Character: (describe the character here, or attach a picture of them and name it with @)");
 
+/** The storyboard starters: one per shot count, because the count is the one
+ *  thing the model will not take from the list. Told "one panel for every shot
+ *  listed below" it draws the listed shots first and then pads the sheet out to
+ *  twelve, whatever the list's length (four beats came back as twelve panels,
+ *  six as twelve); told "exactly N panels in R rows and C columns" it draws N,
+ *  in order, at every count tried. The grid also picks the canvas — two or
+ *  three 16:9 frames stack on a portrait sheet, four and six tile a landscape
+ *  one — and only a preset carries a canvas and a prompt together, so a card
+ *  per count is the interface, and the user never edits the grid sentence.
+ *  Five is not offered: asked for "3 over 2 centred" the model split the second
+ *  row 1 + 1 at different sizes. Six is the ceiling by design.
+ *
+ *  No panel numbers. Asked for them the model printed 2-2-5 on three panels
+ *  and 1-2-5-4-5-6 on six; the grid fixes the reading order without them, and
+ *  a wrong number is the one defect on an otherwise usable sheet. The last
+ *  line is the look, and rewriting it ("loose graphite pencil sketch with grey
+ *  marker tone on white paper") turns the same board into a drawn one. */
+export const STORYBOARD_GRIDS = {
+  2: { layout: "stacked in one column of 2 rows", aspect: "4:5" },
+  3: { layout: "stacked in one column of 3 rows", aspect: "9:16" },
+  4: { layout: "in a grid of 2 rows and 2 columns", aspect: "16:9" },
+  6: { layout: "in a grid of 2 rows and 3 columns", aspect: "16:9" },
+};
+
+/** The sample beats, one story cut to each length so every card renders a
+ *  sensible sheet before a word is changed. Each line opens with the shot
+ *  type, which is the vocabulary the starter teaches; "the character" rather
+ *  than a pronoun so the beats fit whoever the first line names. */
+const STORYBOARD_BEATS = {
+  pier: "wide establishing shot: the character walks down a harbour pier at dawn, fog on the water",
+  rope: "medium shot: the character unties a mooring rope, hands working the knot",
+  face: "close-up: the character's face, looking out at the horizon, breath fogging in the cold",
+  away: "wide shot from the pier: the character's small boat pulling away into the fog",
+  back: "over-the-shoulder shot from the stern: the character looks back at the coast shrinking behind",
+  bow: "low-angle shot: the character stands at the bow, the first sunlight breaking through the fog",
+};
+const STORYBOARD_CUTS = {
+  2: ["pier", "face"],
+  3: ["pier", "face", "bow"],
+  4: ["pier", "rope", "away", "bow"],
+  6: ["pier", "rope", "face", "away", "back", "bow"],
+};
+
+export function storyboard(firstLine, count) {
+  const { layout } = STORYBOARD_GRIDS[count];
+  return [
+    firstLine,
+    "",
+    `Film storyboard of that character: exactly ${count} panels ${layout}, every panel the same `
+    + "size with a 16:9 frame, thin black panel borders, even white gutters between panels, and "
+    + "no text anywhere.",
+    "",
+    ...STORYBOARD_CUTS[count].map((key, i) => `Panel ${i + 1}, ${STORYBOARD_BEATS[key]}.`),
+    "",
+    "Same character, same outfit in every panel; cinematic, photographic; consistent lighting "
+    + "and colour grade across all panels.",
+  ].join("\n");
+}
+
+const STORYBOARD_CHARACTER =
+  "Character: (describe the character here, or attach a picture of them and name it with @)";
+
 export const BUILTIN = [
   builtin({
     id: "native-row",
@@ -226,6 +288,24 @@ export const BUILTIN = [
       prompt: { prompt: CHARACTER_SHEET },
     },
   }),
+
+  // One card per shot count — see `storyboard` for why the count cannot be
+  // left to the list, and why the canvas rides with it.
+  ...[2, 3, 4, 6].map((count) => builtin({
+    id: `storyboard-${count}-qwen21`,
+    name: `Storyboard, ${count} shots — Qwen Image 2.1`,
+    scope: "prestage",
+    note: `${count} shots of one character on one sheet, ${STORYBOARD_GRIDS[count].layout}. `
+        + "Replace the first line with your character — or attach a picture of them and "
+        + "name it with @ — and rewrite the panel lines, one shot each, keeping the count. "
+        + "The last line is the look: name a pencil sketch there for a drawn board.",
+    data: {
+      look: { aspect: STORYBOARD_GRIDS[count].aspect, short_edge: 1152 },
+      weights: { arch: "qwen21", models: {} },
+      speed: { turbo: null, row: { ...S.PRESTAGE_BASE_ROW.qwen21 } },
+      prompt: { prompt: storyboard(STORYBOARD_CHARACTER, count) },
+    },
+  })),
 
   builtin({
     id: "same-person-next-shot",
