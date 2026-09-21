@@ -78,12 +78,11 @@ export const CHARACTER_SHEET = characterSheet(
  *  listed below" it draws the listed shots first and then pads the sheet out to
  *  twelve, whatever the list's length (four beats came back as twelve panels,
  *  six as twelve); told "exactly N panels in R rows and C columns" it draws N,
- *  in order, at every count tried. The grid also picks the canvas — two or
- *  three 16:9 frames stack on a portrait sheet, four and six tile a landscape
- *  one — and only a preset carries a canvas and a prompt together, so a card
- *  per count is the interface, and the user never edits the grid sentence.
- *  Five is not offered: asked for "3 over 2 centred" the model split the second
- *  row 1 + 1 at different sizes. Six is the ceiling by design.
+ *  in order, at every count tried. Only a preset carries a canvas and a prompt
+ *  together, so a card per count is the interface, and the user never edits
+ *  the grid sentence. Four and six only: two and three rendered fine stacked
+ *  on a portrait sheet but were cut to keep the library short, five split its
+ *  second row into panels of different sizes, and six is the ceiling by design.
  *
  *  No panel numbers. Asked for them the model printed 2-2-5 on three panels
  *  and 1-2-5-4-5-6 on six; the grid fixes the reading order without them, and
@@ -91,8 +90,6 @@ export const CHARACTER_SHEET = characterSheet(
  *  line is the look, and rewriting it ("loose graphite pencil sketch with grey
  *  marker tone on white paper") turns the same board into a drawn one. */
 export const STORYBOARD_GRIDS = {
-  2: { layout: "stacked in one column of 2 rows", aspect: "4:5" },
-  3: { layout: "stacked in one column of 3 rows", aspect: "9:16" },
   4: { layout: "in a grid of 2 rows and 2 columns", aspect: "16:9" },
   6: { layout: "in a grid of 2 rows and 3 columns", aspect: "16:9" },
 };
@@ -110,8 +107,6 @@ const STORYBOARD_BEATS = {
   bow: "low-angle shot: the character stands at the bow, the first sunlight breaking through the fog",
 };
 const STORYBOARD_CUTS = {
-  2: ["pier", "face"],
-  3: ["pier", "face", "bow"],
   4: ["pier", "rope", "away", "bow"],
   6: ["pier", "rope", "face", "away", "back", "bow"],
 };
@@ -291,7 +286,7 @@ export const BUILTIN = [
 
   // One card per shot count — see `storyboard` for why the count cannot be
   // left to the list, and why the canvas rides with it.
-  ...[2, 3, 4, 6].map((count) => builtin({
+  ...[4, 6].map((count) => builtin({
     id: `storyboard-${count}-qwen21`,
     name: `Storyboard, ${count} shots — Qwen Image 2.1`,
     scope: "prestage",

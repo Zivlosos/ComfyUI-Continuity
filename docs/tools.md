@@ -448,9 +448,9 @@ handle there: the sheet then takes its face, outfit and style from the
 picture. On Krea 2 an attached picture is a look, not the character, so the
 character is prose there.
 
-Four more put a **storyboard** on Qwen Image 2.1 — **Storyboard, 2 / 3 / 4 /
-6 shots**. Each is one character across that many 16:9 panels on one sheet:
-two and three stack on a portrait canvas, four and six tile a landscape one.
+Two more put a **storyboard** on Qwen Image 2.1 — **Storyboard, 4 shots**
+and **Storyboard, 6 shots**: one character across that many 16:9 panels on
+one landscape sheet, 2×2 or 2×3.
 Pick the card by how many shots you want; the count is fixed in the prompt
 because the model will not take it from the list (asked for "one panel per
 shot listed" it pads the sheet out to twelve, whatever the list's length).

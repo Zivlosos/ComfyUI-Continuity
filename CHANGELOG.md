@@ -6,25 +6,24 @@ exactly as it was written, wall of text and all.
 
 ## Unreleased
 
-**Storyboard starters for Qwen Image 2.1, at 2, 3, 4 and 6 shots.** Four
-presets that put one character across that many 16:9 panels on one sheet:
-two and three stacked on a portrait canvas, four as 2×2 and six as 2×3 on a
-landscape one, at the family's native edge on its own row. A card per count
+**Storyboard starters for Qwen Image 2.1, at 4 and 6 shots.** Two presets
+that put one character across that many 16:9 panels on one landscape sheet,
+2×2 or 2×3, at the family's native edge on its own row. A card per count
 rather than one prompt to edit, because the count is the one thing the model
 will not take from the list: told "one panel for every shot listed below" it
 drew the listed shots and then padded the sheet to twelve, four beats and six
 alike, while "exactly N panels in R rows and C columns" held at every count
 tried — and the count picks the canvas, which only a preset can carry beside
-the prompt. Five is not offered (asked for three over two centred, the model
-split the second row into two panels of different sizes) and six is the
-ceiling. No panel numbers: asked for them the model printed 2-2-5 on three
+the prompt. Two and three rendered fine stacked on a portrait sheet and were
+cut to keep the library short; five is not offered (asked for three over two
+centred, the model split the second row into two panels of different sizes)
+and six is the ceiling. No panel numbers: asked for them the model printed 2-2-5 on three
 panels and 1-2-5-4-5-6 on six, and the grid fixes the reading order anyway.
 The first line is the character, prose or a cited picture; the panel lines
 are one shot each, opening with the shot type; the last line is the look, and
 rewriting it as a graphite sketch turns the same board into a drawn one.
 Written against a fisherman leaving harbour at dawn and the Florentine
-noblewoman from her own portrait, on the lab, at 2048×1152 and its portrait
-counterparts.
+noblewoman from her own portrait, on the lab, at 2048×1152.
 
 **Character-sheet starters for Qwen Image 2.1 and Krea 2.** Two presets in
 the library that put a costume designer's turnaround board on the pre-stage
