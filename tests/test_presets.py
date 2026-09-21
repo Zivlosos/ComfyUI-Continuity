@@ -896,6 +896,9 @@ try {
     }),
     sectionsAllowed: BUILTIN.every((row) =>
       row.sections.every((key) => P.SCOPE_SECTIONS[row.scope].includes(key))),
+    // A starter's picture is a file this pack ships, so a stem that names no
+    // file is a card with a broken picture on every machine.
+    covers: BUILTIN.filter((row) => row.picture).map((row) => row.picture),
   };
 } catch (error) {
   out.errors.push(`builtin: ${error.stack}`);
@@ -1161,6 +1164,11 @@ check("...rewritten rather than added to", keep.get("rewritten"), True)
 
 builtin = report.get("builtin", {})
 check("the shipped starters describe themselves", builtin.get("allDescribed"), True)
+covers = builtin.get("covers", [])
+check("every pre-stage starter ships a cover", len(covers), 6)
+for url in covers:
+    path = os.path.join(ROOT, "web", "creator", "presets", "covers", os.path.basename(url))
+    check(f"shipped cover exists: {os.path.basename(url)}", os.path.exists(path), True)
 check("...under scopes the library knows", builtin.get("scopesKnown"), True)
 check("...holding only sections that scope can take", builtin.get("sectionsAllowed"), True)
 check("...and naming no file that is only on one machine", builtin.get("namesNoFiles"), True)

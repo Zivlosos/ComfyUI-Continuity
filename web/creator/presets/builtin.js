@@ -13,14 +13,25 @@
 //
 // They cannot be overwritten or starred: a starter is the same for everybody, and
 // "Save current setup" is how you get one of your own.
+//
+// **A starter's picture is shipped, not stored.** A saved preset's cover is a
+// render in the output folder, served by the still route; a starter has no
+// render behind it on any machine, so the pre-stage ones carry a webp of what
+// they draw (rendered on the lab, off the starter's own prompt where it has
+// one) under `presets/covers/`, addressed off
+// `import.meta.url` the way the Style tab's atlas stills are — the same
+// exception to the library's "nothing here stores an image" rule, for the
+// same reason. `cover` names the file by stem; the row gets it as `picture`,
+// a plain URL rather than a `{path, kind}` asset row, since no route resolves it.
 
 import { describe } from "../presets.js";
 import * as S from "../state.js";
 
 /** Build the index row a card draws from, so a starter is described by exactly
  *  the function a saved preset is described by. */
-function builtin({ id, name, scope, note, data }) {
+function builtin({ id, name, scope, note, data, cover = null }) {
   return {
+    picture: cover ? new URL(`./covers/${cover}.webp`, import.meta.url).href : null,
     id: `builtin.${id}`,
     name,
     scope,
@@ -231,6 +242,7 @@ export const BUILTIN = [
     id: "poster-still",
     name: "Poster — Ideogram 4",
     scope: "prestage",
+    cover: "poster-still",
     note: "Ideogram 4.0 on its quality preset, landscape 3:2. Ideogram owns its own "
         + "resolution-shifted schedule, so the scheduler pill does not apply.",
     data: {
@@ -254,6 +266,7 @@ export const BUILTIN = [
     id: "character-sheet",
     name: "Character sheet — Krea 2",
     scope: "prestage",
+    cover: "character-sheet-krea2",
     note: "A costume designer's turnaround board on Krea 2 RAW: three full-body "
         + "views, six heads around a full turn, a row of close-ups. Replace the "
         + "first line with your character. Landscape 16:9 at the native edge, the "
@@ -277,6 +290,7 @@ export const BUILTIN = [
     id: "character-sheet-qwen21",
     name: "Character sheet — Qwen Image 2.1",
     scope: "prestage",
+    cover: "character-sheet-qwen21",
     note: "A costume designer's turnaround board: three full-body views, six "
         + "heads around a full turn, a row of close-ups. Replace the first line "
         + "with your character — or attach a picture of them and name it with @. "
@@ -295,6 +309,7 @@ export const BUILTIN = [
     id: `storyboard-${count}-qwen21`,
     name: `Storyboard, ${count} shots — Qwen Image 2.1`,
     scope: "prestage",
+    cover: `storyboard-${count}-qwen21`,
     note: `${count} shots of one character on one sheet, ${STORYBOARD_GRIDS[count].layout}. `
         + "Replace the first line with your character — or attach a picture of them and "
         + "name it with @ — and rewrite the panel lines, one shot each, keeping the count. "
@@ -309,15 +324,30 @@ export const BUILTIN = [
 
   builtin({
     id: "same-person-next-shot",
-    name: "Same person, next shot — Qwen Image Edit",
+    name: "Same person, next shot — Qwen Image 2.1",
     scope: "prestage",
-    note: "The continuity errand: attach the frame you already have, write what "
-        + "changes, and the render starts from that picture rather than from noise. "
-        + "16:9 and the model's own row; the canvas follows the picture you attach.",
+    cover: "same-person-next-shot",
+    note: "The continuity errand: attach the frame you already have, name it with "
+        + "@ in the first line, and write what changes in the second — the render "
+        + "starts from that picture rather than from noise. 16:9 and the model's "
+        + "own row; the canvas follows the picture you attach.",
     data: {
       look: { aspect: "16:9", short_edge: S.PRESTAGE_DEFAULT_EDGE },
-      weights: { arch: "qwenedit", models: {} },
-      speed: { turbo: null, row: { ...S.PRESTAGE_BASE_ROW.qwenedit } },
+      // Qwen Image 2.1 rather than Qwen Image Edit: it reads the attached
+      // picture the same way and holds the person better across the cut.
+      weights: { arch: "qwen21", models: {} },
+      speed: { turbo: null, row: { ...S.PRESTAGE_BASE_ROW.qwen21 } },
+      // The shape of an edit prompt: who stays the same, then what changes.
+      // Same face, hair and clothing said outright, because the model keeps
+      // what it is told to keep and drifts on what it is not.
+      prompt: { prompt: [
+        "The same person as in (attach the picture and name it with @), with the same "
+        + "face, hair and clothing.",
+        "",
+        "Next shot: (describe what changes — the pose, the camera angle, the place, "
+        + "the light). Everything about the person themselves stays exactly as in the "
+        + "picture.",
+      ].join("\n") },
     },
   }),
 ];

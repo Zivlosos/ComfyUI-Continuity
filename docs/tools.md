@@ -437,7 +437,7 @@ family it was made on and won't push it onto another family's shot. **From a
 render** turns a finished MP4 or PNG back into a preset, from the workflow the
 file already carries.
 
-The library ships a few starters. Two of them carry a prompt: **Character
+The library ships a few starters, each with a picture of what it draws. **Character
 sheet — Qwen Image 2.1** and **Character sheet — Krea 2** put a costume
 designer's turnaround board on the pre-stage — three full-body views, six
 heads around a full turn, a row of close-ups on the eyes, a hand, the feet,
@@ -460,6 +460,11 @@ shot type (wide establishing, medium, close-up, over-the-shoulder, low
 angle). The last line is the look; name a pencil sketch there for a drawn
 board. There are no panel numbers on purpose: the model prints them wrong
 more often than right, and the grid fixes the reading order without them.
+
+**Same person, next shot — Qwen Image 2.1** is the continuity errand: attach
+the frame you already have and `@` it in the first line, which says who stays
+the same; write what changes in the second — pose, angle, place, light — and
+the render starts from that picture rather than from noise.
 
 ## The style atlas
 

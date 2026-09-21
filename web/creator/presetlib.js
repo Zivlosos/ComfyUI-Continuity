@@ -1064,9 +1064,19 @@ class PresetLibrary {
     const [w, h] = String(row.canvas?.aspect ?? row.facts?.aspect ?? "16:9").split(":").map(Number);
     const ratio = w && h ? w / h : 16 / 9;
     const frame = el("span", { style: { width: `${Math.round(84 * ratio)}px` } });
-    const picture = stillUrl(row.canvas?.picture);
+    // A starter's shipped picture, else the picture the canvas was saved with.
+    // A shipped picture may not be one render — the next-shot starter's is the
+    // frame before and the frame after, side by side — so the frame takes the
+    // picture's own aspect once it is known, rather than cropping to the canvas's.
+    const picture = row.picture ?? stillUrl(row.canvas?.picture);
     if (picture) {
       frame.append(el("img", { src: picture, alt: "", loading: "lazy",
+                               onload: row.picture ? (event) => {
+                                 const { naturalWidth, naturalHeight } = event.target;
+                                 if (naturalWidth && naturalHeight) {
+                                   frame.style.width = `${Math.round(84 * naturalWidth / naturalHeight)}px`;
+                                 }
+                               } : null,
                                onerror: (event) => event.target.remove() }));
     }
     return el("div", { class: "mmc-preset-canvas" }, [frame]);
