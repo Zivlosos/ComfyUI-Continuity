@@ -6,6 +6,18 @@ exactly as it was written, wall of text and all.
 
 ## Unreleased
 
+**A character-sheet starter for Qwen Image 2.1.** A preset in the library
+that puts a costume designer's turnaround board on the pre-stage: three
+full-body views, six heads around a full turn, and a row of eight close-ups
+— fabric, a seam, a fastening, a detail, skin, the eyes, a hand, the
+footwear — at 16:9, 2048×1152, on the model's own row. The first line is the
+character; overwrite it with prose or cite a picture. Written against four
+lab sheets (a Florentine noblewoman as an oil portrait, a fisherman and an
+astronaut photographed, and the noblewoman again from her own portrait
+attached), and the heads are asked for as a turntable in degrees because
+asked for "left" and "right" by name the model drew the left side twice and
+never the right.
+
 **An attached picture is a reference until you say otherwise.** On the
 three edit families — Qwen Image Edit, Flux 2 Klein, Qwen Image 2.1 — the
 first picture dropped on the pre-stage used to become the picture being

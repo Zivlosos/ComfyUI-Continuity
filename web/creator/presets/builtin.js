@@ -37,6 +37,35 @@ function builtin({ id, name, scope, note, data }) {
   };
 }
 
+/** The character-sheet starter's prompt. The first line is the character and
+ *  is meant to be overwritten; the rest is the board. Sentences rather than a
+ *  list, and the heads as a turntable in degrees: named "left" and "right"
+ *  the model draws the left side twice and skips the right. */
+export const CHARACTER_SHEET = [
+  "Character: (describe the character here, or attach a picture of them and name it with @)",
+  "",
+  "Character reference sheet of that character, on a plain white background, laid out "
+  + "like a costume designer's turnaround board with even spacing between panels.",
+  "",
+  "Left half: three full-body views of the same character standing in a relaxed neutral "
+  + "pose, all at the same height, side by side — front view, left profile, back view.",
+  "",
+  "Right half, top: six head-and-shoulders studies in two rows of three, a turntable "
+  + "sequence in which the head rotates from one panel to the next so that no two panels "
+  + "show the same angle: panel 1 faces the camera straight on, panel 2 is turned 45 "
+  + "degrees showing the left cheek, panel 3 is the exact left profile, panel 4 is the "
+  + "back of the head, panel 5 is the exact right profile, panel 6 is turned 45 degrees "
+  + "the other way showing the right cheek.",
+  "",
+  "Right half, bottom: a row of eight square close-up studies at the same scale — the "
+  + "main fabric or surface texture, a garment seam or fold, a fastening (buttons, laces, "
+  + "buckle or strap), a decorative detail or accessory, the skin texture of the "
+  + "character's body, the eyes at close range, a hand, and the footwear on its own.",
+  "",
+  "Consistent character, consistent outfit, consistent lighting across every panel; "
+  + "soft, even studio light; sharp detail.",
+].join("\n");
+
 export const BUILTIN = [
   builtin({
     id: "native-row",
@@ -159,6 +188,29 @@ export const BUILTIN = [
       look: { aspect: "9:16", short_edge: S.PRESTAGE_DEFAULT_EDGE },
       weights: { arch: "krea2", models: {} },
       speed: { turbo: null, row: { ...S.PRESTAGE_BASE_ROW.krea2 } },
+    },
+  }),
+
+  // The one starter that carries a prompt. Everything in it is layout — the
+  // turnaround, the head turntable in degrees (the model repeats "left" if
+  // asked for left and right by name), the close-up row — and the character
+  // is the one line at the top, which is what the user writes or cites. Qwen
+  // Image 2.1 because it holds one character across fifteen panels at native
+  // 2K, from prose or from a picture, on the same checkpoint; the lab sheets
+  // this was written against are in the changelog entry.
+  builtin({
+    id: "character-sheet-qwen21",
+    name: "Character sheet — Qwen Image 2.1",
+    scope: "prestage",
+    note: "A costume designer's turnaround board: three full-body views, six "
+        + "heads around a full turn, a row of close-ups. Replace the first line "
+        + "with your character — or attach a picture of them and name it with @. "
+        + "Landscape 16:9 at 1152, the model's own row.",
+    data: {
+      look: { aspect: "16:9", short_edge: 1152 },
+      weights: { arch: "qwen21", models: {} },
+      speed: { turbo: null, row: { ...S.PRESTAGE_BASE_ROW.qwen21 } },
+      prompt: { prompt: CHARACTER_SHEET },
     },
   }),
 
