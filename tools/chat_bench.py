@@ -212,8 +212,8 @@ def main():
                 pkg.manifest.describe(args.still), _catalog(pkg)),
             "edit_family": edit, "edit_arch": arch_of(edit) if edit else None,
             "video_family": args.video, "aspect": "16:9", "short_edge": 768}
-    system = chat.system_prompt(verbosity=args.verbosity,
-                                edits=chat.changes_pictures(rail))
+    edits = chat.changes_pictures(rail)
+    system = chat.system_prompt(verbosity=args.verbosity, edits=edits)
 
     def ask(message):
         return remote.chat(args.model, system, message, [],
@@ -232,7 +232,7 @@ def main():
         # far by handle and length, and the cast. The ledger is the room's.
         shots = [{"handle": c[chat.STRIP_KEY], "seconds": c["duration_s"]} for c in strip]
         told = ledger
-        message = chat.context(messages, told, card, strip=shots, cast=cast)
+        message = chat.context(messages, told, card, strip=shots, cast=cast, edits=edits)
         if args.dump:
             print(f"===== MESSAGE {turn} =====\n{message}\n===== END =====")
 

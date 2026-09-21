@@ -1302,8 +1302,24 @@ def trim(messages, exchanges=MAX_EXCHANGES, chars=MAX_HISTORY_CHARS):
     return messages
 
 
-def context(messages, ledger, card, exchanges=MAX_EXCHANGES, strip=(), cast=()):
+# The last line the model reads, per rail. On a rail that edits, the plain
+# closing line lost to the "you:" line above it every time: a 4B model handed
+# its own earlier prompt as JSON copied it and appended the change, whatever
+# the system prompt said about instructions. The reminder sits where a small
+# model is still holding it when it starts writing — the reason `context`
+# ends on the freshest thing at all.
+CLOSING = ("Answer the last line above: one line of plan, then the action "
+           "as JSON in a ``` fence, and nothing after it.")
+CLOSING_EDITS = (CLOSING + " If it asks for a change to a picture, \"prompt\" is the "
+                 "instruction alone — what changes and what stays — never the "
+                 "earlier prompt written out again.")
+
+
+def context(messages, ledger, card, exchanges=MAX_EXCHANGES, strip=(), cast=(),
+            edits=False):
     """The one user message: the machine, the ledger, then the conversation.
+
+    `edits` is `changes_pictures` of the rail, and picks the closing line.
 
     Three blocks in a fixed order that ends with the freshest thing, which is
     the order `families/h3/refine.py` puts its own rules in and for the same
@@ -1321,8 +1337,7 @@ def context(messages, ledger, card, exchanges=MAX_EXCHANGES, strip=(), cast=()):
     blocks = [card, ledger_block(ledger), strip_block(strip), cast_block(cast)]
     if kept:
         blocks.append("\n".join(["THE CONVERSATION"] + [_rendered(m) for m in kept]))
-    blocks.append("Answer the last line above: one line of plan, then the action "
-                  "as JSON in a ``` fence, and nothing after it.")
+    blocks.append(CLOSING_EDITS if edits else CLOSING)
     return "\n\n".join(block for block in blocks if block)
 
 

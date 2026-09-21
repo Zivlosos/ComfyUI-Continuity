@@ -1234,7 +1234,7 @@ check("the default is the redraw block: the whole picture written again",
 check("the edit block is an instruction with a keep clause, in the contract's shape",
       ("changed in place" in EDITING and "keep everything else unchanged" in EDITING
        and "drawn beside the old one" not in EDITING
-       and EDITING.count("Person:") == SYSTEM.count("Person:") + 1), True)
+       and EDITING.count("Person:") == SYSTEM.count("Person:") + 2), True)
 check("both point at the same heading the contract names",
       all(block.count("CHANGING A PICTURE") == 2 for block in (SYSTEM, EDITING))
       and "under CHANGING A PICTURE" in SYSTEM, True)
@@ -1251,6 +1251,14 @@ check("a rail whose still family edits, or has an edit family behind one that ca
           {"still_pictures": {"takes": True, "native": True, "edits": False}, "edit_arch": "klein"},
           {}, None)],
       [True, True, True, False, False, False, False])
+
+check("the edit block's worked exchange shows the earlier prompt and does not repeat it",
+      "(made pic-1)" in EDITING and "never repeat that prompt" in EDITING, True)
+check("a rail that edits closes the message on the instruction rule, the other on the plain line",
+      (chat.context(HISTORY, LEDGER, "CARD", edits=True).endswith(chat.CLOSING_EDITS),
+       chat.context(HISTORY, LEDGER, "CARD").endswith(chat.CLOSING),
+       "earlier prompt written out again" in chat.CLOSING_EDITS
+       and chat.CLOSING_EDITS.startswith(chat.CLOSING)), (True, True, True))
 
 with_skill = chat.system_prompt("Write everything in the present tense.")
 check("a skill set to add lands after the contract, never over it",
