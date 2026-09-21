@@ -440,8 +440,8 @@ file already carries.
 The library ships a few starters. Two of them carry a prompt: **Character
 sheet — Qwen Image 2.1** and **Character sheet — Krea 2** put a costume
 designer's turnaround board on the pre-stage — three full-body views, six
-heads around a full turn, a row of close-ups on fabric, fastenings, skin,
-eyes, a hand and the footwear — at 16:9. Replace the first line with your
+heads around a full turn, a row of close-ups on the eyes, a hand, the feet,
+the body's surface and whatever else the full-body views show — at 16:9. Replace the first line with your
 character, in whatever medium you name (a photograph, an oil portrait). On
 Qwen Image 2.1 you can instead attach a picture of them and write `@` their
 handle there: the sheet then takes its face, outfit and style from the

@@ -42,13 +42,18 @@ function builtin({ id, name, scope, note, data }) {
  *  an attached picture can *be* the character and on Krea 2 it is a look; the
  *  rest is the board. Sentences rather than a list, and the heads as a
  *  turntable in degrees: named "left" and "right" the model draws the left
- *  side twice and skips the right. */
+ *  side twice and skips the right. No clothing word anywhere — not "costume",
+ *  not "outfit", not a list of fabric and fastenings for the close-ups, and
+ *  no "if the character wears nothing" either: Qwen paints whatever is named,
+ *  negated or not, and dressed a bare fox in a buttoned jacket to fill the
+ *  slots. The close-ups are enlargements of what the full-body views show, so
+ *  a coat yields seams and buttons and a fox yields fur. */
 export function characterSheet(firstLine) {
   return [
     firstLine,
     "",
     "Character reference sheet of that character, on a plain white background, laid out "
-    + "like a costume designer's turnaround board with even spacing between panels.",
+    + "like a character designer's turnaround board with even spacing between panels.",
     "",
     "Left half: three full-body views of the same character standing in a relaxed neutral "
     + "pose, all at the same height, side by side — front view, left profile, back view.",
@@ -60,12 +65,12 @@ export function characterSheet(firstLine) {
     + "back of the head, panel 5 is the exact right profile, panel 6 is turned 45 degrees "
     + "the other way showing the right cheek.",
     "",
-    "Right half, bottom: a row of eight square close-up studies at the same scale — the "
-    + "main fabric or surface texture, a garment seam or fold, a fastening (buttons, laces, "
-    + "buckle or strap), a decorative detail or accessory, the skin texture of the "
-    + "character's body, the eyes at close range, a hand, and the footwear on its own.",
+    "Right half, bottom: a row of eight square close-up studies at the same scale, each "
+    + "one an enlargement of a detail that is visible in the full-body views above: the "
+    + "eyes at close range, a hand, the feet, the surface texture of the body, and four "
+    + "more of whatever the full-body views show most distinctively on this character.",
     "",
-    "Consistent character, consistent outfit, consistent lighting across every panel; "
+    "The same character with the same appearance and consistent lighting in every panel; "
     + "soft, even studio light; sharp detail.",
   ].join("\n");
 }

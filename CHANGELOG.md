@@ -31,8 +31,11 @@ the library that put a costume designer's turnaround board on the pre-stage
 landscape rather than 9:16, with the character as prose since an attached
 picture is a look on that family): three
 full-body views, six heads around a full turn, and a row of eight close-ups
-— fabric, a seam, a fastening, a detail, skin, the eyes, a hand, the
-footwear — at 16:9, 2048×1152, on the model's own row. The first line is the
+— the eyes, a hand, the feet, the body's surface, and enlargements of
+whatever else the full-body views show; the prompt names no fabric,
+fastening or footwear, because named as slots (or negated — Qwen paints
+what is mentioned) they dressed a bare fox in a buttoned jacket — at 16:9,
+2048×1152, on the model's own row. The first line is the
 character; overwrite it with prose or cite a picture. Written against four
 lab sheets (a Florentine noblewoman as an oil portrait, a fisherman and an
 astronaut photographed, and the noblewoman again from her own portrait
