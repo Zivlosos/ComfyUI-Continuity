@@ -25,9 +25,12 @@
 // - KJNodes' `kj_preview_override` carries only the emitting node's raw id,
 //   which is ours plus a `GraphBuilder` prefix — so that one is a prefix match.
 //   Its own frontend looks for a canvas node with that id, finds none, and does
-//   nothing, so listening in on it costs that pack nothing.
-// - `executed` carries `display_node`, which `render.emit_tail` has already
-//   stamped with our id.
+//   nothing, so listening in on it costs that pack nothing. **That id is not
+//   always this run's**, though — see `executing` below for why, and for the
+//   second way a frame is known to be ours.
+// - `executing` and `executed` carry `display_node`, which core sets to the
+//   parent of every node in an expansion — our id — and which
+//   `render.emit_tail` has stamped on the save node besides.
 
 import { api } from "../../../scripts/api.js";
 import { el } from "./dom.js";
@@ -44,8 +47,9 @@ import { t } from "./i18n.js";
  *  server turned a prompt away before it was queued (queue.js), which is the
  *  one failure the socket never carries. */
 const EVENTS = ["progress_state", "b_preview_with_metadata", "b_preview",
-                "kj_preview_override", "executed", "execution_error", "execution_start",
-                "execution_interrupted", "mmc_segment", "mmc_refused", "reconnected", "status"];
+                "kj_preview_override", "executing", "executed", "execution_error",
+                "execution_start", "execution_interrupted", "mmc_segment", "mmc_refused",
+                "reconnected", "status"];
 
 /** A progress report this long is a sampler; the loaders and decoders report a
  *  step or two each. What lets the stage open on progress rather than waiting
@@ -174,6 +178,9 @@ export class Stage {
     // path in `probe()`: the id says what to ask the server about, and the
     // silence says when to start asking.
     this.promptId = null;
+    // Whether the running prompt has been seen executing one of our nodes —
+    // the ground under `kj_preview_override`, whose own id cannot be trusted.
+    this.claimed = false;
     this.lastNewsAt = 0;
     this.probedAt = 0;
     this.probing = false;
@@ -278,7 +285,20 @@ export class Stage {
         // it is the only place the prompt id is ever said, and by the time the
         // stage knows the render is its own the message has long gone by.
         this.promptId = detail.prompt_id ?? null;
+        this.claimed = false;
         this.lastNewsAt = Date.now();
+        break;
+
+      case "executing":
+        // The executor stepping into a node of the running prompt, which it
+        // names by its display node: for anything in an expansion, the node
+        // that expanded it. Nothing opens on this — the loaders execute long
+        // before the sampler does, and a box that opened on them is the empty
+        // box `OPENS_ON_STEPS` exists to avoid — but from here on the run is
+        // known to be ours, whatever the previewer calls itself.
+        if (String(detail.display_node ?? detail.node) !== String(this.nodeId())) break;
+        this.claimed = true;
+        this.news();
         break;
 
       case "reconnected":
@@ -365,16 +385,30 @@ export class Stage {
       }
 
       case "kj_preview_override": {
-        if (!this.ours(detail.node_id)) break;
+        // Ours by the id on the frame — or by the run, because the id is
+        // whichever node first built this previewer, not the one sampling now.
+        // ComfyUI caches a node's output by its inputs, and means to add the
+        // node's own id to that key for a node that reads `UNIQUE_ID`; for a
+        // V3 node it never does, because `_io.py` files the hidden inputs as
+        // one-tuples and `caching.py` looks for the bare string. So the same
+        // weights previewed under the chat's id go on answering under it
+        // when the pre-stage samples them next, and the other way round, and
+        // a stage that trusted the id alone showed nothing until the file
+        // landed.
+        if (!this.ours(detail.node_id) && !this.claimed) break;
         this.news();
         // The boundary-0 message carries the sigma schedule and often no picture
         // at all. Take the step count from it, but do not open the stage on it —
-        // see above.
-        if (Number.isFinite(detail.total)) {
-          this.progress = { step: detail.step ?? 0, total: detail.total };
+        // see above. Written after `begin`, whose clearing of the last render
+        // would take the count with it on the frame that opens the box.
+        const progress = Number.isFinite(detail.total)
+          ? { step: detail.step ?? 0, total: detail.total } : null;
+        if (!detail.image) {
+          if (progress) this.progress = progress;
+          break;
         }
-        if (!detail.image) break;
         this.begin();
+        if (progress) this.progress = progress;
         this.releaseFrame();
         this.frame = `data:${detail.mime || "image/jpeg"};base64,${detail.image}`;
         // With NVENC available the pack encodes the step clip as video/mp4,
@@ -509,6 +543,7 @@ export class Stage {
   reset() {
     clearInterval(this.ticker);
     this.promptId = null;
+    this.claimed = false;
     this.lastNewsAt = 0;
     this.probedAt = 0;
     this.state = "idle";

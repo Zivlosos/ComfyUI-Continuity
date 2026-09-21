@@ -93,12 +93,6 @@ const CARD_EVENTS = ["progress_state", "b_preview_with_metadata", "b_preview",
                      "kj_preview_override", "executed", "execution_error",
                      "execution_interrupted"];
 
-/** The one node a chat prompt has — `routes/chat._build` keys it by
- *  `chat.NODE` — so a preview from inside its expansion names
- *  `continuity-chat.<something>`. Not a number, because a number is a canvas
- *  node's id and ComfyUI would file the render on that node. */
-const CHAT_NODE = "continuity-chat";
-
 /** Whether the sidebar is open, per browser. A choice about the window
  *  rather than the machine, so it is not in the settings file. */
 const SIDE_KEY = "continuity-chat-side";
@@ -588,13 +582,15 @@ function watchRender(card) {
       case "kj_preview_override": {
         // The pack's own previewer — `models.graph_preview` patches it onto
         // every render of ours and suppresses core's, so on a stock install
-        // (previews off) this is the only frame that ever arrives. It names
-        // the emitting node, which is ours plus a GraphBuilder prefix, the
-        // way stage.js reads it; the queue runs one thing at a time, so the
-        // running card is the one it belongs to.
+        // (previews off) this is the only frame that ever arrives. The queue
+        // runs one thing at a time, so the running card is the one it belongs
+        // to — and that is the whole of the test. The frame does name the
+        // emitting node, but that name is whichever node first built the
+        // previewer, not the one sampling now: ComfyUI caches a V3 node's
+        // output by its inputs alone (stage.js has the why), so the same
+        // weights last previewed under the pre-stage's id go on answering
+        // under it here, and a card that checked the name sat blank.
         if (card.state !== "running") return;
-        const id = String(detail.node_id ?? "");
-        if (id !== CHAT_NODE && !id.startsWith(`${CHAT_NODE}.`)) return;
         if (Number.isFinite(detail.total) && detail.total > 0) {
           card.progress = Math.max(0, Math.min(1, (detail.step ?? 0) / detail.total));
         }

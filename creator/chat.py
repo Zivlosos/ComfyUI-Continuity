@@ -56,8 +56,9 @@ from .families.h3 import subjects
 # on the canvas is LiteGraph's node 1, which is the first node anybody placed,
 # and the piece under the room was showing the chat's stills and clips as its
 # own. A canvas node never has this id, so nothing on the canvas can claim
-# what the chat makes. `chat.js` spells the same id for the previews it
-# listens for, and `tests/test_chat_mirror.py` holds the two together.
+# what the chat makes. The room itself never reads it: a card follows its
+# render by prompt id, because the id a preview frame names is not reliably
+# the sampling node's (chat.js, `kj_preview_override`).
 NODE = "continuity-chat"
 
 

@@ -143,14 +143,12 @@ check("junk falls back to the default, and the ends hold",
 
 # ---- the node's id ------------------------------------------------------------
 #
-# The room listens for previews from inside the chat prompt's expansion by the
-# id the server keyed the node under. Two spellings, and a mismatch is a card
-# that never shows a frame.
+# The chat prompt's one node is keyed by something no canvas node can be
+# called, or ComfyUI files the render on whichever node is. The room does not
+# spell the id — a card follows its render by prompt id, and the previewer's
+# own node name is not to be trusted (chat.js, `kj_preview_override`).
 
-node_id = re.search(r'const CHAT_NODE = "([^"]+)"', ROOM)
-check("the room and the server key the chat's node the same way",
-      node_id and node_id.group(1), chat.NODE)
-check("and it is not a canvas node's id", chat.NODE.isdigit(), False)
+check("the chat's node is not a canvas node's id", chat.NODE.isdigit(), False)
 
 
 # ---- the conversation ---------------------------------------------------------

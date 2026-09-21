@@ -3024,6 +3024,44 @@ try {
   out.errors.push(`recovery: ${error.stack}`);
 }
 
+// ---- a preview frame that names somebody else's node -------------------------
+//
+// The previewer's frames carry the id of the node that first built the
+// previewer, which ComfyUI's cache keeps across prompts when the inputs match
+// (stage.js, `kj_preview_override`). So a pre-stage sampling the weights the
+// chat last previewed gets every frame tagged `continuity-chat.…`, and a stage
+// that trusted the tag showed nothing until the file landed. `executing` names
+// the running prompt's display node, and that is ours; the frame is taken on
+// the strength of that instead.
+try {
+  const { Stage } = await import("./web/creator/stage.js");
+  const stage = new Stage({ nodeId: () => 7 });
+  const foreign = { node_id: "continuity-chat.0.0.4", step: 1, total: 20,
+                    image: "AAAA", mime: "image/jpeg" };
+  // Before any word that the run is ours, a foreign frame is somebody else's.
+  globalThis.__say("execution_start", { prompt_id: "p-3" });
+  globalThis.__say("kj_preview_override", foreign);
+  const beforeClaim = stage.state;
+  // The executor stepping into one of our expanded nodes claims the run —
+  // without opening the box, which waits for something worth showing.
+  globalThis.__say("executing", { node: "7.0.0.5", display_node: "7", prompt_id: "p-3" });
+  const onClaim = stage.state;
+  globalThis.__say("kj_preview_override", foreign);
+  out.foreignFrame = {
+    beforeClaim, onClaim,
+    state: stage.state,
+    frame: stage.frame,
+    step: stage.progress?.step ?? null,
+  };
+  // Another prompt starting withdraws the claim, so that run's frames are not
+  // taken on the last one's say-so.
+  globalThis.__say("execution_start", { prompt_id: "p-4" });
+  out.foreignFrame.claimedAfterNext = stage.claimed;
+  stage.destroy();
+} catch (error) {
+  out.errors.push(`foreignFrame: ${error.stack}`);
+}
+
 // ---- the upscale bench's locator says where the tile actually is ----------
 //
 // Two bugs in one place, and the second was the visible one. The bench took a
@@ -3519,6 +3557,17 @@ check("...but a render that finished unheard is read back off the server",
 check("...and one that ended without a file says why rather than nothing",
       (recovery.get("failedState"), recovery.get("failedSays")),
       ("failed", "out of memory"))
+
+# A preview frame tagged with another node's id — the cached previewer's — is
+# taken once `executing` has named this stage's node as the run's, and not
+# before; and the claim does not outlive the prompt.
+foreign = report.get("foreignFrame", {})
+check("a frame naming another node is nobody's until the run is claimed",
+      (foreign.get("beforeClaim"), foreign.get("onClaim")), ("idle", "idle"))
+check("...and the stage's own once `executing` has named it",
+      (foreign.get("state"), foreign.get("frame"), foreign.get("step")),
+      ("sampling", "data:image/jpeg;base64,AAAA", 1))
+check("...until the next prompt starts", foreign.get("claimedAfterNext"), False)
 
 # --- what the pack is holding, and taking it back -----------------------------
 #
