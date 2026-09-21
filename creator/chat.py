@@ -1328,11 +1328,11 @@ DEFAULT_SECONDS = 6
 # are the catalog's answers, and the catalog is the route's.
 DEFAULT_STILL_PICTURES = {"takes": True, "native": True, "refusal": "", "edits": False}
 
-# The blob field that releases an edit family's first picture from being the
-# thing changed — `compile_image.START_BLANK_FIELD`, spelled here because that
-# module imports the neural backend and this one has to load with nothing but
-# the standard library under it. `tests/test_chat.py` holds the two together.
-START_BLANK_FIELD = "start_blank"
+# The blob field that makes an edit family's first picture the thing changed —
+# `compile_image.EDIT_FIRST_FIELD`, spelled here because that module imports
+# the neural backend and this one has to load with nothing but the standard
+# library under it. `tests/test_chat.py` holds the two together.
+EDIT_FIRST_FIELD = "edit_first"
 
 
 def _entry_kind(entry):
@@ -1502,17 +1502,18 @@ def still_piece(action, ledger, rail, base=None, cast=None):
     shape `compile_image.compile_prestage` reads, at its defaults.
 
     Every cited handle becomes a reference, in the order it was cited, which is
-    the order the encoder labels them in. `compile_image.compile_prestage`
-    promotes a first reference to the init at denoise 1 on the edit families
-    (Qwen Image Edit, Flux 2 Klein), which is where that rule belongs; what
-    this side does on those families — the rail says which, `still_pictures`
-    — is put the pictures cited *plain* in front of the ones cited for
-    something, so the promotion lands on the picture being changed and not on
-    a look that happened to be cited first, and set `start_blank` when nothing
-    was cited plain, which is "draw a new picture from these" and not "change
-    the first of them". A member's picture is always the second kind. The
-    init the node held is cleared for the same reason: the room's picture is
-    the citation, not whatever the node was last painting over.
+    the order the encoder labels them in. On the edit families (Qwen Image
+    Edit, Flux 2 Klein, Qwen Image 2.1) `compile_image.compile_prestage` edits
+    the first reference in place when the blob says `edit_first`, which is
+    where that rule belongs; what this side does on those families — the rail
+    says which, `still_pictures` — is put the pictures cited *plain* in front
+    of the ones cited for something and set the flag when there was one, so
+    the edit lands on the picture being changed and never on a look that
+    happened to be cited first, and a citation with nothing plain is "draw a
+    new picture from these" on the canvas the action asks for. A member's
+    picture is always the second kind. The init the node held is cleared for
+    the same reason: the room's picture is the citation, not whatever the node
+    was last painting over.
 
     A picture being changed keeps its own shape — the compiler follows the
     init's — so the action's "aspect" is not written onto an edit: a number
@@ -1615,8 +1616,8 @@ def still_piece(action, ledger, rail, base=None, cast=None):
     refs = changed + drawn_from if pictures.get("edits") else [e for e, _ in entries]
     edit = {}
     if pictures.get("edits"):
-        edit[START_BLANK_FIELD] = bool(entries) and not changed
         if changed:
+            edit[EDIT_FIRST_FIELD] = True
             canvas.pop("aspect", None)
 
     piece = json.loads(json.dumps(base)) if isinstance(base, dict) else {}

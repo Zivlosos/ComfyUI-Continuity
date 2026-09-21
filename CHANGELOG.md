@@ -6,6 +6,22 @@ exactly as it was written, wall of text and all.
 
 ## Unreleased
 
+**An attached picture is a reference until you say otherwise.** On the
+three edit families — Qwen Image Edit, Flux 2 Klein, Qwen Image 2.1 — the
+first picture dropped on the pre-stage used to become the picture being
+edited: the canvas took its shape and the render was fitted to it, whatever
+the aspect pill said, with a "start blank" click on its chip as the way out.
+That was the default upside down. What these weights do natively is read the
+attached pictures beside the sentence and draw a new picture on the canvas
+you asked for — a character rendered once, then drawn into a sheet — and
+editing one of them in place is the special case. So it is now the opt-in:
+every picture is `Picture N`, the aspect pill sets the canvas, and the first
+picture's label switches it to "editing", where the canvas follows it. The
+blob field is `edit_first`; the old `start_blank` is no longer read, since
+a workflow that carried it wanted the default this now is. The room does the
+same: a picture cited plain is the one edited, one cited for a look is drawn
+from.
+
 **Qwen Image 2.1 starts on the template's row, 20 steps at cfg 1.** The
 40-at-cfg-3 row the family arrived with came out of a phone-photo sweep; a
 second sitting at native 2K put it back. A 2048×1152 character sheet was four

@@ -4148,9 +4148,9 @@ export const PRESTAGE_REFS = Object.fromEntries(
       // same slot holds the subject and calling it a style reference names the
       // one thing the model is not reading it for.
       noun: refs?.noun ?? ["style reference", "style references"],
-      // The blob field that releases the first picture from being the one
-      // edited, on the family where it otherwise always is.
-      startBlank: refs?.start_blank ?? null,
+      // The blob field that makes the first picture the one edited in place,
+      // on the family that can.
+      editFirst: refs?.edit_first ?? null,
       // The tracings this family's weights follow when one arrives as a
       // picture, and the editions that learned to. Empty where a guide is not
       // a picture at all — on those families it is the init image, which is
@@ -4314,10 +4314,11 @@ export function emptyPreStage() {
     // render whose only LoRA is a style and whose pictures go nowhere. Krea 2's
     // field; null until a reference is attached and one is picked.
     ref_lora: null,
-    // Draw onto an empty canvas even with pictures attached, instead of editing
-    // the first one. Only an edit family has anything to release; see
-    // `preStageStartsBlank`.
-    start_blank: false,
+    // Edit the first attached picture in place — the canvas follows it — rather
+    // than draw a new picture beside the attached ones on the aspect pill's
+    // canvas. Only an edit family reads it; see `preStageEditsFirst`. Off by
+    // default: a picture dropped on the node is a reference until asked.
+    edit_first: false,
     // Which Qwen-Image-Edit release the checkpoint is, which decides how many
     // pictures it reads — nothing in the file says, so it is declared here and
     // guessed from the filename. See `PRESTAGE_EDITIONS`.
@@ -4487,7 +4488,9 @@ export function parsePreStage(raw) {
       }
       state.ref_lora = typeof state.ref_lora === "string" && state.ref_lora.trim()
         ? state.ref_lora.trim() : null;
-      state.start_blank = state.start_blank === true;
+      // The old `start_blank` field, the same switch upside down, is not read:
+      // a blob that carried it wanted the default this now is.
+      state.edit_first = state.edit_first === true;
       if (!Object.keys(PRESTAGE_EDITIONS).includes(state.edition)) {
         state.edition = PRESTAGE_DEFAULT_EDITION;
       }
@@ -4548,7 +4551,7 @@ export function serializePreStage(state) {
     ...(state.quality !== "default" ? { quality: state.quality } : {}),
     ...(state.ref_method !== PRESTAGE_DEFAULT_REF_METHOD ? { ref_method: state.ref_method } : {}),
     ...(state.ref_lora ? { ref_lora: state.ref_lora } : {}),
-    ...(state.start_blank ? { start_blank: true } : {}),
+    ...(state.edit_first ? { edit_first: true } : {}),
     ...(state.edition !== PRESTAGE_DEFAULT_EDITION ? { edition: state.edition } : {}),
     [PRESTAGE_STILL_ARCH]: serializeStill(state[PRESTAGE_STILL_ARCH]),
     ...serializeSampling(state.sampling),
@@ -4635,16 +4638,14 @@ export function guessPreStageModels(models, byFolder) {
 
 /** Which picture this render's canvas follows, or null.
  *
- *  The init image, and on an edit family the first reference when there is no
- *  init: `Picture 1` is the thing being changed, so the compile promotes it to
- *  the init at denoise 1 and the aspect comes off it. Mirrored here so the
- *  aspect pill says "from image" for the same renders the compile resolves that
- *  way — see `compile_image.compile_prestage`. */
+ *  The init image, and on an edit family the first reference when the render
+ *  edits it in place: `Picture 1` is the thing being changed, so the compile
+ *  promotes it to the init at denoise 1 and the aspect comes off it. Mirrored
+ *  here so the aspect pill says "from image" for the same renders the compile
+ *  resolves that way — see `compile_image.compile_prestage`. */
 export function preStageSource(state) {
   if (state.init) return state.init.filename;
-  if (PRESTAGE_REFS[state.arch]?.editsFirst && !state.start_blank) {
-    return preStagePlainRefs(state)[0]?.filename ?? null;
-  }
+  if (preStageEditsFirst(state)) return preStagePlainRefs(state)[0]?.filename ?? null;
   return null;
 }
 
@@ -4685,18 +4686,17 @@ export function preStageLoadsBranch(state) {
   return Boolean(controlOf(pieceFamily(state?.[PRESTAGE_STILL_ARCH]?.request)));
 }
 
-/** Is this render drawing onto an empty canvas with its pictures only cited?
+/** Is this render editing its first picture in place?
  *
- *  Only ever true on a family whose first picture would otherwise be promoted
- *  to the thing being edited — everywhere else the empty canvas is simply what
- *  a render with no init image already does, and a flag saying so would be a
- *  second name for the same state. */
-export function preStageStartsBlank(state) {
+ *  Only ever true on a family that can, when asked (`edit_first`), with a
+ *  picture cited plain to edit — a member's picture is never the one changed —
+ *  and no init image, which would be the thing edited instead. Everywhere else
+ *  the attached pictures are references beside a new picture on the aspect
+ *  pill's canvas, which is what a render with no init already does. */
+export function preStageEditsFirst(state) {
   const refs = PRESTAGE_REFS[state?.arch];
-  if (!refs?.editsFirst || !state?.refs?.length || state.init) return false;
-  // Asked for — or nothing cited plain, only members' pictures, which the
-  // compile puts on as references and starts blank in front of.
-  return Boolean(state.start_blank) || !preStagePlainRefs(state).length;
+  if (!refs?.editsFirst || !state?.edit_first || state.init) return false;
+  return preStagePlainRefs(state).length > 0;
 }
 
 /** The resolved image canvas, mirroring compile_image.resolve_canvas: /16 grid,

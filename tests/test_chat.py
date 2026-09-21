@@ -869,13 +869,13 @@ def edited(action, cast=()):
 
 changed = edited({"act": "render", "kind": "still", "prompt": "bluer", "from": ["img-1"], "aspect": "1:1"})
 check("a picture cited plain is the one changed: first, from its own canvas",
-      ([r["handle"] for r in changed["refs"]], changed[chat.START_BLANK_FIELD]), (["img-1"], False))
+      ([r["handle"] for r in changed["refs"]], changed[chat.EDIT_FIRST_FIELD]), (["img-1"], True))
 check("and it keeps its own shape — the aspect is not written",
       "aspect" in changed, False)
 beside = edited({"act": "render", "kind": "still", "prompt": "a fox in that look",
                  "from": ["img-1:style"], "aspect": "1:1"})
 check("a picture cited for its look is only drawn from: a blank canvas, in the asked shape",
-      (beside[chat.START_BLANK_FIELD], beside["aspect"]), (True, "1:1"))
+      (chat.EDIT_FIRST_FIELD in beside, beside["aspect"]), (False, "1:1"))
 ordered = edited({"act": "render", "kind": "still", "prompt": "@img-2 in the look of @img-1",
                   "from": ["img-1:style", "img-2"]})
 # A member's picture carries its saved renditions (`compile.Asset.mods`):
@@ -962,23 +962,23 @@ check("with the compiler's own scope kept on the other",
       ordered["refs"][1].get("takes"), "style")
 member = edited({"act": "render", "kind": "still", "prompt": "@anna on @img-2"}, cast=CAST)
 check("a member's picture is a reference, never the picture being changed",
-      ([r["handle"] for r in member["refs"]], member[chat.START_BLANK_FIELD]), (["img-2", "img-1"], False))
+      ([r["handle"] for r in member["refs"]], member[chat.EDIT_FIRST_FIELD]), (["img-2", "img-1"], True))
 alone = edited({"act": "render", "kind": "still", "prompt": "@anna at dusk"}, cast=CAST)
 check("and a member alone is drawn from, on a blank canvas",
-      (alone[chat.START_BLANK_FIELD], alone["aspect"]), (True, "16:9"))
+      (chat.EDIT_FIRST_FIELD in alone, alone["aspect"]), (False, "16:9"))
 fresh = edited({"act": "render", "kind": "still", "prompt": "a fox", "aspect": "1:1"})
 check("a still with nothing cited on an edit family is an ordinary still",
-      (fresh[chat.START_BLANK_FIELD], fresh["aspect"], fresh["refs"]), (False, "1:1", []))
+      (chat.EDIT_FIRST_FIELD in fresh, fresh["aspect"], fresh["refs"]), (False, "1:1", []))
 check("none of which a family that only cites pictures does",
-      chat.START_BLANK_FIELD in chat.still_piece(
+      chat.EDIT_FIRST_FIELD in chat.still_piece(
           chat.validate({"act": "render", "kind": "still", "prompt": "x", "from": ["img-1:style"]}, LEDGER),
           LEDGER, {**RAIL, "still_pictures": {"takes": True, "edits": False}}), False)
 # The field is the compiler's, spelled here because `compile_image` imports
 # the neural backend and this module has to load on nothing.
 with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                        "creator", "compile_image.py"), encoding="utf-8") as source:
-    check("the blank-canvas field is spelled as the compiler spells it",
-          f'START_BLANK_FIELD = "{chat.START_BLANK_FIELD}"' in source.read(), True)
+    check("the edit-in-place field is spelled as the compiler spells it",
+          f'EDIT_FIRST_FIELD = "{chat.EDIT_FIRST_FIELD}"' in source.read(), True)
 
 # A rail that says nothing means a family that takes pictures, which is what
 # every still family but Krea 2 and Ideogram 4 is.

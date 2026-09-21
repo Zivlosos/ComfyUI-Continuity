@@ -121,7 +121,7 @@ def manifest():
                      # post-trained, so drawing a new picture with the attached
                      # ones only cited is a render they can do, and the
                      # promotion above would otherwise make it unreachable.
-                     "start_blank": compile_image.START_BLANK_FIELD,
+                     "edit_first": compile_image.EDIT_FIRST_FIELD,
                      # The built-in ControlNet: which tracings these weights
                      # follow when one arrives in an image slot, and from which
                      # edition. There is no node behind this — see

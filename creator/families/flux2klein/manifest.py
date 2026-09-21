@@ -116,15 +116,15 @@ def manifest():
                       "lora": False,
                       "checkpoint": True},
             # References with no adapter and no layout to pick: the base
-            # weights read the `ReferenceLatent` chain natively, and the first
-            # picture is the one being edited — so it is also the canvas, with
-            # `start_blank` as the way out, exactly Qwen Image Edit's
-            # arrangement. No editions: every published Klein reads the same
-            # chain.
+            # weights read the `ReferenceLatent` chain natively. `edits_first`
+            # says the first picture *can* be the one edited in place — the
+            # `edit_first` blob field asks for it, and the canvas follows the
+            # picture then — exactly Qwen Image Edit's arrangement. No
+            # editions: every published Klein reads the same chain.
             "refs": {"methods": [], "default_method": None,
                      "needs_lora": False, "edits_first": True,
                      "noun": list(still.REFS_NOUN),
-                     "start_blank": compile_image.START_BLANK_FIELD},
+                     "edit_first": compile_image.EDIT_FIRST_FIELD},
             # Saved references in the Flux 2 VAE's space — `declare.REFMOD`,
             # the table the make route encodes by and the ledger offers from.
             "refmod": dict(declare.REFMOD),

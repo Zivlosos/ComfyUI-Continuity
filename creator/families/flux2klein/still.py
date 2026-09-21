@@ -71,13 +71,15 @@ REFS_LIMIT_REASON = ("three is where this pack caps the reference chain — "
 # catch on the VL families.
 REFS_NEED_VISION = False
 
-# An edit is a picture being changed, so `Picture 1` also decides the canvas —
-# the shared compile promotes it to the init at denoise 1.0 and the render
-# comes out its shape. Unlike Qwen Image Edit the official graph starts the
-# latent *empty* (the instruction reaches the model through the reference
-# conditioning alone), and `emit_graph` honours that: a full-denoise init is
-# emitted as the template's own empty latent rather than an encode about to be
-# noised away. `start_blank` and an explicit init win exactly as they do there.
+# An edit in place is a picture being changed, so `Picture 1` decides the
+# canvas when the blob asks (`edit_first`) — the shared compile promotes it to
+# the init at denoise 1.0 and the render comes out its shape. Unlike Qwen Image
+# Edit the official graph starts the latent *empty* (the instruction reaches
+# the model through the reference conditioning alone), and `emit_graph`
+# honours that: a full-denoise init is emitted as the template's own empty
+# latent rather than an encode about to be noised away. Without the flag the
+# pictures are references on the aspect pill's canvas, and an explicit init
+# wins over either.
 EDITS_FIRST_REF = True
 
 # What each checkpoint wants from the sampler row — the shipped templates' own

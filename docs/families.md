@@ -11,9 +11,9 @@ same node on all of them; the model pill picks which one a render lands on.
 | LTX 2.5 | video with sound | up to nine stills, composited into one reference sheet |
 | Krea 2 | stills | up to three |
 | Ideogram 4.0 | stills | none, prose only |
-| Qwen Image Edit | stills | up to three; the first is the picture being edited |
-| Flux 2 Klein | stills | up to three; the first is the picture being edited |
-| Qwen Image 2.1 | stills | up to ten; the first is the picture being edited |
+| Qwen Image Edit | stills | up to three; click the first to edit it in place |
+| Flux 2 Klein | stills | up to three; click the first to edit it in place |
+| Qwen Image 2.1 | stills | up to ten; click the first to edit it in place |
 
 Every render files into a folder named after its family
 (`output/continuity/renders/ltx25/`, `output/continuity/stills/krea2/`) and
@@ -88,9 +88,12 @@ Stills from prose alone.
 
 Stills, edited from a picture you already have.
 
-- The first attached picture is not a reference, it is the picture being
-  changed. Attach the last frame of shot 1, write "the coat is red now", and
-  what comes back is the same person in the same room: shot 9's start frame.
+- An attached picture is a reference: the model reads it beside the sentence
+  and the aspect pill sets the canvas. To change a picture *in place*, click
+  the first picture's label so it reads "editing" — the canvas follows that
+  picture then. Attach the last frame of shot 1, click it, write "the coat is
+  red now", and what comes back is the same person in the same room: shot 9's
+  start frame.
 - Up to three pictures total, on the base weights.
 - **Turbo** is a Lightning LoRA (four or eight steps at cfg 1), matched to
   your checkpoint's edition. There is no distilled checkpoint.
@@ -103,8 +106,9 @@ Stills, drawn from prose or edited from a picture, natively.
 
 - Black Forest Labs' compact Flux 2, at 4B (Apache 2.0) or 9B
   (non-commercial). Pick the Qwen3 text encoder that matches the size.
-- Same arrangement as Qwen Image Edit: the first picture is the one being
-  edited, with "start blank" as the way out. Up to three pictures.
+- Same arrangement as Qwen Image Edit: pictures are references, and the
+  first one's label switches it to being edited in place. Up to three
+  pictures.
 - **Turbo** swaps in the 4-step distilled checkpoint. No turbo LoRA exists for
   this family.
 - The base checkpoint runs around 20 steps at cfg 5. There is no scheduler
@@ -117,22 +121,23 @@ Stills, drawn from prose or edited from pictures, on one checkpoint.
 - Alibaba's second-generation Qwen-Image, behind the Qwen3-VL 8B encoder
   Ideogram 4.0 already uses. Native 2K; ask for "an RGBA image with a
   transparent background" and the PNG comes out with an alpha channel.
-- Same arrangement as Qwen Image Edit and Flux 2 Klein: the first picture is
-  the one being edited and the canvas follows it, with "start blank" as the
-  way out. Up to ten pictures, the official workflow's own cap. Cite them with
+- Same arrangement as Qwen Image Edit and Flux 2 Klein: pictures are
+  references, and the first one's label switches it to being edited in place,
+  with the canvas following it. Up to ten pictures, the official workflow's
+  own cap. Cite them with
   `@` handles as anywhere else; in the prompt the model reads them as
   `<image1>`, `<image2>`, which is how its own tokenizer names them.
 - Every reference is resized to about the canvas's area before the encoder
-  reads it, on the encoder's own /32 grid — and on an edit the canvas *is*
-  that resize of the first picture, which is why the size on the stage card
-  can differ by a few pixels from the other families' at the same edge. The
-  official note is that sampling at any other size shifts the edit.
+  reads it, on the encoder's own /32 grid — and on an edit in place the
+  canvas *is* that resize of the first picture, which is why the size on the
+  stage card can differ by a few pixels from the other families' at the same
+  edge. The official note is that sampling at any other size shifts the edit.
 - The row is the template's 20 steps at cfg 1, euler/simple. Qwen's card
   asks 40-50 steps, and cfg 3 over the empty negative gives a slightly
   crisper ruff and skin — at four times the wall clock on a 2K canvas, since
   every step is evaluated twice. Raise both when a render is worth it.
 - The strongest way to use it: render the character once as a single
-  picture, then attach that picture, tick "start blank" and cite it — a
+  picture, then attach that picture and cite it — a
   turnaround sheet, a scene, a costume study. The face, hair, jewellery and
   fabric carry over panel for panel; what the picture does not show, the
   model invents, so give it a second picture where the gown matters.

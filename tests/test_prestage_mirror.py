@@ -77,7 +77,7 @@ out.fitted = {};
 for (const arch of ["qwen21", "flux2klein"]) {
   for (const [w, h] of [[3024, 4032], [4032, 3024], [1920, 1080], [2560, 1080], [1000, 3000], [1024, 1024]]) {
     for (const edge of [768, 1024, 1536, 2048]) {
-      const g = s.resolvedPreStage({ arch, aspect: "1:1", short_edge: edge, init: null,
+      const g = s.resolvedPreStage({ arch, aspect: "1:1", short_edge: edge, init: null, edit_first: true,
                                      refs: [{ filename: "p.png" }] }, { width: w, height: h });
       out.fitted[arch + ":" + w + "x" + h + "@" + edge] = [g.width, g.height];
     }
@@ -152,7 +152,7 @@ for key, size in reflected["canvases"].items():
     check(key, size, list(ci.resolve_canvas(ci.ASPECT_PRESETS[label], int(edge))))
 
 # The Python side is the compile itself, handed the same picture: the canvas
-# a promoted first picture gets on each family, with the refit where declared.
+# a picture edited in place gets on each family, with the refit where declared.
 for key, size in reflected["fitted"].items():
     arch, rest = key.split(":")
     dims, edge = rest.split("@")
@@ -160,7 +160,7 @@ for key, size in reflected["fitted"].items():
     family = {"qwen21": q21, "flux2klein": kl}[arch]
     payload = ci.compile_prestage(
         {"arch": arch, "prompt": "a", "aspect": "1:1", "short_edge": int(edge),
-         "refs": ["p.png"], "loras": []}, family, lambda name: (w, h))
+         "refs": ["p.png"], "loras": [], "edit_first": True}, family, lambda name: (w, h))
     check(key, size, [payload.width, payload.height])
     if arch == "qwen21":
         check(key + " budget", q21._encoder_size(payload.ref_resolution, w / h),
@@ -188,7 +188,7 @@ check("...and Qwen Image 2.1's own", reflected["base_rows"]["qwen21"], q21.QWEN2
 check("what a reference is on each arch", reflected["refs"],
       {"krea2": {"reads": True, "methods": list(k2.REF_METHODS),
                  "needsLora": True, "editsFirst": False,
-                 "noun": list(k2.REFS_NOUN), "startBlank": None,
+                 "noun": list(k2.REFS_NOUN), "editFirst": None,
                  "nativeControl": [], "controlEditions": [],
                  "adapter": k2.REF_LORA_FIELD,
                  "adapterHints": list(k2.REF_LORA_HINTS),
@@ -196,7 +196,7 @@ check("what a reference is on each arch", reflected["refs"],
                  "max": ci.MAX_STYLE_REFS},
        "ideogram4": {"reads": False, "methods": [],
                      "needsLora": False, "editsFirst": False,
-                     "noun": list(ci.REFS_NOUN), "startBlank": None,
+                     "noun": list(ci.REFS_NOUN), "editFirst": None,
                      "nativeControl": [], "controlEditions": [],
                      "adapter": None, "adapterHints": [],
                      "editions": None, "defaultEdition": None, "editionHints": [],
@@ -205,7 +205,7 @@ check("what a reference is on each arch", reflected["refs"],
        "qwenedit": {"reads": True, "methods": [],
                     "needsLora": False, "editsFirst": True,
                     "noun": list(qe.REFS_NOUN),
-                    "startBlank": ci.START_BLANK_FIELD,
+                    "editFirst": ci.EDIT_FIRST_FIELD,
                     "nativeControl": list(qe.NATIVE_CONTROL),
                     "controlEditions": list(qe.CONTROL_EDITIONS),
                     "adapter": None, "adapterHints": [],
@@ -216,7 +216,7 @@ check("what a reference is on each arch", reflected["refs"],
        "flux2klein": {"reads": True, "methods": [],
                       "needsLora": False, "editsFirst": True,
                       "noun": list(kl.REFS_NOUN),
-                      "startBlank": ci.START_BLANK_FIELD,
+                      "editFirst": ci.EDIT_FIRST_FIELD,
                       "nativeControl": [], "controlEditions": [],
                       "adapter": None, "adapterHints": [],
                       "editions": None, "defaultEdition": None,
@@ -224,7 +224,7 @@ check("what a reference is on each arch", reflected["refs"],
        "qwen21": {"reads": True, "methods": [],
                   "needsLora": False, "editsFirst": True,
                   "noun": list(q21.REFS_NOUN),
-                  "startBlank": ci.START_BLANK_FIELD,
+                  "editFirst": ci.EDIT_FIRST_FIELD,
                   "nativeControl": [], "controlEditions": [],
                   "adapter": None, "adapterHints": [],
                   "editions": None, "defaultEdition": None,

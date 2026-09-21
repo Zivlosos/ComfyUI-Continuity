@@ -98,10 +98,19 @@ REFS_NOUN = ("style reference", "style references")
 # format with the slot's 1-based number as `n`.
 REFS_CITATION = "Picture {n}"
 
-# The blob field that releases an edit family's first picture from being the
-# thing edited. Named here rather than in the family because the shared flow is
-# what reads it — see the promotion in `compile_prestage`.
-START_BLANK_FIELD = "start_blank"
+# The blob field that makes an edit family's first picture the thing edited —
+# the canvas follows it and the render is fitted to it. Off, an attached picture
+# is a reference and nothing more: it reaches the model through the encoder,
+# cited by its label, and the aspect pill sets the canvas. Named here rather
+# than in the family because the shared flow is what reads it — see the
+# promotion in `compile_prestage`. It replaced `start_blank`, which was the same
+# switch the other way up: the promotion by default and the flag as the way
+# out. Nobody wanted the default — every picture dropped on the node became
+# the thing edited, when what the reference models do natively is draw a new
+# picture on an empty latent with the pictures read beside the sentence — so
+# the old field is not read at all: a blob that carried it gets the new
+# default, which is what it was asking for.
+EDIT_FIRST_FIELD = "edit_first"
 
 # How much of the init image survives by default when one is attached. The same
 # number the img2img tradition has always landed on: enough to keep the
@@ -495,7 +504,8 @@ def cast_into_still(data, family_id, space=None, takes_pictures=True):
     out = {**data, "prompt": prompt, "refs": ordered,
            "loras": merge_loras(data.get("loras") or [], worn)}
     if picked and not any(r in plain or str(r["handle"]) in written for r in kept):
-        out[START_BLANK_FIELD] = True
+        # Only members' pictures: nothing here is the thing being changed.
+        out.pop(EDIT_FIRST_FIELD, None)
     return out
 
 
@@ -563,26 +573,24 @@ def compile_prestage(data, family, image_size_lookup=None):
 
     init = _parse_init(data.get("init"))
     if (init is None and refs and getattr(family, "EDITS_FIRST_REF", False)
-            and not data.get(START_BLANK_FIELD) and not refmod.is_mod(refs[0][1])):
-        # An edit family's first reference is *usually* the picture being
-        # edited, so it is also what the render starts from: the canvas follows
-        # its aspect and the latent is that image encoded, at a denoise of 1.0
-        # because the instruction reaches the model through the reference
-        # conditioning rather than through leftover noise. That is the shape the
-        # published Qwen-Image-Edit workflow has, said once here instead of as a
-        # second image field the user would have to fill with a picture already
-        # attached.
+            and data.get(EDIT_FIRST_FIELD) and not refmod.is_mod(refs[0][1])):
+        # Asked to edit the first picture in place: it is what the render is
+        # fitted to, so it is also the init — the canvas follows its aspect
+        # (and on Qwen Image 2.1 its encoder resize, see `fit_canvas`), at a
+        # denoise of 1.0 because the instruction reaches the model through the
+        # reference conditioning rather than through leftover noise. That is
+        # the shape the published Qwen-Image-Edit workflow has, said once here
+        # instead of as a second image field the user would have to fill with
+        # a picture already attached.
         #
-        # Two things override it. An explicit init wins — it is the only way to
-        # ask for a partial denoise, and a family with a reference pool has no
-        # other place to say "keep this composition". And `start_blank` wins,
-        # which is the render these weights can do that the promotion would
-        # otherwise take away: draw a new picture from an empty canvas with the
-        # attached ones only cited. Qwen Image Edit is Qwen-Image post-trained,
-        # not replaced, so "here are three pictures, now make a fourth" is a
-        # real request and not a mistake — and without the flag there is no way
-        # to make it, because attaching the first picture is what silently turns
-        # the render into an edit of it.
+        # Opt-in, not the default. Without the flag an attached picture is a
+        # reference like any other — read by the encoder, cited by its label,
+        # drawn beside on the canvas the aspect pill asks for — which is the
+        # render these weights do natively: "here are three pictures, now make
+        # a fourth" is Qwen-Image post-trained, not replaced. An explicit init
+        # still wins over the flag; it is the only way to ask for a partial
+        # denoise, and a family with a reference pool has no other place to
+        # say "keep this composition".
         init = {"filename": refs[0][1], "denoise": 1.0}
         if refs[0][2]:
             init["crop"] = refs[0][2]

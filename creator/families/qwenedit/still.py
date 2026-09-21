@@ -98,12 +98,14 @@ EDITION_REASON = {
        "picture — switch the edition to 2509 or 2511 for three",
 }
 
-# ...and the first of them is not only a reference. An edit is a picture being
-# changed, so `Picture 1` is also what the render starts from: the shared
-# compile promotes it to the init image at denoise 1.0, which is the shape the
-# official workflow has (`VAEEncode` of the first image straight into the
-# sampler) and, on the way, the reason the canvas follows that picture's aspect
-# instead of the aspect pill. An explicit init still wins — see
+# ...and the first of them can be more than a reference. An edit in place is a
+# picture being changed, so when the blob asks (`edit_first`) `Picture 1` is
+# also what the render starts from: the shared compile promotes it to the init
+# image at denoise 1.0, which is the shape the official workflow has
+# (`VAEEncode` of the first image straight into the sampler) and, on the way,
+# the reason the canvas follows that picture's aspect instead of the aspect
+# pill. Without the flag the pictures are references and the aspect pill is
+# the canvas; an explicit init wins over either — see
 # `compile_image.compile_prestage`, which is where this flag is read.
 EDITS_FIRST_REF = True
 

@@ -468,12 +468,12 @@ check("flux2klein turbo is the distilled checkpoint and only that",
       {"steps": kl.TURBO_STEPS, "row": kl.KLEIN_TURBO,
        "default_quality": kl.DEFAULT_TURBO_QUALITY,
        "lora": False, "checkpoint": True})
-check("flux2klein references are native and the first is the one edited",
+check("flux2klein references are native and the first can be the one edited",
       (klein["capabilities"]["refs"]["methods"],
        klein["capabilities"]["refs"]["needs_lora"],
        klein["capabilities"]["refs"]["edits_first"],
-       klein["capabilities"]["refs"]["start_blank"]),
-      ([], False, True, ci.START_BLANK_FIELD))
+       klein["capabilities"]["refs"]["edit_first"]),
+      ([], False, True, ci.EDIT_FIRST_FIELD))
 check("flux2klein reference cap is the pack's own, not an encoder slot count",
       klein["prompt"]["max_refs"], kl.REFS_LIMIT)
 check("flux2klein's matched encoder is the text-only cut, and that is declared",
@@ -498,12 +498,12 @@ check("qwen21 turbo is a LoRA and only a LoRA — there is no distilled file",
       {"steps": q21.TURBO_STEPS, "row": q21.TURBO_ROW,
        "default_quality": q21.DEFAULT_TURBO_QUALITY,
        "lora": True, "default_strength": 1.0, "checkpoint": False})
-check("qwen21 references are native and the first is the one edited",
+check("qwen21 references are native and the first can be the one edited",
       (qwen21["capabilities"]["refs"]["methods"],
        qwen21["capabilities"]["refs"]["needs_lora"],
        qwen21["capabilities"]["refs"]["edits_first"],
-       qwen21["capabilities"]["refs"]["start_blank"]),
-      ([], False, True, ci.START_BLANK_FIELD))
+       qwen21["capabilities"]["refs"]["edit_first"]),
+      ([], False, True, ci.EDIT_FIRST_FIELD))
 check("qwen21 has no editions and no native-control table — one release",
       ("editions" in qwen21["capabilities"]["refs"],
        "native_control" in qwen21["capabilities"]["refs"]), (False, False))

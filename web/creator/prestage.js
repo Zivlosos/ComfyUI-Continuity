@@ -750,8 +750,8 @@ export class PreStageEditor {
              + "natural-language prompts.");
     }
     return refs.editsFirst
-      ? t("Say what to change. The first picture is the one being changed; name "
-        + "the others with @ and they arrive as Picture 2 and Picture 3.")
+      ? t("Describe the image, naming the attached pictures with @. Click a "
+        + "picture's label to edit that picture in place instead.")
       : t("Describe the image. These models were trained on long, detailed "
         + "natural-language prompts. Use @ to name a style reference.");
   }
@@ -770,8 +770,8 @@ export class PreStageEditor {
                openings: t("Long, detailed natural language — these models were trained on it") };
     }
     return refs.editsFirst
-      ? { ask: t("Say what to change"),
-          openings: t("The first picture is the one being changed · @ names the others · / brings in files") }
+      ? { ask: t("Describe the image"),
+          openings: t("@ names an attached picture · click its label to edit it in place · / brings in files") }
       : { ask: t("Describe the image"),
           openings: t("@ names a style reference · / brings in files") };
   }
@@ -905,12 +905,13 @@ export class PreStageEditor {
     const max = S.preStageMaxRefs(this.state);
     if (refs.editsFirst) {
       return max === 1
-        ? t("The picture the instruction is about. It sets the canvas and the render "
-          + "starts from it. These weights read one — the 2509 and 2511 editions are "
-          + "the ones post-trained on three.")
-        : t("Up to {max} pictures the instruction is about. The first one is the "
-          + "picture being changed — it sets the canvas and the render starts from "
-          + "it; the others are there to be cited, as Picture 2 and Picture 3.", { max });
+        ? t("The picture the instruction is about, read by the model beside the "
+          + "sentence. Click its label to edit it in place — the canvas follows it "
+          + "then. These weights read one — the 2509 and 2511 editions are the ones "
+          + "post-trained on three.")
+        : t("Up to {max} pictures the model reads beside the sentence, cited by @. "
+          + "The render is a new picture on the aspect pill's canvas; click the "
+          + "first picture's label to edit that picture in place instead.", { max });
     }
     return t("Up to {max} images whose look this render should carry. Encoded through "
            + "the Qwen edit path Krea 2 was post-trained against — and only read at "
@@ -1035,14 +1036,16 @@ export class PreStageEditor {
     // (`compile_image.cast_into_still`), so the chip says whose it is
     // rather than a slot number that is not where it will land.
     const owner = (this.state.subjects ?? []).find((subject) => S.subjectFiles(subject).includes(ref.handle));
+    // The first plain picture on an edit family carries the switch: cited like
+    // the rest, or the one edited in place.
     const edits = refs.editsFirst && slot === 0 && !this.state.init && !guide && !owner;
-    const blank = S.preStageStartsBlank(this.state);
+    const editing = S.preStageEditsFirst(this.state);
     const role = guide
       ? t("guide")
       : owner
         ? t("{who}'s", { who: owner.handle })
         : refs.editsFirst
-          ? (edits && !blank ? t("editing") : t("Picture {n}", { n: slot + 1 }))
+          ? (edits && editing ? t("editing") : t("Picture {n}", { n: slot + 1 }))
           : t(refs.noun?.[0] ?? "style reference");
     // Past the cap, and drawn rather than dropped: the blob keeps every
     // reference it was given so the compile is the one place that decides, and
@@ -1090,16 +1093,16 @@ export class PreStageEditor {
       // picture being changed while the rest are cited beside it.
       edits
         ? el("button", {
-            class: `mmc-asset-role mmc-asset-role-pick${blank ? "" : " on"}`,
+            class: `mmc-asset-role mmc-asset-role-pick${editing ? " on" : ""}`,
             text: role,
-            title: blank
-              ? t("Drawing onto an empty canvas — these pictures are only cited, and "
-                + "the aspect pill sets the shape. Click to edit this picture instead.")
-              : t("Editing this picture: the canvas follows its shape and the render "
-                + "starts from it. Click to draw onto an empty canvas instead and "
-                + "leave it as Picture 1, cited like the others."),
+            title: editing
+              ? t("Editing this picture in place: the canvas follows its shape and "
+                + "the render is fitted to it. Click to make it a reference like the "
+                + "others — cited as Picture 1, drawn beside on the aspect pill's canvas.")
+              : t("A reference: the model reads it beside the sentence, and the aspect "
+                + "pill sets the canvas. Click to edit this picture in place instead."),
             onclick: () => {
-              this.state.start_blank = !this.state.start_blank;
+              this.state.edit_first = !this.state.edit_first;
               this.commit();
             },
           })

@@ -53,15 +53,15 @@ check("only the picture that stands for her rides in — her second stays off th
       [r["handle"] for r in out["refs"]], ["img-1"])
 check("she wears Klein's row on Klein, after the stack's own",
       [e["name"] for e in out["loras"]], ["style.safetensors", "people/anna_klein.safetensors"])
-check("on an edit family her picture is never the one changed: the render starts blank",
-      out.get(ci.START_BLANK_FIELD), True)
+check("on an edit family her picture is never the one changed",
+      out.get(ci.EDIT_FIRST_FIELD), None)
 
 plain = ci.cast_into_still(blob("@anna beside @img-9", [anna()],
                                 refs=[{"handle": "img-9", "filename": "wall.png"},
                                       {"handle": "img-1", "filename": "anna_front.png"}]),
                            "flux2klein", "flux2")
 check("a picture cited plain leads, hers follows, and the render edits the plain one",
-      ([r["handle"] for r in plain["refs"]], plain.get(ci.START_BLANK_FIELD)), (["img-9", "img-1"], None))
+      ([r["handle"] for r in plain["refs"]], plain.get(ci.EDIT_FIRST_FIELD)), (["img-9", "img-1"], None))
 
 uncited = ci.cast_into_still(blob("a fox", [anna()]), "flux2klein", "flux2")
 check("a member nobody names takes their pictures with them", uncited["refs"], [])

@@ -310,9 +310,9 @@ try {
     qwenEditBase: { arch: "qwenedit", prompt: "p", edition: "base",
                     refs: [{ handle: "ref-1", filename: "a.png" },
                            { handle: "ref-2", filename: "b.png" }], loras: [] },
-    // The same two pictures, released from the promotion: the render draws onto
-    // an empty canvas and Picture 1 is cited like the rest.
-    qwenEditBlank: { arch: "qwenedit", prompt: "p", start_blank: true,
+    // The same two pictures with the first asked to be edited in place: the
+    // canvas follows it and its chip says so.
+    qwenEditBlank: { arch: "qwenedit", prompt: "p", edit_first: true,
                      refs: [{ handle: "ref-1", filename: "a.png" },
                             { handle: "ref-2", filename: "b.png" }], loras: [] },
     // A guide off the tracing bench, which on these weights is a picture the
@@ -3263,12 +3263,12 @@ check("...and does not draw on a family with one answer for every file",
       "2511" in rows.get("kreaRefs", ""), False)
 
 # The first picture on an edit family is the one whose role is a decision, so
-# the word is a switch: "editing" while it is the subject, "Picture 1" once the
-# render is drawing onto an empty canvas with it merely cited.
-check("...and as an ordinary citation once the canvas starts blank",
+# the word is a switch: "Picture 1" while it is a reference like the rest, which
+# is the default, and "editing" once asked to be the subject.
+check("...and as the one being changed once asked",
       ("editing" in rows.get("qwenEditBlank", ""),
        "Picture 1" in rows.get("qwenEditBlank", "")),
-      (False, True))
+      (True, False))
 # And nothing on an edit family calls an attached picture a style reference —
 # on these weights that names the one property they are not read for.
 check("the edit family's pictures are not styles",
@@ -3297,13 +3297,15 @@ check("the picture past the cap is drawn struck rather than dropped",
 # answers is a pill nobody should be shown.
 check("...nor on the family whose base weights read references",
       pill.get("qwenEdit"), None)
-# The first picture is the one being changed and the rest are cited beside it.
-# The second chip used to read "style", which named the one property these
-# weights do not read an attached picture for — an edit model is being told what
-# is *in* the picture, not what it looks like.
-check("the edit family's first picture is chipped as the one being changed",
-      ("editing" in rows.get("qwenEdit", ""), "Picture 2" in rows.get("qwenEdit", "")),
-      (True, True))
+# Unasked, every picture is a numbered citation. The chips used to read "style",
+# which named the one property these weights do not read an attached picture
+# for — an edit model is being told what is *in* the picture, not what it looks
+# like — and the first used to read "editing" by default, which made attaching
+# a picture an edit of it.
+check("the edit family's pictures are chipped as citations until asked",
+      ("editing" in rows.get("qwenEdit", ""), "Picture 1" in rows.get("qwenEdit", ""),
+       "Picture 2" in rows.get("qwenEdit", "")),
+      (False, True, True))
 check("its turbo pill draws the Lightning ladder and names the LoRA",
       ("4" in rows.get("qwenTurbo", ""),
        "qwen_edit_lightning_4step" in rows.get("qwenTurbo", "")),

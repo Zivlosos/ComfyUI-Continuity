@@ -673,7 +673,9 @@ def edit_graph(data=None, **row):
                                      sampling_mod.Sampling(**settings),
                                      NODE_ID, qe).finalize())
 
-edit_payload, edit = edit_graph()
+# `edit_first` on: the first picture is the one edited in place. The bare blob
+# below — the default — reads its pictures as references beside a new picture.
+edit_payload, edit = edit_graph(edit_blob(edit_first=True))
 
 check("the schedule shift core does not detect is put back",
       edit["ModelSamplingAuraFlow"][0][1]["shift"], qe.AURAFLOW_SHIFT)
@@ -700,7 +702,7 @@ for _, inputs in edit["TextEncodeQwenImageEditPlus"]:
           ("image1" in inputs, "image2" in inputs, "image3" in inputs),
           (True, True, False))
 
-# The first reference is the picture being changed: promoted to the init at a
+# Asked to edit the first picture in place, it is promoted to the init at a
 # denoise of 1.0, which is the published workflow's latent exactly.
 check("the first picture becomes the render's own starting point",
       edit_payload.init, {"filename": "her.png", "denoise": 1.0})
@@ -710,15 +712,15 @@ check("...at full denoise, because the instruction arrives as conditioning",
       edit["KSampler"][0][1]["denoise"], 1.0)
 
 # And the canvas follows it, the way an init image's always has.
-sized_payload = ci.compile_prestage(edit_blob(), qe, lambda name: (1920, 1080))
+sized_payload = ci.compile_prestage(edit_blob(edit_first=True), qe, lambda name: (1920, 1080))
 check("the canvas takes the edited picture's shape",
       (sized_payload.width > sized_payload.height, sized_payload.height), (True, 1024))
-# ...and the way out of it. These are Qwen-Image weights post-trained, not
-# replaced, so "here are two pictures, now draw a third" is a render they can
-# do — and the promotion above is what would otherwise make it unreachable, by
-# turning the act of attaching the first picture into an edit of it.
-blank_payload, blank = edit_graph(edit_blob(start_blank=True))
-check("a blank start releases the first picture from being the subject",
+# And the default, with nothing asked: the pictures are references. These are
+# Qwen-Image weights post-trained, not replaced, so "here are two pictures,
+# now draw a third" is the render they do natively — and attaching a picture
+# must not silently turn the render into an edit of it.
+blank_payload, blank = edit_graph(edit_blob())
+check("an attached picture is a reference, not the subject, until asked",
       blank_payload.init, None)
 check("...so the render draws onto an empty canvas",
       ("EmptySD3LatentImage" in blank, "VAEEncode" in blank), (True, False))
@@ -729,12 +731,14 @@ check("...while both pictures are still read and still cited",
        "image2" in blank["TextEncodeQwenImageEditPlus"][0][1]),
       (True, True))
 check("an explicit init beats the flag, since it is the only partial denoise",
-      ci.compile_prestage(edit_blob(start_blank=True,
+      ci.compile_prestage(edit_blob(edit_first=True,
                                     init={"filename": "plate.png", "denoise": 0.4}),
                           qe).init,
       {"filename": "plate.png", "denoise": 0.4})
-check("the flag means nothing on a family that never promoted anything",
-      ci.compile_prestage(refs_blob(start_blank=True), k2).init, None)
+check("the flag means nothing on a family whose pictures are never the subject",
+      ci.compile_prestage(refs_blob(edit_first=True), k2).init, None)
+check("the retired start_blank field is not read — its default is this one",
+      ci.compile_prestage(edit_blob(start_blank=False), qe).init, None)
 
 check("an explicit init still wins — the only way to ask for a partial denoise",
       ci.compile_prestage(edit_blob(init={"filename": "plate.png", "denoise": 0.4}),
@@ -794,9 +798,9 @@ check("...while one picture on them is the render they can do",
 GUIDE = [{"handle": "img-1", "filename": "depth.png", "role": "guide"}]
 check("a guide is wired exactly as any other picture is",
       ci.compile_prestage(edit_blob(refs=GUIDE), qe).refs, ["depth.png"])
-check("...and the canvas follows it, so the render comes out its shape",
+check("...and the canvas is the aspect pill's, as for any reference",
       ci.compile_prestage(edit_blob(refs=GUIDE), qe, lambda name: (1920, 1080)).width
-      > ci.compile_prestage(edit_blob(refs=GUIDE), qe, lambda name: (1920, 1080)).height,
+      == ci.compile_prestage(edit_blob(refs=GUIDE), qe, lambda name: (1920, 1080)).height,
       True)
 expect_error("a guide handed to the edition that never learned one is refused",
              lambda: ci.compile_prestage(edit_blob(refs=GUIDE, edition="base"), qe),
@@ -867,11 +871,11 @@ check("the latent is the template's empty Flux 2 one, at the canvas",
       kt2i["EmptyFlux2LatentImage"][0][1],
       {"width": kl_payload.width, "height": kl_payload.height, "batch_size": 1})
 
-# The reference chain, and the promotion around it: `Picture 1` is the thing
-# being edited, so the canvas follows it — but its latent contribution is the
+# The reference chain, and the promotion around it: asked to edit `Picture 1`
+# in place, the canvas follows it — but its latent contribution is the
 # reference chain, not an init encode about to be noised away.
 kle_payload, kle = klein_graph(klein_blob(
-    prompt="put @img-2 on the table",
+    prompt="put @img-2 on the table", edit_first=True,
     refs=[{"filename": "room.png", "handle": "img-1"},
           {"filename": "cup.png", "handle": "img-2"}]))
 
@@ -895,12 +899,11 @@ check("the first picture is promoted, so the canvas will follow it",
 check("...but its latent stays the template's empty one",
       "EmptyFlux2LatentImage" in kle, True)
 sized_klein = ci.compile_prestage(
-    klein_blob(refs=["room.png"]), kl, lambda name: (1920, 1080))
+    klein_blob(refs=["room.png"], edit_first=True), kl, lambda name: (1920, 1080))
 check("the canvas takes the edited picture's shape",
       sized_klein.width > sized_klein.height, True)
-blank_klein, blank_kg = klein_graph(klein_blob(refs=["room.png"],
-                                               start_blank=True))
-check("a blank start releases the picture from being the subject",
+blank_klein, blank_kg = klein_graph(klein_blob(refs=["room.png"]))
+check("unasked, the picture is a reference and not the subject",
       (blank_klein.init, "EmptyFlux2LatentImage" in blank_kg), (None, True))
 
 # A picture carrying its saved rendition in Klein's space: the slot is read
@@ -909,7 +912,7 @@ check("a blank start releases the picture from being the subject",
 # framed and sized as before, and a rendition in another family's space is
 # nothing to Klein.
 klm_payload, klm = klein_graph(klein_blob(
-    prompt="put @img-2 on the table",
+    prompt="put @img-2 on the table", edit_first=True,
     refs=[{"filename": "room.png", "handle": "img-1",
            "mods": {"flux2": "refmod:cast/room.flux2", "h3_video": "refmod:cast/room"}},
           {"filename": "cup.png", "handle": "img-2", "mods": {"h3_video": "refmod:cast/cup"}}]))
@@ -926,7 +929,7 @@ klm_guider = klm["CFGGuider"][0][1]
 klm_ref_ids = {node_id for node_id, _ in klm["ReferenceLatent"]}
 check("both branches the guider reads end on the chain",
       (klm_guider["positive"][0] in klm_ref_ids, klm_guider["negative"][0] in klm_ref_ids), (True, True))
-check("the picture is still the picture: promoted to the canvas",
+check("the picture is still the picture: promoted to the canvas when asked",
       klm_payload.init, {"filename": "room.png", "denoise": 1.0})
 # A mod cited outright — a downloaded Klein set, no picture behind it — is a
 # reference and only that: never the init, never framed, never loaded as a
@@ -1060,10 +1063,10 @@ check("the row is the template's", (q21_sampler["steps"], q21_sampler["cfg"], q2
       (25, 1.0, 1.0))
 
 # Pictures: each loaded into its numbered slot on the one encoder node, cited
-# the way the 2.1 tokenizer spells them, the first promoted so the canvas
-# follows it — but its latent stays the template's empty one.
+# the way the 2.1 tokenizer spells them, the first edited in place when asked
+# so the canvas follows it — but its latent stays the template's empty one.
 q21e_payload, q21e = qwen21_graph(qwen21_blob(
-    prompt="put @img-2 on the table in @img-1",
+    prompt="put @img-2 on the table in @img-1", edit_first=True,
     refs=[{"filename": "room.png", "handle": "img-1"},
           {"filename": "cup.png", "handle": "img-2"}]),
     size_lookup=lambda name: (1920, 1080) if name == "room.png" else (640, 640))
@@ -1085,7 +1088,7 @@ check("the first picture is promoted, so the canvas follows it",
 # so the empty latent the sampler starts from is the size the reference latent
 # is spliced in at. A 4:3 phone photo is the case the shared /16 snap got
 # wrong by a latent row: 1360 on the canvas, 1376 out of the encoder.
-q43_payload, q43 = qwen21_graph(qwen21_blob(refs=["photo.png"]),
+q43_payload, q43 = qwen21_graph(qwen21_blob(refs=["photo.png"], edit_first=True),
                                 size_lookup=lambda name: (3024, 4032))
 check("an edit's canvas is the encoder's own resize of the first picture",
       (q43_payload.width, q43_payload.height, q43_payload.ref_resolution,
@@ -1096,8 +1099,8 @@ check("...which is the size the encoder computes from that budget",
       q21.fit_canvas(1024, 1360, 3024 / 4032), (1024, 1376, 1184))
 check("...stepping the budget down where the resize would pass the ceiling",
       q21.fit_canvas(2048, 864, 2560 / 1080), (2016, 864, 1312))
-blank_q21, blank_qg = qwen21_graph(qwen21_blob(refs=["room.png"], start_blank=True))
-check("a blank start releases the picture from being the subject",
+blank_q21, blank_qg = qwen21_graph(qwen21_blob(refs=["room.png"]))
+check("unasked, the picture is a reference and not the subject",
       (blank_q21.init, "EmptyLatentImage" in blank_qg), (None, True))
 
 # An explicit partial-denoise init is img2img as any other: the init encoded

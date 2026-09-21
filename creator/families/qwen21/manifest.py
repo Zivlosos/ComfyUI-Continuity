@@ -111,16 +111,18 @@ def manifest():
                       "lora": True, "default_strength": 1.0,
                       "checkpoint": False},
             # References with no adapter and no layout to pick: the base weights
-            # read them. `edits_first` is what makes this an edit family —
-            # `Picture 1` is the picture being changed, so it is also the
-            # canvas — and `start_blank` is the way out of that, since drawing
-            # a new picture with the attached ones only cited is a render these
-            # weights do natively. No editions and no native-control table:
-            # one release, and a guide is a picture like any other here.
+            # read them. `edits_first` is what makes this an edit family:
+            # `Picture 1` can be the picture being changed in place, which the
+            # `edit_first` blob field asks for and which makes it the canvas
+            # too. Off — the default — the attached pictures are only cited
+            # and the render is a new picture on the aspect pill's canvas,
+            # which is what these weights do natively. No editions and no
+            # native-control table: one release, and a guide is a picture
+            # like any other here.
             "refs": {"methods": [], "default_method": None,
                      "needs_lora": False, "edits_first": True,
                      "noun": list(still.REFS_NOUN),
-                     "start_blank": compile_image.START_BLANK_FIELD},
+                     "edit_first": compile_image.EDIT_FIRST_FIELD},
         },
         "prompt": {
             # Plain prose; references are cited as the labels the 2.1
