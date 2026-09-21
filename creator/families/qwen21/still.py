@@ -78,27 +78,33 @@ REFS_LIMIT_REASON = ("ten is where the official Qwen Image 2.1 workflow stops �
 # win exactly as they do there.
 EDITS_FIRST_REF = True
 
-# The references' pixel budget: `TextEncodeQwenImage21` resizes each picture to
-# about `resolution`² pixels, aspect kept, at multiples of 32 — the vision
-# tower's patch — and the first picture's resized size is the one the edit is
-# fitted to. The template's own note is to keep the canvas close to it "or the
-# edit can shift", so rather than a widget the budget is *derived* from the
-# canvas the shared compile already resolved: the canvas follows the first
-# picture's aspect, and the same area at the same aspect is the same size to
-# within the two grids' rounding. 0 would keep every reference at its file
-# size, which on a phone photo is a 12-megapixel latent the model was never
-# asked to attend over.
+# The references' pixel budget and the canvas, which are one decision here.
+# `TextEncodeQwenImage21` resizes each picture to about `resolution`² pixels,
+# aspect kept, on the vision tower's /32 patch grid, and hands back an empty
+# latent at the *first* picture's resized size with the note that "any other
+# size shifts the edit": the reference latent is spliced into the sequence at
+# that size, and a target one latent row bigger or smaller is an edit that
+# drifts. So on an edit the canvas is not snapped to the shared /16 grid and
+# the budget derived from it — that is off by a row on a 4:3 phone photo at
+# the default edge — but built the other way round: the budget is taken from
+# the canvas the shared compile resolved, and the canvas becomes the encoder's
+# own resize of the picture at that budget, by the encoder's own arithmetic.
+# The budget then rides in the payload (`ref_resolution`), because a /32
+# canvas does not round back to the budget that made it on a wide aspect. The
+# template's fixed 1024 is not kept: a 2K edit wants a 2K reference. 0 would
+# keep every reference at its file size, which on a phone photo is a
+# 12-megapixel latent the model was never asked to attend over.
 REF_RESOLUTION_STEP = 32
 
-# What the checkpoint wants from the sampler row with nothing distilled on it.
-# Not the shipped template's 25 at cfg 1: a six-way sweep on the lab (2026-09,
-# same seed, a candid phone-photo prompt) had that row softest of the set with
-# the weakest hands, 40 steps in the range Qwen's own card asks (40-50, euler)
-# resolving them, and cfg 3 — a real CFG over the encoder's empty negative —
-# the contrast and skin Felix picked over cfg 1's flatter render and cfg 4's
-# stock-photo push. The templates say to keep cfg at 1 unless a negative is
-# written; the sweep says the guidance is worth having with none.
-QWEN21_BASE = {"steps": 40, "cfg": 3.0, "sampler_name": "euler", "scheduler": "simple"}
+# What the checkpoint wants from the sampler row with nothing distilled on it:
+# the shipped template's row. A six-way sweep on the lab (2026-09, a candid
+# phone-photo prompt) first picked 40 steps at cfg 3 for its hands and skin,
+# and a second sitting at native 2K put that back: a 2048x1152 character sheet
+# was four minutes at 40/cfg 3 (3.6 s a step, the uncond doubling every one)
+# against one at 20/cfg 1, for a crisper ruff and nothing anyone chose the
+# picture by. Qwen's own card asks 40-50 at euler; the row is where to go
+# when a render is worth the wait, not where every render starts.
+QWEN21_BASE = {"steps": 20, "cfg": 1.0, "sampler_name": "euler", "scheduler": "simple"}
 
 # The speed axis, and like Qwen Image Edit's it is a LoRA or it is nothing:
 # there is no distilled Qwen Image 2.1 checkpoint. The ladder's ends are where
@@ -136,9 +142,37 @@ def max_refs(data):
     return REFS_LIMIT, REFS_LIMIT_REASON
 
 
-def ref_resolution(width, height):
-    """The encoder's pixel budget for the canvas — see `REF_RESOLUTION_STEP`."""
-    return round(math.sqrt(width * height) / REF_RESOLUTION_STEP) * REF_RESOLUTION_STEP
+def _encoder_size(resolution, ratio):
+    """`TextEncodeQwenImage21`'s resize of a picture of `ratio` at `resolution`
+    — the node's own lines, so the canvas lands on the same pixels."""
+    step = REF_RESOLUTION_STEP
+    width = round(math.sqrt(resolution * resolution * ratio) / step) * step
+    height = round(math.sqrt(resolution * resolution / ratio) / step) * step
+    return max(step, width), max(step, height)
+
+
+def fit_canvas(width, height, source_ratio=None):
+    """The shared compile's canvas -> (width, height, budget) — see
+    `REF_RESOLUTION_STEP`.
+
+    `source_ratio` is the picture's ratio when the canvas was taken off a
+    picture, and None on a preset aspect. With a picture the canvas becomes
+    the encoder's resize of it at the canvas's own budget; the budget steps
+    down until that resize fits the per-axis ceiling, since the encoder does
+    not know one and a 21:9 sheet at 2048 comes back 2080 wide. Without a
+    picture there is nothing to line up with, and the canvas stays.
+    """
+    from ...compile_image import MAX_SHORT_EDGE
+
+    step = REF_RESOLUTION_STEP
+    resolution = round(math.sqrt(width * height) / step) * step
+    if source_ratio is None:
+        return width, height, resolution
+    while True:
+        fitted_w, fitted_h = _encoder_size(resolution, source_ratio)
+        if max(fitted_w, fitted_h) <= MAX_SHORT_EDGE or resolution <= step:
+            return fitted_w, fitted_h, resolution
+        resolution -= step
 
 
 def require_support():
@@ -172,8 +206,7 @@ def emit_graph(graph, payload, sampling, weights, clip, vae, model, unique_id,
               for i, name in enumerate(payload.refs)}
     encoded = graph.node("TextEncodeQwenImage21", clip=clip, prompt=payload.prompt,
                          negative_prompt="", vae=vae,
-                         resolution=ref_resolution(payload.width, payload.height),
-                         **images)
+                         resolution=payload.ref_resolution, **images)
     # The node encodes the negative whether or not the row will read it —
     # the official graph's own cost, and at cfg 1 the sampler never evaluates
     # it. Wired rather than zeroed so that at a real CFG the unconditional is
@@ -187,7 +220,9 @@ def emit_graph(graph, payload, sampling, weights, clip, vae, model, unique_id,
     else:
         # Empty at full denoise, *including* the promoted first picture: it
         # already reaches the model as a reference latent, and the official
-        # edit template starts from an empty latent for that reason. Core's
+        # edit template starts from an empty latent for that reason — the
+        # encoder's own, at the first picture's resized size, which is what
+        # `fit_canvas` made the canvas, so this is the same latent. Core's
         # own `EmptyLatentImage` — it stamps the /8 it was made at, and the
         # sampler rescales an empty latent to the model's /16 and 64 channels,
         # which is how the template itself starts.

@@ -4083,6 +4083,11 @@ const IDEOGRAM = IMAGE_FAMILY.ideogram4;
 const widgetDefaults = (family, ids) => Object.fromEntries(
   family.widgets.filter((w) => ids.includes(w.id)).map((w) => [w.id, w.default]));
 
+/** The grid step of a family whose edit canvas is its encoder's own resize of
+ *  the picture (`canvas.encoder_fit`) — Qwen Image 2.1's `fit_canvas` — and
+ *  null on the families that keep the shared /16 canvas. */
+export const PRESTAGE_ENCODER_FIT = Object.fromEntries(
+  PRESTAGE_IMAGE_ARCHES.map((arch) => [arch, IMAGE_FAMILY[arch].canvas?.encoder_fit ?? null]));
 /** How many style references Krea 2 takes — its encoder's own slot count,
  *  and what an arch that declares no cap of its own falls back to. */
 export const PRESTAGE_MAX_REFS = KREA.prompt.max_refs;
@@ -4696,7 +4701,8 @@ export function preStageStartsBlank(state) {
 
 /** The resolved image canvas, mirroring compile_image.resolve_canvas: /16 grid,
  *  2048² area cap, and the aspect taken from the source picture when the caller
- *  measured one — `preStageSource` is which picture that is. */
+ *  measured one — `preStageSource` is which picture that is — then refitted to
+ *  the encoder on a family that asks (`PRESTAGE_ENCODER_FIT`). */
 export function resolvedPreStage(state, initSize = null) {
   let ratio = PRESTAGE_ASPECTS.find(([label]) => label === state.aspect)?.[1] ?? 16 / 9;
   let fromImage = false;
@@ -4729,6 +4735,24 @@ export function resolvedPreStage(state, initSize = null) {
   while (width * height > PRESTAGE_MAX_PIXELS && Math.max(width, height) > PRESTAGE_CANVAS_MULTIPLE) {
     if (width >= height) width -= PRESTAGE_CANVAS_MULTIPLE;
     else height -= PRESTAGE_CANVAS_MULTIPLE;
+  }
+  // On a family that fits the canvas to its encoder, a canvas taken off a
+  // picture is that encoder's resize of the picture at the canvas's own pixel
+  // budget — mirroring qwen21.still.fit_canvas, the budget stepping down
+  // until the resize fits the per-axis ceiling the encoder does not know.
+  const step = PRESTAGE_ENCODER_FIT[state?.arch];
+  if (step && fromImage) {
+    let resolution = Math.round(Math.sqrt(width * height) / step) * step;
+    for (;;) {
+      const fitW = Math.max(step, Math.round(Math.sqrt(resolution * resolution * ratio) / step) * step);
+      const fitH = Math.max(step, Math.round(Math.sqrt(resolution * resolution / ratio) / step) * step);
+      if (Math.max(fitW, fitH) <= PRESTAGE_MAX_EDGE || resolution <= step) {
+        width = fitW;
+        height = fitH;
+        break;
+      }
+      resolution -= step;
+    }
   }
   return { width, height, ratio, fromImage };
 }

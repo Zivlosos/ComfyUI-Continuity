@@ -141,6 +141,12 @@ class ImagePayload:
     # family whose schedule the sampler row already states in full.
     schedule: dict = field(default_factory=dict)
     ratio_clamped: bool = False
+    # The pixel budget the family's encoder resizes each reference to, on a
+    # family that fits the canvas to its encoder (`fit_canvas`); None on the
+    # rest. Carried rather than re-derived from the canvas at emit time: the
+    # canvas is *made from* the budget, and going back from a /32 canvas to
+    # the budget that made it is off by a step on wide aspects.
+    ref_resolution: int = None
     # The DLSS 5 refiner over the decoded still, as `neural.Request.as_dict()`,
     # or None when the pill is off. Read off the blob here so the emitters
     # never need the blob — the same reason the checkpoint field is resolved
@@ -616,6 +622,15 @@ def compile_prestage(data, family, image_size_lookup=None):
         except (TypeError, ValueError):
             raise CompileError(f"unknown aspect {aspect!r}")
     width, height = resolve_canvas(ratio, short_edge)
+    ref_resolution = None
+    fit = getattr(family, "fit_canvas", None)
+    if fit is not None:
+        # A family whose encoder resizes the pictures on its own grid fits the
+        # canvas to that resize — see `qwen21.still.fit_canvas`. Handed the
+        # picture's true ratio only when the canvas was taken off a picture:
+        # a preset aspect has no picture the target has to line up with.
+        source = ratio if (init is not None and image_size_lookup is not None) else None
+        width, height, ref_resolution = fit(width, height, source)
 
     checkpoint_field, schedule = family.plan(data)
 
@@ -627,5 +642,5 @@ def compile_prestage(data, family, image_size_lookup=None):
         refs=[filename for _, filename, _, _ in refs], init=init,
         framing=framed, mods=mods,
         schedule=schedule or {}, ratio_clamped=ratio_clamped,
-        neural=neural_block(data),
+        ref_resolution=ref_resolution, neural=neural_block(data),
     )

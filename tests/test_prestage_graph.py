@@ -1054,8 +1054,8 @@ check("the latent is core's empty one at the canvas — the sampler rescales it 
       qt2i["EmptyLatentImage"][0][1],
       {"width": q21_payload.width, "height": q21_payload.height, "batch_size": 1})
 check("the references' pixel budget is the canvas's own area, on the vision grid",
-      q21_encode[1]["resolution"],
-      round(math.sqrt(q21_payload.width * q21_payload.height) / 32) * 32)
+      (q21_encode[1]["resolution"], q21_payload.ref_resolution),
+      (round(math.sqrt(q21_payload.width * q21_payload.height) / 32) * 32,) * 2)
 check("the row is the template's", (q21_sampler["steps"], q21_sampler["cfg"], q21_sampler["denoise"]),
       (25, 1.0, 1.0))
 
@@ -1081,6 +1081,21 @@ check("no VAE encode of the first picture — it reaches the model as a referenc
 check("the first picture is promoted, so the canvas follows it",
       (q21e_payload.init, q21e_payload.width > q21e_payload.height),
       ({"filename": "room.png", "denoise": 1.0}, True))
+# ...and the canvas *is* the encoder's resize of that picture at the budget,
+# so the empty latent the sampler starts from is the size the reference latent
+# is spliced in at. A 4:3 phone photo is the case the shared /16 snap got
+# wrong by a latent row: 1360 on the canvas, 1376 out of the encoder.
+q43_payload, q43 = qwen21_graph(qwen21_blob(refs=["photo.png"]),
+                                size_lookup=lambda name: (3024, 4032))
+check("an edit's canvas is the encoder's own resize of the first picture",
+      (q43_payload.width, q43_payload.height, q43_payload.ref_resolution,
+       q43["EmptyLatentImage"][0][1]["width"], q43["EmptyLatentImage"][0][1]["height"],
+       q43["TextEncodeQwenImage21"][0][1]["resolution"]),
+      (1024, 1376, 1184, 1024, 1376, 1184))
+check("...which is the size the encoder computes from that budget",
+      q21.fit_canvas(1024, 1360, 3024 / 4032), (1024, 1376, 1184))
+check("...stepping the budget down where the resize would pass the ceiling",
+      q21.fit_canvas(2048, 864, 2560 / 1080), (2016, 864, 1312))
 blank_q21, blank_qg = qwen21_graph(qwen21_blob(refs=["room.png"], start_blank=True))
 check("a blank start releases the picture from being the subject",
       (blank_q21.init, "EmptyLatentImage" in blank_qg), (None, True))

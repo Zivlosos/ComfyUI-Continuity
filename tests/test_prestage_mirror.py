@@ -69,6 +69,20 @@ for (const [label] of s.PRESTAGE_ASPECTS) {
     out.canvases[label + "@" + edge] = [g.width, g.height];
   }
 }
+// A canvas taken off a picture, on the family that refits it to its encoder
+// and on one that keeps the /16 grid. The sizes are the ones that used to
+// disagree with the encoder by a latent row (4:3 phone photos) or overshoot
+// the per-axis ceiling (21:9).
+out.fitted = {};
+for (const arch of ["qwen21", "flux2klein"]) {
+  for (const [w, h] of [[3024, 4032], [4032, 3024], [1920, 1080], [2560, 1080], [1000, 3000], [1024, 1024]]) {
+    for (const edge of [768, 1024, 1536, 2048]) {
+      const g = s.resolvedPreStage({ arch, aspect: "1:1", short_edge: edge, init: null,
+                                     refs: [{ filename: "p.png" }] }, { width: w, height: h });
+      out.fitted[arch + ":" + w + "x" + h + "@" + edge] = [g.width, g.height];
+    }
+  }
+}
 for (const quality of s.PRESTAGE_IDEOGRAM_QUALITIES) {
   out.ideogram[quality] = s.PRESTAGE_IDEOGRAM_STEPS[quality];
 }
@@ -136,6 +150,21 @@ check("aspect presets", reflected["presets"], sorted(ci.ASPECT_PRESETS))
 for key, size in reflected["canvases"].items():
     label, edge = key.split("@")
     check(key, size, list(ci.resolve_canvas(ci.ASPECT_PRESETS[label], int(edge))))
+
+# The Python side is the compile itself, handed the same picture: the canvas
+# a promoted first picture gets on each family, with the refit where declared.
+for key, size in reflected["fitted"].items():
+    arch, rest = key.split(":")
+    dims, edge = rest.split("@")
+    w, h = (int(v) for v in dims.split("x"))
+    family = {"qwen21": q21, "flux2klein": kl}[arch]
+    payload = ci.compile_prestage(
+        {"arch": arch, "prompt": "a", "aspect": "1:1", "short_edge": int(edge),
+         "refs": ["p.png"], "loras": []}, family, lambda name: (w, h))
+    check(key, size, [payload.width, payload.height])
+    if arch == "qwen21":
+        check(key + " budget", q21._encoder_size(payload.ref_resolution, w / h),
+              (payload.width, payload.height))
 
 for quality, steps in reflected["ideogram"].items():
     check(f"ideogram {quality} steps", steps, i4.IDEOGRAM_QUALITIES[quality]["steps"])

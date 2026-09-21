@@ -6,6 +6,29 @@ exactly as it was written, wall of text and all.
 
 ## Unreleased
 
+**Qwen Image 2.1 starts on the template's row, 20 steps at cfg 1.** The
+40-at-cfg-3 row the family arrived with came out of a phone-photo sweep; a
+second sitting at native 2K put it back. A 2048×1152 character sheet was four
+minutes at 40/cfg 3 on a 3090 and one at 20/cfg 1, and the difference was a
+crisper ruff — nothing anyone picked a picture by. The card's 40-50 steps are
+still where to go for a render worth the wait; they are just not where every
+render starts.
+
+**A Qwen Image 2.1 edit is sampled at the size the picture is encoded at.**
+`TextEncodeQwenImage21` resizes each picture to the pixel budget on its own
+/32 grid and splices the first one's latent into the sequence at that size;
+its own note is that sampling the target at any other size shifts the edit.
+The pack resolved the canvas on the shared /16 grid and derived the budget
+from it, and on the commonest case — a 4:3 phone photo at the default edge —
+the two disagreed by one latent row (1360 on the canvas, 1376 out of the
+encoder), so every such edit started from a target the reference did not line
+up with. The canvas of an edit is now the encoder's own resize of the picture
+at the canvas's budget, by the encoder's arithmetic, the budget stepping down
+where the resize would pass the 2048 ceiling the encoder does not know
+(a 21:9 sheet came back 2080 wide), and the budget rides in the payload rather
+than being re-derived. The stage card shows the fitted size; text-to-image
+and `start_blank` renders keep the shared canvas.
+
 **An edit never starts from the noise that made its picture.** On the three
 edit families — Qwen Image Edit, Flux 2 Klein, Qwen Image 2.1 — the render is
 the seed's noise plus the pictures it is told to change, and the seed that

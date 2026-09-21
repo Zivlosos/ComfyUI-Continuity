@@ -123,11 +123,19 @@ Stills, drawn from prose or edited from pictures, on one checkpoint.
   `@` handles as anywhere else; in the prompt the model reads them as
   `<image1>`, `<image2>`, which is how its own tokenizer names them.
 - Every reference is resized to about the canvas's area before the encoder
-  reads it — the official note is to keep the two close, or the edit shifts.
-- The row is 40 steps at cfg 3, euler/simple — Qwen's card asks 40-50 steps,
-  and cfg 3 over an empty negative gave better contrast and skin than the
-  template's cfg 1 in a side-by-side. Drop cfg to 1 for a flatter, faster
-  render (the negative is unused there).
+  reads it, on the encoder's own /32 grid — and on an edit the canvas *is*
+  that resize of the first picture, which is why the size on the stage card
+  can differ by a few pixels from the other families' at the same edge. The
+  official note is that sampling at any other size shifts the edit.
+- The row is the template's 20 steps at cfg 1, euler/simple. Qwen's card
+  asks 40-50 steps, and cfg 3 over the empty negative gives a slightly
+  crisper ruff and skin — at four times the wall clock on a 2K canvas, since
+  every step is evaluated twice. Raise both when a render is worth it.
+- The strongest way to use it: render the character once as a single
+  picture, then attach that picture, tick "start blank" and cite it — a
+  turnaround sheet, a scene, a costume study. The face, hair, jewellery and
+  fabric carry over panel for panel; what the picture does not show, the
+  model invents, so give it a second picture where the gown matters.
 - **Turbo** is a Lightning LoRA or nothing: there is no distilled 2.1
   checkpoint, and no Lightning LoRA for 2.1 had been published when this was
   written. The pill is where one goes.

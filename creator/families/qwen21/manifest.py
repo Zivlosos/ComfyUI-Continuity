@@ -78,6 +78,10 @@ def _canvas():
         "max_ratio": compile_image.MAX_RATIO,
         "aspects": dict(compile_image.ASPECT_PRESETS),
         "default_aspect": compile_image.DEFAULT_ASPECT,
+        # An edit's canvas is the encoder's resize of the picture, on its /32
+        # grid — `still.fit_canvas`. The frontend mirrors that arithmetic
+        # where it shows the size, and this is how it knows to.
+        "encoder_fit": still.REF_RESOLUTION_STEP,
     }
 
 
