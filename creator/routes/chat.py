@@ -634,16 +634,15 @@ def _run(body):
     quoted = None
     if verdict["act"] == "reask":
         quoted = verdict["sentence"]
-        # The one place the reason a turn made nothing is known. The room
-        # shows only what survived, so a reply refused twice reads as the model
-        # declining — the server log is where the refusal and the reply it was
-        # about can be seen together.
-        log.info("chat turn re-asked: %s\n--- reply ---\n%s", quoted, raw.strip())
+        # The reply itself is never logged: the room carries it as `raw`, and
+        # the terminal is not the place for a piece's prompt. Only the
+        # sentence the validator refused is noted, at debug, for a turn that
+        # reads as the model declining twice.
+        log.debug("chat turn re-asked: %s", quoted)
         raw = _ask(block, system, chat.reask(message, raw, quoted))
         verdict = chat.judge(raw, ledger, asked, second=True, strip=on_strip, cast=names)
         if verdict["act"] != chat.ACT_RENDER:
-            log.info("chat turn re-ask did not render; shown as prose"
-                     "\n--- reply ---\n%s", raw.strip())
+            log.debug("chat turn re-ask did not render; shown as prose")
 
     out = {"say": verdict.get("say") or "", "raw": raw}
     if quoted:
