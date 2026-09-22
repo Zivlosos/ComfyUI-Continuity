@@ -80,8 +80,12 @@ Stills from prose alone.
 - **No references.** The model reads none, and a render with references
   attached is refused with a message rather than silently ignoring them.
   Switch the model pill to another stills family, or clear the references.
-- Prompts are plain natural language. Its speed axis is the official preset
-  ladder (48, 20 or 12 steps) rather than a turbo file.
+- Prompts are plain natural language, wrapped into the JSON caption the
+  model was trained on; a caption you write or paste yourself is used as
+  written. In the chat, the *Magic prompt* switch has Ideogram's own magic
+  prompt write the full caption instead (see [the chat](tools.md#chat)). Its
+  speed axis is the official preset ladder (48, 20 or 18 steps) rather than
+  a turbo file.
 - The unconditional checkpoint is optional and enables proper CFG.
 
 ## Qwen Image Edit

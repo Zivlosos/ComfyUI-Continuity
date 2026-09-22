@@ -342,6 +342,20 @@ What is the room's own is in the composer's foot and behind the gear:
   wins over the dial where the two disagree. *Set up again* asks the three
   questions afresh.
 - **The model** is in the bar — this ComfyUI, or a server you already run.
+- **Magic prompt**, in the model's popover, is for pictures on Ideogram 4.0.
+  Ideogram was trained on a structured JSON caption rather than a sentence,
+  and without this the room wraps its sentence into the smallest caption
+  the format allows. With it on, a second reply runs Ideogram's own
+  published magic prompt over the sentence and writes the full caption: a
+  summary, the background, and each subject and each piece of lettering as
+  its own element. Words you put in quotes come back as the lettering,
+  letter for letter, and a `{day|night}` choice stays a choice for the
+  seed; a caption that breaks either is asked for again once, and a second
+  failure is said rather than rendered. The caption is on the back of the
+  card, under the sentence. It is a long reply, so it runs to the refiner's
+  reply length rather than the room's, and Ideogram's own notes say the
+  instruction was only tried on a large model. **Keep boxes** keeps where
+  it placed each element in the frame, which Ideogram drops by default.
 
 The families, the shape, the seed, the sizes and any pinned row are
 remembered per machine; the cast and everything made are the chat's, saved

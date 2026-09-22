@@ -182,4 +182,75 @@ else:
     check("and her picture is on the piece's shelf",
           [a["handle"] for a in blob["assets"]], ["ref-1"])
 
+# ---- the magic prompt ---------------------------------------------------------
+#
+# The second generation a still on Ideogram gets when the room's switch is on.
+# The backend is stood in: what is pinned is who is asked what, the one re-ask,
+# and that the caption a turn wrote is what the render reads.
+
+GOOD = json.dumps({"aspect_ratio": "16:9", "high_level_description": "A red fox.",
+                   "compositional_deconstruction": {"background": "Snow.", "elements": [
+                       {"type": "obj", "bbox": [1, 2, 3, 4], "desc": "Red fox."}]}})
+asked = []
+
+
+def stand_in(*replies):
+    queue = list(replies)
+
+    def ask(model, system, message, images, **kw):
+        asked.append({"system": system, "message": message, **kw})
+        return queue.pop(0)
+    return lambda block: (ask, None)
+
+
+IDEO_RAIL = route._rail({"still_family": "ideogram4", "aspect": "1:1"})
+IDEO_RAIL = {**IDEO_RAIL, "still_pictures": {"takes": False, "refusal": "no"}}
+MEMBER = [{"name": "anna", "takes": "person", "from": [], "description": "a red coat"}]
+still_action = {**chat.validate({"act": "render", "kind": "still", "prompt": "@anna in snow"},
+                                [], cast=["anna"]), "arch": "ideogram4"}
+block = {"model": "m", "max_tokens": 4096}
+_real_backend = route.refine_routes._backend
+try:
+    route.refine_routes._backend = stand_in("not json", GOOD)
+    caption = route._magic(block, still_action, [], IDEO_RAIL, MEMBER)
+    check("a still on Ideogram is captioned after one re-ask",
+          (len(asked), json.loads(caption)["high_level_description"]), (2, "A red fox."))
+    check("the magic prompt is the whole system prompt, and the member is words",
+          (asked[0]["system"].startswith("You convert"),
+           "User idea: a red coat in snow" in asked[0]["message"],
+           "TARGET IMAGE ASPECT RATIO: 1:1" in asked[0]["message"]), (True, True, True))
+    check("at the refiner's budget and upstream's temperature",
+          (asked[0]["max_tokens"], asked[0]["temperature"]), (4096, 1.0))
+    check("the re-ask quotes what was wrong", "not return JSON" in asked[1]["message"], True)
+    check("the boxes are dropped unless kept",
+          "bbox" in caption, False)
+    asked.clear()
+    route.refine_routes._backend = stand_in(GOOD)
+    check("and kept when the switch says so",
+          "bbox" in route._magic({**block, "magic_bboxes": True}, still_action, [], IDEO_RAIL, MEMBER),
+          True)
+    asked.clear()
+    route.refine_routes._backend = stand_in("no", "still no")
+    refuses("two failures refuse the turn in the second sentence",
+            lambda: route._magic(block, still_action, [], IDEO_RAIL, MEMBER),
+            "magic prompt", "JSON")
+    asked.clear()
+    route.refine_routes._backend = stand_in()
+    check("a still on a family with no magic prompt asks nothing",
+          (route._magic(block, {**still_action, "arch": "krea2"}, [], IDEO_RAIL, MEMBER), asked),
+          (None, []))
+finally:
+    route.refine_routes._backend = _real_backend
+
+IDEO_PRE = {**PRE, "arch": "ideogram4", "models": {"ideogram4": {}, "dtype": "default"}}
+carried = route._with_caption(still_action, GOOD, IDEO_PRE, True)
+check("the render takes the turn's caption, tidied",
+      carried["caption"].startswith('{"high_level_description"'), True)
+check("an action with none is left as it was",
+      route._with_caption(still_action, None, IDEO_PRE, True), still_action)
+refuses("a caption over a base that reads prose is refused",
+        lambda: route._with_caption(still_action, GOOD, PRE, True), "does not read one")
+refuses("a caption that is not JSON is refused",
+        lambda: route._with_caption(still_action, "a fox", IDEO_PRE, True), "not a JSON object")
+
 passed("the chat render route builds over the node on the canvas")

@@ -39,6 +39,7 @@ a reply is produced.
 """
 
 import asyncio
+import importlib
 import json
 import logging
 
@@ -417,6 +418,27 @@ def _no_model(block):
     }, status=400)
 
 
+def _with_caption(action, caption, piece, still):
+    """The action with the caption the turn wrote for it, checked, or as it was.
+
+    `chat.validate` reads only what a model may write, and a caption is
+    never the model's: the turn's magic pass put it on the action and the
+    room sends the action back whole. So it is read here, beside the base
+    it has to fit — a caption is one family's format, and a base on another
+    family would render it as prose.
+    """
+    if caption is None:
+        return action
+    module = _magic_module(piece.get("arch")) if still else None
+    if module is None:
+        raise chat.ActionError("that action carries a caption, and the still it "
+                               "would render on does not read one.")
+    tidied = module.tidy(caption) if isinstance(caption, str) else None
+    if tidied is None:
+        raise chat.ActionError("that action's caption is not a JSON object.")
+    return {**action, "caption": tidied}
+
+
 @PromptServer.instance.routes.post("/continuity/chat/render")
 @same_origin
 async def chat_render(request):
@@ -434,6 +456,8 @@ async def chat_render(request):
     The model's prompt is the render's prompt. Nothing rewrites it on the way
     to the queue: how much the model writes is the rail's verbosity dial, read
     on the turn, and a family's own way of prompting is a skill appended there.
+    The one exception is also decided on the turn — a caption the family's
+    magic prompt wrote (`_magic`) — and arrives here already written.
     """
     try:
         body = await request.json()
@@ -457,6 +481,7 @@ async def chat_render(request):
         still = action["kind"] == chat.KIND_STILL
         base = _base(body.get("base"), still)
         rail = _rail({**(body.get("rail") or {}), **_families_of(base[0], still)})
+        action = _with_caption(action, (body.get("action") or {}).get("caption"), base[0], still)
     except chat.ActionError as problem:
         return web.json_response({"error": str(problem)}, status=400)
 
@@ -540,6 +565,66 @@ def _ask(block, system, message):
         max_tokens=chat.reply_tokens(block.get("reply_tokens")),
         prefill="",
     )
+
+
+def _magic_module(arch):
+    """The family's magic-prompt module for a still arch, or None where the
+    family's manifest does not say it reads a caption one can write."""
+    family = registry.STILL_ARCHES.get(arch)
+    if not family or not (manifest.describe(family).get("prompt") or {}).get("magic"):
+        return None
+    return importlib.import_module(f"..families.{family}.magic", __package__)
+
+
+def _magic(block, action, ledger, rail, cast):
+    """The caption a family's own magic prompt writes from this still's prose,
+    or None where the still is not drawn on a family that has one.
+
+    A second generation on the same backend and model as the turn, inside the
+    same job: the room asked one question and waits for one answer. It is
+    asked alone — the family's instruction as the whole system prompt, the
+    prose as the whole message — because that is how the instruction was
+    written to be run, and at the refiner's reply budget rather than the
+    rail's, since a populated caption runs to thousands of tokens where a turn
+    runs to hundreds. The prose is the cast expanded, `chat.still_prose`: the
+    words the render would have read.
+
+    One re-ask on a caption that will not do, quoting why, as the turn gets.
+    A second failure refuses the turn in that sentence rather than rendering
+    the plain wrap the switch was thrown to replace.
+
+    The rail is the turn's own. A family with a magic prompt is sent no
+    picture and is never an edit family, so a still drawn on one is drawn on
+    the rail's still family and the rail already describes it.
+    """
+    module = _magic_module(action.get("arch"))
+    if module is None:
+        return None
+    try:
+        prose = chat.still_prose(action, ledger, rail, cast)
+    except chat.ActionError:
+        # The render refuses this still in these same words, under the
+        # model's own line; there is no caption to write for it.
+        return None
+    ask, _look = refine_routes._backend(block)
+    keep = bool(block.get("magic_bboxes"))
+    message = module.user_message(prose, chat.still_aspect(action, rail))
+
+    def once(text):
+        return ask(block.get("model") or "", module.system_prompt(), text, [],
+                   temperature=module.TEMPERATURE, seed=block.get("seed", -1),
+                   max_tokens=refine.reply_tokens(block.get("max_tokens")))
+
+    raw = once(message)
+    try:
+        return module.caption(raw, prose, keep)
+    except module.MagicError as problem:
+        log.debug("magic prompt re-asked: %s", problem)
+        raw = once(module.reask(message, raw, str(problem)))
+    try:
+        return module.caption(raw, prose, keep)
+    except module.MagicError as problem:
+        raise chat.ActionError(f"the magic prompt could not write a caption twice: {problem}") from problem
 
 
 def _with_piece(body):
@@ -657,6 +742,13 @@ def _run(body):
             # that base, so the decision is made once and carried, never
             # re-derived on the way to the queue.
             action = {**action, "arch": chat.still_arch_for(action, ledger, rail, cast)}
+            # The room's magic switch: the family's own instruction writes the
+            # caption the render reads, carried on the action so the render
+            # and every retake of it read the same one (`chat.still_piece`).
+            if block.get("magic"):
+                caption = _magic(block, action, ledger, rail, cast)
+                if caption:
+                    action = {**action, "caption": caption}
         out["action"] = action
     return out
 

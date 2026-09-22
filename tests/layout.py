@@ -66,6 +66,7 @@ MODULES = {
     "ltx25_sampling": "families.ltx25.sampling",
     "krea2_still": "families.krea2.still",
     "ideogram4_still": "families.ideogram4.still",
+    "ideogram4_magic": "families.ideogram4.magic",
     "qwenedit_still": "families.qwenedit.still",
     "flux2klein_still": "families.flux2klein.still",
     "qwen21_still": "families.qwen21.still",

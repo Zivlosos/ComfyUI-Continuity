@@ -29,6 +29,7 @@ import { openChoicePopover, stepperPill } from "./pills.js";
 import { settings as refinerSettings, saveSettings as saveRefiner, chosenModel,
          listModels, drawRemoteCard } from "./refine.js";
 import { rememberedWeights } from "./models.js";
+import { neuralSwitch } from "./neural.js";
 import { FAMILIES } from "./manifest.js";
 import { t } from "./i18n.js";
 
@@ -222,7 +223,33 @@ export function openThinker(anchor, { rail, setRail, skills, onChange }) {
       }), t("How many tokens a reply may run to. A reply is a line and one prompt, "
             + "so this stays small: on one card the model reserves memory for the "
             + "whole budget before it writes, and a large one slows every word.")),
+      ...magicRows(bar),
     );
+  }
+
+  /** The magic prompt: a second reply that rewrites a still's prompt as the
+   *  structured caption its family was trained on, in that family's own
+   *  published instruction. Only Ideogram 4.0 has one, and the switch says
+   *  so rather than hiding when the room is on another family — it is a
+   *  standing choice, read whenever a still lands on one. The boxes only
+   *  mean something with it on. */
+  function magicRows(bar) {
+    const rows = [line(t("Magic prompt"), neuralSwitch({
+      on: bar.magic === true, label: t("Magic prompt"),
+      onChange: (on) => { setRail({ magic: on }); drawWrites(); },
+    }), t("For a picture on Ideogram 4.0, which reads a structured caption rather "
+          + "than a sentence: Ideogram's own magic prompt turns the model's words "
+          + "into that caption. A second reply, and a long one — it runs to the "
+          + "refiner's reply length, not this one."))];
+    if (bar.magic === true) {
+      rows.push(line(t("Keep boxes"), neuralSwitch({
+        on: bar.magic_bboxes === true, label: t("Keep boxes"),
+        onChange: (on) => { setRail({ magic_bboxes: on }); drawWrites(); },
+      }), t("Keep where the magic prompt places each element in the frame. Ideogram "
+            + "drops them by default; kept, they pin the layout, and a box drawn "
+            + "badly is where doubled or missing subjects come from.")));
+    }
+    return rows;
   }
 
   pop.append(

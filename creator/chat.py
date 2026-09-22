@@ -28,9 +28,12 @@ shown to a person if the second attempt fails too.
 
 **The model writes the prompt; the compiler renders it.** `prompt` is what a
 user would type into the prompt box, in the pack's own language, and it goes
-into the segment as typed. There is no second model call and no graph JSON
-anywhere: the blob is the template, and everything the action can say is a
-field of a blob the compiler already understands.
+into the segment as typed. There is no graph JSON anywhere: the blob is the
+template, and everything the action can say is a field of a blob the compiler
+already understands. The one second model call is opt-in and not the turn's:
+a family whose weights read a structured caption rather than prose (Ideogram
+4.0) can have its own published magic prompt write one from this prose, and
+the route carries it on the action as `caption` (`routes/chat._magic`).
 
 No ComfyUI, no aiohttp, no torch, no disk beyond the prompt files beside this
 one.
@@ -1527,6 +1530,15 @@ def _canvas(action, rail, kind):
     return canvas
 
 
+def still_aspect(action, rail):
+    """The shape a still is drawn at, as a label: the action's, the rail's, or
+    the image families' default — the order `_canvas` writes them and the
+    compiler falls back in. Asked for where the words have to know the shape
+    before there is a blob: the magic prompt places its elements on it."""
+    return (action.get("aspect") or (rail or {}).get("aspect")
+            or compile_image.DEFAULT_ASPECT)
+
+
 # ---- the pieces --------------------------------------------------------------
 #
 # A chat render is the node on the canvas, asked for this prompt in this shape.
@@ -1538,50 +1550,10 @@ def _canvas(action, rail, kind):
 # the node's row drawn a second time over the same blob.
 
 
-def still_piece(action, ledger, rail, base=None, cast=None):
-    """A `render` of a still -> the `prestage_data` the PreStage node runs.
-
-    Over `base`, the pre-stage's own blob: everything on it stands — the LoRA
-    stack (the turbo LoRA included), the turbo block, the sampler row, the
-    weights — and the room's turn writes the prompt, the references and the
-    shape over it. Without a base (the tests' bare call), the shared image
-    shape `compile_image.compile_prestage` reads, at its defaults.
-
-    Every cited handle becomes a reference, in the order it was cited, which is
-    the order the encoder labels them in. On the edit families (Qwen Image
-    Edit, Flux 2 Klein, Qwen Image 2.1) `compile_image.compile_prestage` edits
-    the first reference in place when the blob says `edit_first`, which is
-    where that rule belongs; what this side does on those families — the rail
-    says which, `still_pictures` — is put the pictures cited *plain* in front
-    of the ones cited for something and set the flag when there was one, so
-    the edit lands on the picture being changed and never on a look that
-    happened to be cited first, and a citation with nothing plain is "draw a
-    new picture from these" on the canvas the action asks for. A member's
-    picture is always the second kind. The init the node held is cleared for
-    the same reason: the room's picture is the citation, not whatever the node
-    was last painting over.
-
-    A picture being changed keeps its own shape — the compiler follows the
-    init's — so the action's "aspect" is not written onto an edit: a number
-    the render would not read is a number the blob should not carry.
-
-    A family that cannot be handed a picture refuses one here, in the room's own
-    words, before the compiler refuses it in words about the node's LoRA stack.
-    The rail carries that as a flag and the labels to point at instead, because
-    it is the catalog's answer and the route is the half with the catalog — see
-    `takes_refs` and `refs_refusal`.
-
-    `models` is left to the route: which files are on this disk is the
-    machine's business and this module has no disk. The rail's arch is the
-    pre-stage pill's name for a family — see `registry.STILL_ARCHES` — and the
-    route stamps it on, because the mapping is the registry's and the rail
-    arrives naming families.
-    """
-    rail = rail or {}
-    arch = rail.get("still_arch")
-    if not arch:
-        raise ActionError("this room has no still model set up yet.")
-
+def _cast_still(action, ledger, rail, base=None, cast=None):
+    """A still's prompt with its cast expanded -> `(prompt, stack, cited,
+    renditions, pictures)`: what `still_piece` builds the blob from, and
+    what `still_prose` hands the magic prompt before there is a blob."""
     cited = _cited(action, ledger)
     pictures = {**DEFAULT_STILL_PICTURES, **(rail.get("still_pictures") or {})}
 
@@ -1642,6 +1614,67 @@ def still_piece(action, ledger, rail, base=None, cast=None):
         raise ActionError(pictures.get("refusal") or
                           "this still family cannot be given a picture.")
 
+    return prompt, stack, cited, renditions, pictures
+
+
+def still_prose(action, ledger, rail, cast=None):
+    """The words a still is drawn from, as the render will read them.
+
+    The model's prompt with every cast member written in the family's own
+    terms — on a family that is sent no picture, their description where
+    their name stood — which is the text a second pass over the prompt has
+    to be given: `@anna` means nothing to anyone but this pack. Refuses as
+    `still_piece` does, in the same words, for the same reasons.
+    """
+    return _cast_still(action, ledger, rail or {}, None, cast)[0]
+
+
+def still_piece(action, ledger, rail, base=None, cast=None):
+    """A `render` of a still -> the `prestage_data` the PreStage node runs.
+
+    Over `base`, the pre-stage's own blob: everything on it stands — the LoRA
+    stack (the turbo LoRA included), the turbo block, the sampler row, the
+    weights — and the room's turn writes the prompt, the references and the
+    shape over it. Without a base (the tests' bare call), the shared image
+    shape `compile_image.compile_prestage` reads, at its defaults.
+
+    Every cited handle becomes a reference, in the order it was cited, which is
+    the order the encoder labels them in. On the edit families (Qwen Image
+    Edit, Flux 2 Klein, Qwen Image 2.1) `compile_image.compile_prestage` edits
+    the first reference in place when the blob says `edit_first`, which is
+    where that rule belongs; what this side does on those families — the rail
+    says which, `still_pictures` — is put the pictures cited *plain* in front
+    of the ones cited for something and set the flag when there was one, so
+    the edit lands on the picture being changed and never on a look that
+    happened to be cited first, and a citation with nothing plain is "draw a
+    new picture from these" on the canvas the action asks for. A member's
+    picture is always the second kind. The init the node held is cleared for
+    the same reason: the room's picture is the citation, not whatever the node
+    was last painting over.
+
+    A picture being changed keeps its own shape — the compiler follows the
+    init's — so the action's "aspect" is not written onto an edit: a number
+    the render would not read is a number the blob should not carry.
+
+    A family that cannot be handed a picture refuses one here, in the room's own
+    words, before the compiler refuses it in words about the node's LoRA stack.
+    The rail carries that as a flag and the labels to point at instead, because
+    it is the catalog's answer and the route is the half with the catalog — see
+    `takes_refs` and `refs_refusal`.
+
+    `models` is left to the route: which files are on this disk is the
+    machine's business and this module has no disk. The rail's arch is the
+    pre-stage pill's name for a family — see `registry.STILL_ARCHES` — and the
+    route stamps it on, because the mapping is the registry's and the rail
+    arrives naming families.
+    """
+    rail = rail or {}
+    arch = rail.get("still_arch")
+    if not arch:
+        raise ActionError("this room has no still model set up yet.")
+
+    prompt, stack, cited, renditions, pictures = _cast_still(action, ledger, rail, base, cast)
+
     entries = []
     for handle, kind, filename, scope in cited:
         if kind != "image":
@@ -1670,7 +1703,10 @@ def still_piece(action, ledger, rail, base=None, cast=None):
     piece.update({
         "version": piece.get("version") or 1,
         "arch": arch,
-        "prompt": prompt,
+        # A caption the magic prompt wrote on the turn (`routes/chat._magic`)
+        # is what the model reads; the prose it was written from stays the
+        # action's, for the conversation and the card.
+        "prompt": action.get("caption") or prompt,
         "init": None,
         "refs": refs,
         # The stack, then what the cited members wear on this family — the

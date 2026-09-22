@@ -123,5 +123,9 @@ def manifest():
             "pipeline": "plain",
             "ordinal": None,
             "max_refs": 0,
+            # The chat can have Ideogram's own magic prompt write the caption
+            # instead (`magic.py`); the switch is the room's, this says the
+            # family is one it applies to.
+            "magic": True,
         },
     }

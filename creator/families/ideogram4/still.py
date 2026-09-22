@@ -24,6 +24,8 @@ import math
 import sys
 from statistics import NormalDist
 
+from . import magic
+
 ARCH = "ideogram4"
 
 # Which weights fields this architecture has. No distilled checkpoint — the
@@ -152,15 +154,15 @@ def format_prompt(prompt):
     model reads rather than the plain line it refuses.
 
     A prompt that already *is* the schema — pasted from a workflow, or written
-    by a refiner that knows it — passes through as the user wrote it.
+    by the chat's magic prompt (`magic.py`) — keeps every word as written and
+    is only put in the key order the model was trained on, minified
+    (`magic.tidy`).
     """
     text = prompt.strip()
     if text.startswith("{"):
-        try:
-            if isinstance(json.loads(text), dict):
-                return text
-        except ValueError:
-            pass
+        tidied = magic.tidy(text)
+        if tidied is not None:
+            return tidied
     return json.dumps({
         "high_level_description": text,
         "compositional_deconstruction": {

@@ -473,16 +473,17 @@ check("the text encoder is loaded as Ideogram's",
 
 # The prompt is the model's JSON caption, not the prose — Ideogram's guide says
 # a plain line "will not work" and trips the safety filter; a caption the user
-# wrote themselves goes through as written.
+# wrote themselves keeps every word, put in the trained key order and minified.
 caption = json.loads(ideo["CLIPTextEncode"][0][1]["text"])
 check("the prose is wrapped into the caption schema",
       (caption["high_level_description"],
        caption["compositional_deconstruction"]["background"],
        caption["compositional_deconstruction"]["elements"][0]),
       ("a red room", "a red room", {"type": "obj", "desc": "a red room"}))
-own = '{"compositional_deconstruction": {"background": "a red room", "elements": []}}'
-check("a caption already in the schema passes through verbatim",
-      by_class(build(blob(arch="ideogram4", prompt=own)).expand)["CLIPTextEncode"][0][1]["text"], own)
+own = '{"compositional_deconstruction": {"elements": [], "background": "a red room"}}'
+check("a caption already in the schema keeps its words, in the trained order",
+      by_class(build(blob(arch="ideogram4", prompt=own)).expand)["CLIPTextEncode"][0][1]["text"],
+      '{"compositional_deconstruction":{"background":"a red room","elements":[]}}')
 with_trigger = by_class(build(blob(arch="ideogram4", loras=[
     {"name": "ideogram_realism.safetensors", "strength": 0.9, "triggers": ["realism engine"]}])).expand)
 check("a trigger word lands inside the caption",

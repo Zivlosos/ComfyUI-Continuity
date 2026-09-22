@@ -23,10 +23,11 @@ a hash is the same twelve lines in both languages and a generator is not.
 Free of torch and of ComfyUI, like `compile.py`, so the suite runs it bare.
 """
 
+import json
 from dataclasses import dataclass, field
 
 __all__ = ["Group", "choose", "has_groups", "parse", "passed_over", "resolve",
-           "shapes", "vary_mapping"]
+           "resolve_caption", "shapes", "vary_mapping"]
 
 
 @dataclass
@@ -185,6 +186,72 @@ def shapes(text):
     return found
 
 
+def _write_once(parts, text, seed, card, out, taken):
+    """`_write`, with a group written the same way twice chosen once — see
+    `resolve_caption`. `taken` maps a group's source to the words it became."""
+    for part in parts:
+        if isinstance(part, Group):
+            source = text[part.start:part.end]
+            if source not in taken:
+                words = []
+                pick = choose(seed, card, part.index, len(part.alternatives))
+                _write_once(part.alternatives[pick], text, seed, card, words, taken)
+                taken[source] = "".join(words)
+            out.append(taken[source])
+        else:
+            out.append(part)
+
+
+def _resolve_leaves(value, seed, card, counter, taken):
+    if isinstance(value, str):
+        if "{" not in value:
+            return value
+        parts = parse(value)
+        _number(parts, counter)
+        out = []
+        _write_once(parts, value, seed, card, out, taken)
+        return "".join(out)
+    if isinstance(value, dict):
+        return {key: _resolve_leaves(item, seed, card, counter, taken)
+                for key, item in value.items()}
+    if isinstance(value, list):
+        return [_resolve_leaves(item, seed, card, counter, taken) for item in value]
+    return value
+
+
+def resolve_caption(text, seed, card):
+    """A prompt that is a JSON object -> its strings chosen, or None when it is not one.
+
+    Ideogram 4's prompt is a JSON caption, and read as text its own braces are
+    brace pairs: a sign reading "EAT | DRINK" puts a bar directly inside the
+    element's object, which `parse` takes for a group, and the choice then
+    cuts the caption in half. So a caption is chosen string by string — the
+    groups are the ones written inside its values, numbered across the whole
+    object in reading order as `resolve` would number them — and written
+    back in the minified form the model was trained on.
+
+    One idea lands in several fields of a caption (the summary line and the
+    element that carries it), so a group written identically twice is one
+    choice: `{day|night}` in both must not come back as day in one and night
+    in the other. Groups worded differently stay independent. The prompt box's
+    lighting (`variations.js layout`) still reads the raw text; on a caption
+    with a bar in a value it can light a group this side never chooses.
+    """
+    stripped = str(text or "").strip()
+    if not stripped.startswith("{"):
+        return None
+    try:
+        data = json.loads(stripped)
+    except ValueError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    chosen = _resolve_leaves(data, seed, card, [0], {})
+    if chosen == data:
+        return text
+    return json.dumps(chosen, ensure_ascii=False, separators=(",", ":"))
+
+
 def vary_mapping(mapping, seed, card, keys=("prompt", "soundscape", "music")):
     """A request-shaped dict with its prose fields chosen, or the same dict.
 
@@ -192,7 +259,9 @@ def vary_mapping(mapping, seed, card, keys=("prompt", "soundscape", "music")):
     back as the object it was: a request is the segment node's cache key, and
     a sentence with nothing to choose has to compile to the bytes it always did.
     The refiner's prose is a prompt too — `compile.refined_body` stands it in
-    for the sentence — so its body and sections are chosen the same way.
+    for the sentence — so its body and sections are chosen the same way. A
+    field that is a JSON caption is chosen inside its strings
+    (`resolve_caption`).
     """
     if not isinstance(mapping, dict):
         return mapping
@@ -200,8 +269,11 @@ def vary_mapping(mapping, seed, card, keys=("prompt", "soundscape", "music")):
     for key in keys:
         value = mapping.get(key)
         if isinstance(value, str) and has_groups(value):
+            caption = resolve_caption(value, seed, card)
+            if caption is value:
+                continue
             out = out if out is not None else dict(mapping)
-            out[key] = resolve(value, seed, card)
+            out[key] = caption if caption is not None else resolve(value, seed, card)
     refined = mapping.get("refined")
     if isinstance(refined, dict):
         chosen = vary_mapping(refined, seed, card, keys=("body",))

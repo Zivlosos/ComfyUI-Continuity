@@ -407,6 +407,12 @@ function defaultRail() {
     // prompting. Only ever appended — the room's reply contract is what turns
     // an answer into a render, so replacing it would leave nothing to queue.
     skill: "",
+    // Whether a still on a family that reads a structured caption (Ideogram
+    // 4.0) has that family's own magic prompt write it from the model's
+    // prose — a second generation on the turn (`routes/chat._magic`) — and
+    // whether that caption keeps the element boxes upstream drops.
+    magic: false,
+    magic_bboxes: false,
   };
 }
 
@@ -526,6 +532,8 @@ function requestBlock(sync) {
     skill_mode: bar.skill ? "add" : "",
     verbosity: Number(bar.verbosity) || 0,
     reply_tokens: Number(bar.reply_tokens) || 1024,
+    magic: bar.magic === true,
+    magic_bboxes: bar.magic_bboxes === true,
     ...sync.families(),
   };
 }
@@ -1549,14 +1557,27 @@ class Room {
    * The back of a card: what was written on the back of a print.
    *
    * The words first and largest — the prompt the model wrote, which is what
-   * the sampler read. Then the facts, in the pack's readout mono: what made
-   * it, how long it took, its length, its size, its seed, what it opened
-   * from and when it landed. The size is the file's own, read off the picture
-   * when it decodes rather than off any number the request carried.
+   * the sampler read. Where the magic prompt wrote a caption from them, the
+   * caption is what the sampler read, and it follows the words folded, laid
+   * out to be read rather than minified. Then the facts, in the pack's
+   * readout mono: what made it, how long it took, its length, its size, its
+   * seed, what it opened from and when it landed. The size is the file's
+   * own, read off the picture when it decodes rather than off any number the
+   * request carried.
    */
   slate(card, media) {
+    let caption = null;
+    if (card.action?.caption) {
+      let shown = card.action.caption;
+      try { shown = JSON.stringify(JSON.parse(shown), null, 2); } catch { /* shown as sent */ }
+      caption = el("details", { class: "mmc-ch-caption" }, [
+        el("summary", { text: t("Caption") }),
+        el("pre", { text: shown }),
+      ]);
+    }
     const prompt = el("div", { class: "mmc-ch-prompt" }, [
       el("p", { text: card.action?.prompt || "" }),
+      ...(caption ? [caption] : []),
     ]);
     const facts = [];
     const fact = (key, value, cls) => {

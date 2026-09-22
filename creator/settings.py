@@ -601,7 +601,10 @@ CHAT_NAMES = ("aspect", "skill", "pinned_still", "pinned_video", "video_family",
               "edit_arch")
 # `setup` is whether the room's first run has been answered on this machine —
 # the three questions are asked until it is, and "Set up again" clears it.
-CHAT_FLAGS = ("refine", "setup")
+# `magic` has a family's own magic prompt write the caption a still is drawn
+# from where the family reads one (`routes/chat._magic`), and `magic_bboxes`
+# keeps the element boxes that prompt places, which upstream drops by default.
+CHAT_FLAGS = ("refine", "setup", "magic", "magic_bboxes")
 # `short_edge` is what a rail saved before the edge was split per kind holds;
 # the room reads it for both and writes the two it has now.
 CHAT_COUNTS = (("short_edge", 1), ("still_edge", 1), ("video_edge", 1), ("seed", 0),

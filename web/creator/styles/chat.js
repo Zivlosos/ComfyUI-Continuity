@@ -214,6 +214,17 @@ export const css = `
    that scrolls says so. */
 .mmc-ch-prompt { mask-image: linear-gradient(black calc(100% - 18px), transparent); }
 .mmc-ch-prompt p { margin: 0; white-space: pre-wrap; }
+/* The magic prompt's caption under the words it was written from: folded,
+   because it runs long and the words are what a person reads first. */
+.mmc-ch-caption { margin-top: 10px; }
+.mmc-ch-caption summary {
+  cursor: pointer; color: var(--mmc-off); font-size: calc(11.5px * var(--mmc-type));
+}
+.mmc-ch-caption pre {
+  margin: 6px 0 0; white-space: pre-wrap; word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: calc(11px * var(--mmc-type)); line-height: 1.45; color: var(--mmc-text);
+}
 .mmc-ch-facts {
   flex: none; margin: 0; display: grid; grid-template-columns: max-content 1fr;
   column-gap: 14px; row-gap: 3px; padding: 10px 16px 12px; border-top: 1px solid var(--mmc-line);
