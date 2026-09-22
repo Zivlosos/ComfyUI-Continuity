@@ -84,6 +84,22 @@ raises("a caption with no composition is refused by name",
        magic.MagicError, "compositional_deconstruction")
 raises("a reply that is not JSON is refused",
        lambda: magic.caption("I would draw a fox.", "a fox"), magic.MagicError, "JSON")
+# The 4B's slip on the lab: a whole caption in the instruction's order, the
+# composition last, and the root's closing brace never written.
+short = json.dumps({"aspect_ratio": "16:9", **json.loads(caption)})[:-1]
+check("a caption one brace short at the end is closed",
+      magic.caption(short, 'a fox beside a sign reading "OPEN"'), caption)
+# A reply that stopped writing is not that slip: after a complete element it
+# would close just as cleanly, with the rest of the caption missing.
+cut = json.dumps({"compositional_deconstruction": {"background": "b", "elements": [
+    {"type": "obj", "desc": "one"}, {"type": "obj", "desc": "two"}]}})
+raises("a reply cut off after a complete element is not closed",
+       lambda: magic.caption(cut[:cut.index("}, {") + 1], "x"), magic.MagicError, "⟨HERE⟩")
+raises("nor one cut off inside a string",
+       lambda: magic.caption(json.dumps(REPLY)[:105], "a fox"), magic.MagicError, "⟨HERE⟩")
+raises("nor one cut off after a comma",
+       lambda: magic.caption('{"compositional_deconstruction":{"background":"b","elements":[],',
+                             "x"), magic.MagicError, "⟨HERE⟩")
 # A caption breaks a thousand characters in, where a quoted head of the reply
 # shows nothing; the re-ask has to point at the break itself.
 raises("broken JSON is quoted where it breaks",

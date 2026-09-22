@@ -276,6 +276,46 @@ def _strings(value, out):
     return out
 
 
+def _closed(text):
+    """A caption one closing brace short, closed -> the dict, or None.
+
+    Measured on the lab: the 4B refiner writes a whole caption and stops one
+    `}` short — the elements list and the composition closed, the root not —
+    and does the same again when the re-ask shows it the break. Every byte it
+    wrote parses and the one brace it owes is not in doubt, so it is added.
+
+    Only that. A reply with more left open is one that stopped writing — a
+    reply budget run out after a complete element closes just as cleanly and
+    is a caption with its last elements missing — and a reply ending on
+    anything but a closed object had more to say. The composition is the
+    instruction's last key, so a root whose last value closed has nothing
+    left out.
+    """
+    stack, in_string, escaped = [], False, False
+    for char in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+        elif char == '"':
+            in_string = True
+        elif char in "{[":
+            stack.append("}" if char == "{" else "]")
+        elif char in "}]":
+            if not stack or stack.pop() != char:
+                return None
+    if in_string or stack != ["}"] or not text.rstrip().endswith("}"):
+        return None
+    try:
+        data = json.loads(text + "}")
+    except ValueError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
 def _object(reply):
     """The reply's object, or a `MagicError` that shows where it broke.
 
@@ -293,6 +333,9 @@ def _object(reply):
         if not isinstance(cause, json.JSONDecodeError):
             raise MagicError(str(exc)) from exc
         text, at = cause.doc, cause.pos
+        closed = _closed(text) if at >= len(text.rstrip()) else None
+        if closed is not None:
+            return closed
         raise MagicError(f"the JSON breaks ({cause.msg}) right here: "
                          f"…{text[max(0, at - 80):at]}⟨HERE⟩{text[at:at + 40]}…") from exc
 
