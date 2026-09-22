@@ -276,6 +276,27 @@ def _strings(value, out):
     return out
 
 
+def _object(reply):
+    """The reply's object, or a `MagicError` that shows where it broke.
+
+    `refine.json_object` quotes the first 300 characters of a reply that will
+    not parse, which is the whole reply for the refiner's short objects and
+    nothing useful for a caption that breaks at character 1400: the sentence
+    goes back to the model on the re-ask, and "line 1 column 1402" is not
+    something a model can find. So the break is quoted with what leads up
+    to it.
+    """
+    try:
+        return refine.json_object(reply)
+    except refine.RefineError as exc:
+        cause = exc.__cause__
+        if not isinstance(cause, json.JSONDecodeError):
+            raise MagicError(str(exc)) from exc
+        text, at = cause.doc, cause.pos
+        raise MagicError(f"the JSON breaks ({cause.msg}) right here: "
+                         f"…{text[max(0, at - 80):at]}⟨HERE⟩{text[at:at + 40]}…") from exc
+
+
 def caption(reply, prose, keep_bboxes=False):
     """The model's reply -> the caption to render, or `MagicError` naming what is wrong.
 
@@ -286,11 +307,7 @@ def caption(reply, prose, keep_bboxes=False):
     must still be offered somewhere in the caption's strings, where
     `variations.resolve_caption` chooses it on the render's seed.
     """
-    try:
-        data = refine.json_object(reply)
-    except refine.RefineError as exc:
-        raise MagicError(str(exc)) from exc
-    data = canonical(data, keep_bboxes)
+    data = canonical(_object(reply), keep_bboxes)
     found = problems(data)
     if found:
         raise MagicError("the caption does not follow Ideogram's schema: " + "; ".join(found[:4]))

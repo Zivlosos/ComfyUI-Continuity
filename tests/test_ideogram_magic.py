@@ -84,6 +84,12 @@ raises("a caption with no composition is refused by name",
        magic.MagicError, "compositional_deconstruction")
 raises("a reply that is not JSON is refused",
        lambda: magic.caption("I would draw a fox.", "a fox"), magic.MagicError, "JSON")
+# A caption breaks a thousand characters in, where a quoted head of the reply
+# shows nothing; the re-ask has to point at the break itself.
+raises("broken JSON is quoted where it breaks",
+       lambda: magic.caption('{"high_level_description": "' + "x" * 1200
+                             + ' a sign reading "OPEN" in red"}', "x"),
+       magic.MagicError, 'reading "⟨HERE⟩OPEN')
 raises("an element of an unknown type is refused",
        lambda: magic.caption(json.dumps({"compositional_deconstruction": {
            "background": "b", "elements": [{"type": "person", "desc": "d"}]}}), "x"),
