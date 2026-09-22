@@ -30,6 +30,7 @@ import { api } from "../../../scripts/api.js";
 import { t } from "./i18n.js";
 import * as S from "./state.js";
 import { rulesFor } from "./canvas.js";
+import { makeFolder, moveAsset } from "./api.js";   // ← add this line
 
 // ---- storage ----------------------------------------------------------------
 //
@@ -65,7 +66,7 @@ const LEGACY_INDEX_KEY = "mmc-presets";
 const LEGACY_BODY_KEY = (id) => `mmc-preset-${id}`;
 
 export const PRESET_VERSION = 1;
-
+export const CAST_MEDIA_SUBFOLDER = "cast";
 let indexCache = null;
 
 /** An id that cannot collide with a builtin's and does not need a counter kept
@@ -370,9 +371,7 @@ export const SECTION = Object.fromEntries(SECTIONS.map((s) => [s.key, s]));
 export const SCOPE_SECTIONS = {
   piece: ["look", "weights", "speed", "prompt", "loras", "refs", "strip", "style", "cast"],
   shot: ["prompt", "refs", "loras", "shot", "speed", "style"],
-  // A still has a cast the way a shot has one: the same members, over the
-  // pictures attached to it. See `applyToPreStage`.
-  prestage: ["look", "weights", "speed", "prompt", "loras", "refs", "style", "cast"],
+  prestage: ["look", "weights", "speed", "prompt", "loras", "refs", "style"],
   // A style is a source and never a target: you apply one to a node, and there
   // is no node a style could be captured off. It is the one scope whose tab is a
   // catalogue rather than a shelf of your own work.
@@ -646,9 +645,6 @@ function storedFile(asset, slot, note = "", trigger = "") {
     // sentence each is for.
     ...(trigger ? { trigger } : {}),
     ...(asset.trim ? { trim: asset.trim } : {}),
-    // The picture's saved renditions, by latent space: a member who comes
-    // back out of the library comes back with the mods their pictures had.
-    ...(asset.mods && Object.keys(asset.mods).length ? { mods: { ...asset.mods } } : {}),
     // A plate's panels, in the shape a picker answer carries them (`path`,
     // not `filename`) and without their handles — handles are the piece's,
     // and `addSubjectToPiece` issues fresh ones when the member lands.
@@ -714,11 +710,11 @@ export function captureSubject(subject, assets) {
         ...(subject.replaces_what ? { replaces_what: subject.replaces_what } : {}),
         ...(subject.relationship ? { relationship: subject.relationship } : {}),
         files,
-        // What they wear and what each family is sent, by family. A LoRA is
-        // named by its file under models/loras already, so it travels as it
-        // is — with the weight and the words, which are the part that took
-        // the trying (discussion #82) — filed under the family it is for.
-        ...(S.serializeWears(subject) ? { wears: S.serializeWears(subject) } : {}),
+        // What they wear. A LoRA is named by its file under models/loras
+        // already, so it travels as it is — with the weight and the words,
+        // which are the part that took the trying (discussion #82).
+        ...(S.subjectLoras(subject).length
+          ? { loras: S.serializeLoras(S.subjectLoras(subject)) } : {}),
       },
     },
     cover: null,
@@ -776,11 +772,39 @@ export function castFactsLine(facts = {}, { tokens = null } = {}) {
  * @anna would make the roster useless at exactly the point it started being
  * used. A name is who somebody is here; there is one of them.
  */
+function underCastFolder(filename) {
+  const f = String(filename || "").replace(/\\/g, "/");
+  return f === CAST_MEDIA_SUBFOLDER || f.startsWith(`${CAST_MEDIA_SUBFOLDER}/`);
+}
+
+/** Move a file into input/cast/ if needed. Returns the path to store in the library. */
+async function ensureCastPath(filename) {
+  if (!filename) return filename;
+  const f = String(filename).replace(/\\/g, "/");
+  // RefMods live under models/, not input/ — leave them alone
+  if (f.startsWith("refmod:")) return f;
+  if (underCastFolder(f)) return f;
+
+  await makeFolder("input", CAST_MEDIA_SUBFOLDER);
+  return await moveAsset(f, CAST_MEDIA_SUBFOLDER);
+}
+
+/**
+ * Keep one subject in the roster, as they stand on this node.
+ * Media files are moved under input/cast/ so clearing the input root is safe.
+ */
 export async function keepSubject(subject, assets) {
-  const captured = captureSubject(subject, assets);
+  const relocated = (assets ?? []).map((a) => ({ ...a }));
+  for (const asset of relocated) {
+    if (!asset?.filename) continue;
+    asset.filename = await ensureCastPath(asset.filename);
+  }
+
+  const captured = captureSubject(subject, relocated);
   const name = captured.defaultName || t("Untitled preset");
   const standing = (await listPresets()).find(
-    (row) => row.scope === "cast" && !row.builtin && row.name === name);
+    (row) => row.scope === "cast" && !row.builtin && row.name === name
+  );
   if (standing) return replaceBody(standing.id, { data: captured.data, scope: "cast" });
   return savePreset({ name, scope: "cast", data: captured.data });
 }
@@ -998,16 +1022,14 @@ export function factsOf(body, scope) {
       // Saved files first, whatever kind they are — a stack is a video-kind
       // mod and is a mod, not a clip. By path, so the roster's panel can read
       // who uses a file off the index, and the card counts them apart.
-      // ...and the renditions their pictures carry, which are mods too.
-      mods: [...built.filter((file) => S.isRefMod(file)).map((file) => file.filename),
-             ...built.flatMap((file) => Object.values(file.mods ?? {}))],
+      mods: built.filter((file) => S.isRefMod(file)).map((file) => file.filename),
       pictures: built.filter((file) => (file.kind ?? "image") === "image" && !S.isRefMod(file)).length,
       clips: built.filter((file) => (file.kind ?? "image") !== "image" && !S.isRefMod(file)).length,
       motion: files.some((file) => file.slot === "motion"),
       voice: files.some((file) => file.slot === "voice"),
       replaces: files.some((file) => file.slot === "replaces"),
       described: Boolean(String(member.description ?? "").trim()),
-      loras: S.allSubjectLoras(member).length,
+      loras: S.subjectLoras(member).length,
       // What somebody wrote about them, which is not every row: a card is
       // seeded with a row per attribute of its `takes`, and an untouched one is
       // the baseline every person reference carries rather than a fact about
@@ -1434,7 +1456,6 @@ export function addSubjectToPiece(stored, timeline, { pool = false } = {}) {
           ref_size: file.ref_size ?? "max",
           ...(file.track ? { track: file.track } : {}),
           ...(file.trim ? { trim: file.trim } : {}),
-          ...(file.mods ? { mods: { ...file.mods } } : {}),
         };
       }
       host.assets.push(asset);
@@ -1443,11 +1464,6 @@ export function addSubjectToPiece(stored, timeline, { pool = false } = {}) {
       // detail and picture 2 at match is a decision about this person, so it
       // lands on a file the piece already held as much as on a new one.
       asset.ref_size = file.ref_size;
-    }
-    // Their renditions land on the file either way — a mod the library knows
-    // of a picture the piece already holds is a mod of that picture.
-    if (file.mods && asset.role === "reference" && !asset.panels?.length) {
-      asset.mods = { ...(asset.mods ?? {}), ...file.mods };
     }
     if (file.note) notes[asset.handle] = String(file.note);
     if (file.trigger) triggers[asset.handle] = String(file.trigger);
@@ -1482,7 +1498,7 @@ export function addSubjectToPiece(stored, timeline, { pool = false } = {}) {
     ...(stored.seeded ? { seeded: true } : {}),
     ...(Object.keys(notes).length ? { notes } : {}),
     ...(Object.keys(triggers).length ? { triggers } : {}),
-    ...(S.serializeWears(stored) ? { wears: S.serializeWears(stored) } : {}),
+    ...(S.subjectLoras(stored).length ? { loras: S.subjectLoras(stored) } : {}),
   };
   // A member kept before the rows existed gets them here, on the way into a
   // piece — the same repair `parseSubjects` does for a piece written then.
@@ -1688,17 +1704,6 @@ export function applyToPreStage(body, keys, state, io, { from = "prestage" } = {
   if (chosen.has("style")) {
     state.prompt = leadWithStyle(state.prompt, body.style?.text);
   }
-  if (chosen.has("cast")) {
-    // Onto the still's own lists: its pictures are the `refs`, and a member's
-    // land there under the still's handles. The piece's rule otherwise — a
-    // look leads the sentence, somebody from the roster is written in by
-    // the `@` menu where you asked for them.
-    const piece = { assets: state.refs, subjects: state.subjects, prompt: state.prompt };
-    const cast = castIntoPiece(body.cast, piece);
-    state.refs = piece.assets;
-    state.subjects = piece.subjects;
-    if (cast?.takes === "style") state.prompt = leadWithName(piece.prompt, cast.handle);
-  }
   if (chosen.has("loras")) {
     state.loras = JSON.parse(JSON.stringify(body.loras ?? []));
   }
@@ -1706,7 +1711,7 @@ export function applyToPreStage(body, keys, state, io, { from = "prestage" } = {
     if (from === "prestage") {
       state.init = body.refs?.init ? { ...body.refs.init } : null;
       state.refs = [];
-      for (const ref of (body.refs?.refs ?? []).slice(0, S.preStageMaxRefs(state))) {
+      for (const ref of (body.refs?.refs ?? []).slice(0, S.PRESTAGE_MAX_REFS)) {
         // Re-issued rather than trusted even here: a body written by an older
         // build may have none, and a handle-less chip cannot be removed alone.
         state.refs.push({ handle: ref.handle || S.nextPreStageHandle(state),
@@ -1726,13 +1731,13 @@ export function applyToPreStage(body, keys, state, io, { from = "prestage" } = {
       const frame = assets.find((a) => a.role === "first_frame");
       state.init = frame ? { filename: frame.filename, denoise: state.init?.denoise ?? 0.6 } : null;
       //
-      // Capped at the arch's own slots, because a preset must not be able to
-      // put a node into a state the editor could not have produced — a piece
+      // Capped at the encoder's three slots, because a preset must not be able
+      // to put a node into a state the editor could not have produced — a piece
       // may hold nine reference images and Krea 2's edit path has room for three.
       state.refs = [];
       for (const asset of assets) {
         if (asset.role !== "reference" || asset.kind !== "image") continue;
-        if (state.refs.length >= S.preStageMaxRefs(state)) break;
+        if (state.refs.length >= S.PRESTAGE_MAX_REFS) break;
         state.refs.push({ handle: S.nextPreStageHandle(state), filename: asset.filename });
       }
     }

@@ -36,17 +36,15 @@
 import { el, icon, mountOverlay } from "./dom.js";
 import { t } from "./i18n.js";
 import { deleteRefMod, describeRefMod, isRefMod, makeRefMod, moveRefMod, renderMeta, stillUrl,
-         uploadRefMod, viewUrl } from "./api.js";
-import { DEFAULT_SPACE, SUBFOLDER as MOD_FOLDER, castFamilies, modIn, modRow, modRows, modeWord, remakeMods, remakeRows } from "./refmod.js";
-import { WearsPanel } from "./wears.js";
-import { rememberedWeights } from "./models.js";
+  uploadRefMod, viewUrl, makeFolder, moveAsset } from "./api.js";
+import { SUBFOLDER as MOD_FOLDER, ledger, modRow, modRows, modeRows, modeWord, remakeMods, remakeRows } from "./refmod.js";
 import { atlasRef } from "./presets/atlasref.js";
 import { openPicker } from "./picker.js";
 import { downloadMod, openLoraMenu, openMenu, noteField, sizeRows, triggerField, MARKER_LABEL,
          MARKER_NOTE, ROLES, TAKES_NOTE } from "./cast.js";
-import { openLoras } from "./loras.js";
-import { SUBJECT_TAKES, seedFeatures, showSeconds, splitTriggers, tagIndex, tidyWears, wearOn,
-         GUIDE_LORA_STRENGTH, guideLoraStyle, DEFAULT_VIDEO_FAMILY, checkpointsOf, routing, routesOf } from "./state.js";
+import { loraBase, openLoras } from "./loras.js";
+import { SUBJECT_TAKES, seedFeatures, showSeconds, splitTriggers, subjectLoras, tagIndex,
+         GUIDE_LORA_STRENGTH, guideLoraStyle, DEFAULT_VIDEO_FAMILY, checkpointsOf } from "./state.js";
 import { neuralDial } from "./neural.js";
 import { attributeWarning, styleAttributes } from "./presets/stylelib.js";
 import { BUILTIN } from "./presets/builtin.js";
@@ -54,6 +52,7 @@ import * as P from "./presets.js";
 
 const SHELF_ALL = "all";
 const SHELF_FAV = "fav";
+const CAST_MEDIA_SUBFOLDER = "cast";
 
 // Cards are materialised a batch at a time behind a sentinel — the picker's own
 // deal for the same problem. The Style tab is 941 rows, and rebuilding all of
@@ -208,26 +207,6 @@ class PresetLibrary {
     // progress}` for the sheet's ledger — and what went wrong last time.
     this.encoding = null;
     this.modNote = null;
-    // What each family gets when it renders a stored member — the same panel
-    // the shelf's card draws, over the member's stored files rather than a
-    // piece's assets. See `wears.js`.
-    this.wears = new WearsPanel({
-      families: () => this.modFamilies(),
-      looks: (member) => this.lookEntries(member),
-      canvas: () => null,
-      busy: () => this.encoding,
-      note: () => this.modNote,
-      // Only with a piece behind the library — the VAE is the piece's.
-      canSave: () => Boolean(this.target?.vae),
-      save: (member, mode, family) => this.keepAsMod(member, mode, family),
-      remake: (member, mode, mods, family) => this.remake(member, mode, mods, family),
-      library: (path) => { this.reveal = path; this.closeSheet(); this.renderInspector(); },
-      hangLora: (member, family, reveal) => this.addLora(member, family, reveal),
-      loraMenu: (anchor, member, family, entry) => this.pickLora(anchor, member, family, entry),
-      touch: () => this.queueSave(),
-      commit: () => this.flushSave(),
-      redraw: () => { if (!this.sheetTyping()) this.renderSheet(); },
-    });
     // The shipped catalogue, read on first sight of its tab. Kept apart from
     // `rows` rather than folded into it: nothing that writes a user's library
     // should ever have nine hundred read-only rows in its hands.
@@ -1064,19 +1043,9 @@ class PresetLibrary {
     const [w, h] = String(row.canvas?.aspect ?? row.facts?.aspect ?? "16:9").split(":").map(Number);
     const ratio = w && h ? w / h : 16 / 9;
     const frame = el("span", { style: { width: `${Math.round(84 * ratio)}px` } });
-    // A starter's shipped picture, else the picture the canvas was saved with.
-    // A shipped picture may not be one render — the next-shot starter's is the
-    // frame before and the frame after, side by side — so the frame takes the
-    // picture's own aspect once it is known, rather than cropping to the canvas's.
-    const picture = row.picture ?? stillUrl(row.canvas?.picture);
+    const picture = stillUrl(row.canvas?.picture);
     if (picture) {
       frame.append(el("img", { src: picture, alt: "", loading: "lazy",
-                               onload: row.picture ? (event) => {
-                                 const { naturalWidth, naturalHeight } = event.target;
-                                 if (naturalWidth && naturalHeight) {
-                                   frame.style.width = `${Math.round(84 * naturalWidth / naturalHeight)}px`;
-                                 }
-                               } : null,
                                onerror: (event) => event.target.remove() }));
     }
     return el("div", { class: "mmc-preset-canvas" }, [frame]);
@@ -1308,7 +1277,7 @@ class PresetLibrary {
             ]),
             el("div", { class: "mmc-cast-sheet-col" }, [
               this.sheetRefs(member),
-              ...[this.wears.render(member)].filter(Boolean),
+              this.sheetWears(member),
             ]),
           ]),
           this.sheetFoot(row, member)]
@@ -1425,42 +1394,97 @@ class PresetLibrary {
       ...(files.length ? [] : [el("p", { class: "mmc-cast-sheet-nothing", text:
         t("Pictures of them, a clip they move like, a recording of their voice. "
         + "Or nothing at all — a name and a description is a cast member too.") })]),
+      ...this.sheetLedger(member),
       ...(files.some((file) => file.slot === "replaces")
         ? [this.sheetReplaces(member)] : []),
     ]);
   }
 
-  /** The chip's menu — the shelf's own, see `cast.openLoraMenu`. */
-  pickLora(anchor, member, family, entry) {
+  /** What they wear: LoRAs, one row each, in the file rows' own grid — a
+   *  row can say the file, the words and the weight, which is the whole of
+   *  what a LoRA on a person is. Kept with them so they come back wearing it
+   *  into any piece (discussion #82). */
+  sheetWears(member) {
+    const worn = subjectLoras(member);
+    return el("div", { class: "mmc-cast-sheet-band" }, [
+      el("div", { class: "mmc-cast-sheet-legend", text: t("Wearing") }),
+      el("div", { class: "mmc-cast-sheet-files" }, [
+        ...worn.map((entry) => this.sheetLoraRow(member, entry)),
+        el("div", { class: "mmc-cast-sheet-file-add" }, [
+          el("button", {
+            class: "mmc-cast-sheet-addfile",
+            title: t("A LoRA from models/loras. It goes on the model in every shot "
+                   + "their name is in, with its trigger words in front of that shot's prompt."),
+            onclick: () => this.addLora(member),
+          }, [icon("effect", 12), el("span", { text: t("Hang a LoRA on them") })]),
+        ]),
+      ]),
+      ...(worn.length ? [] : [el("p", { class: "mmc-cast-sheet-nothing", text:
+        t("A character LoRA is the fifth thing somebody can be made of — weights "
+        + "rather than a file. Its trigger word is how the prompt names them.") })]),
+    ]);
+  }
+
+  sheetLoraRow(member, entry) {
+    const off = entry.enabled === false;
+    const words = (entry.triggers ?? []).join(", ");
+    return el("button", {
+      class: `mmc-cast-sheet-file mmc-cast-sheet-lora${off ? " off" : ""}`,
+      title: t("{name} — press to change its words or its weight, mute it, or take it off them.",
+               { name: entry.name }),
+      onclick: (event) => this.pickLora(event.currentTarget, member, entry),
+    }, [
+      el("span", { class: "mmc-cast-sheet-thumb" }, [icon("effect", 18)]),
+      el("span", { class: "mmc-cast-sheet-role" }, [el("span", { text: t("LoRA") })]),
+      el("span", { class: "mmc-cast-sheet-fileid" }, [
+        el("span", { class: "mmc-cast-sheet-filename", text: loraBase(entry) }),
+        el("span", { class: `mmc-cast-sheet-filenote${words ? "" : " off"}`,
+                     text: words ? t("trigger words {words}", { words }) : t("no trigger words") }),
+      ]),
+      el("span", { class: "mmc-cast-sheet-enc" }, [
+        el("b", { text: Number(entry.strength ?? 1).toFixed(2) }),
+        el("br"),
+        el("span", { text: off ? t("muted") : t("weight") }),
+      ]),
+      el("span", { class: "mmc-cast-sheet-more", text: "⋯" }),
+    ]);
+  }
+
+  /** The family the piece behind the library is on, or the pack's default —
+   *  what says whether a LoRA has a checkpoint to claim. */
+  loraFamily() {
+    return this.target?.family?.() ?? DEFAULT_VIDEO_FAMILY;
+  }
+
+  pickLora(anchor, member, entry) {
     openLoraMenu(anchor, {
-      handle: member.handle || "subject", entry, family: family.id,
+      handle: member.handle || "subject", entry, family: this.loraFamily(),
       touch: () => this.queueSave(),
       done: () => this.flushSave().then(() => this.renderSheet()),
       settle: () => { if (!this.sheetTyping()) this.renderSheet(); },
-      onManage: () => this.addLora(member, family, entry.name),
+      onManage: () => this.addLora(member, entry.name),
       onRemove: () => {
-        const row = wearOn(member, family.id);
-        row.loras = row.loras.filter((worn) => worn.name !== entry.name);
-        tidyWears(member);
+        member.loras = subjectLoras(member).filter((worn) => worn.name !== entry.name);
+        if (!member.loras.length) delete member.loras;
         this.flushSave().then(() => this.renderSheet());
       },
     });
   }
 
-  /** The manager, on their row for `family`. It writes straight through to
-   *  the member; the sheet saves as it goes and redraws when it shuts. */
-  async addLora(member, family, reveal = null) {
-    const row = wearOn(member, family.id);
+  /** The manager, on their own stack. It writes straight through to the
+   *  member; the sheet saves as it goes and redraws when it shuts. */
+  async addLora(member, reveal = null) {
+    member.loras ??= [];
+    const family = this.loraFamily();
     await openLoras({
-      state: row,
-      family: family.id,
-      targets: routing(family.id) && (member.files ?? []).some((file) => file.slot === "from")
-        ? [routesOf(family.id).reference] : [...checkpointsOf(family.id)],
+      state: member,
+      family,
+      targets: [...checkpointsOf(family)],
       scope: "piece",
       reveal,
       onChange: () => this.queueSave(),
     });
-    tidyWears(member);
+    if (!member.loras.length) delete member.loras;
     await this.flushSave();
     this.renderSheet();
   }
@@ -1471,18 +1495,31 @@ class PresetLibrary {
   lookEntries(member) {
     return (member.files ?? [])
       .filter((file) => file.slot === "from" && ["image", "video"].includes(file.kind ?? "image"))
-      .map((file) => ({ filename: file.filename, kind: file.kind ?? "image", ref_size: file.ref_size ?? "max",
-                        ...(file.mods ? { mods: file.mods } : {}) }));
+      .map((file) => ({ filename: file.filename, kind: file.kind ?? "image", ref_size: file.ref_size ?? "max" }));
   }
 
-  /** Every family a stored member can be sent to — the piece's own first,
-   *  off the target; the pack's default first without a piece behind the
-   *  library, with nothing to encode through. */
-  modFamilies() {
-    return this.target?.families?.()
-      ?? castFamilies(this.target?.family?.() ?? DEFAULT_VIDEO_FAMILY, this.target?.vae?.() ?? "", rememberedWeights());
+  sheetLedger(member) {
+    const row = ledger({
+      entries: this.lookEntries(member),
+      canvas: null,
+      busy: this.encoding,
+      note: this.modNote,
+      // Only with a piece behind the library — the VAE is the piece's.
+      onSave: this.target?.vae && !this.encoding && this.modSources(member, "stack").length
+        ? (anchor) => this.pickMod(anchor, member) : null,
+      onRemake: this.target?.vae && !this.encoding ? (anchor) => this.pickRemake(anchor, member) : null,
+      onLibrary: (path) => { this.reveal = path; this.closeSheet(); this.renderInspector(); },
+      onKnown: () => { if (!this.sheetTyping()) this.renderSheet(); },
+    });
+    if (!row) return [];
+    // The trade-off, under a line that still offers it; a saved member has made
+    // the choice and the line is their receipt.
+    const fresh = this.modSources(member, "stack").length;
+    return [row, ...(fresh ? [el("p", { class: "mmc-cast-sheet-nothing", text:
+      t("Compressed renders like Full at about half the tokens — a few hundred a "
+      + "picture against about a thousand. Neither is undone — the picture stays "
+      + "in your input folder.") })] : [])];
   }
-  ownFamily() { return this.modFamilies()[0] ?? null; }
 
   /** Whether a field on the sheet holds the caret — a redraw then would take it. */
   sheetTyping() {
@@ -1675,29 +1712,59 @@ class PresetLibrary {
   /** What a member can be saved out of, per mode: their looks, not already
    *  mods, not sheets; clips only for a stack. Mirrors `refmod.keepable` for a
    *  stored member. */
-  modSources(member, mode = "stack", space = DEFAULT_SPACE) {
+  modSources(member, mode = "stack") {
     return (member.files ?? []).filter((file) =>
       file.slot === "from" && ["image", "video"].includes(file.kind ?? "image")
-      && !modIn(file, space) && !file.panels?.length
-      && (mode === "stack" || (file.kind ?? "image") === (mode === "clip" ? "video" : "image")));
+      && !isRefMod(file.filename) && !file.panels?.length
+      && (mode === "stack" || (file.kind ?? "image") === "image"));
   }
 
-  /** Write their mods again for one family, in place. The roster does not
-   *  change — the files keep their names — so this only has to say how it is
-   *  going and then draw the new cost off a fresh listing. */
-  async remake(member, mode, mods, family = null) {
+  /** Compressed or full, as a menu on the ledger's button, each row naming
+   *  what it would cost. */
+  pickMod(anchor, member) {
+    const sources = this.modSources(member);
+    openMenu(anchor, {
+      title: t(sources.length === 1
+        ? "Save {count} file as a RefMod → refmods/{folder}/{handle}"
+        : "Save {count} files as RefMods → refmods/{folder}/{handle}",
+        { count: sources.length, folder: MOD_FOLDER, handle: member.handle || "subject" }),
+      sections: [{ rows: modeRows(
+        sources.map((file) => ({ filename: file.filename, kind: file.kind ?? "image", ref_size: file.ref_size ?? "max" })),
+        (mode) => this.keepAsMod(member, mode),
+        () => { if (!this.sheetTyping()) this.renderSheet(); }) }],
+    });
+  }
+
+  /** The mods among their looks, as listing rows — what a re-encode is of. */
+  modLooks(member) {
+    return this.lookEntries(member).filter((entry) => isRefMod(entry.filename))
+      .map((entry) => modRow(entry.filename)).filter(Boolean);
+  }
+
+  /** The other mode for their saved looks, as a menu on the ledger's button. */
+  pickRemake(anchor, member) {
+    openMenu(anchor, {
+      title: t("Re-encode @{handle}'s saved looks", { handle: member.handle || "subject" }),
+      sections: [{ rows: remakeRows(this.modLooks(member), (mode, mods) => this.remake(member, mode, mods)) }],
+    });
+  }
+
+  /** Write their mods again, in place. The roster does not change — the files
+   *  keep their names — so this only has to say how it is going and then draw
+   *  the new cost off a fresh listing. */
+  async remake(member, mode, mods) {
     if (!this.target?.vae || this.encoding) return;
-    this.encoding = { count: mods.length, mode, progress: 0, remake: true, family };
+    this.encoding = { count: mods.length, mode, progress: 0, remake: true };
     this.modNote = null;
     this.say(null);
     this.renderSheet();
     try {
       await remakeMods(mods, mode, {
-        vae: family?.vae ?? this.target?.vae?.() ?? "",
+        vae: this.target?.vae?.() ?? "",
         onProgress: (fraction) => {
           if (!this.encoding) return;
           this.encoding.progress = fraction;
-          const bar = this.sheet.querySelector(".mmc-wears-bar i");
+          const bar = this.sheet.querySelector(".mmc-cast-ledger-bar i");
           if (bar) bar.style.width = `${Math.round(fraction * 100)}%`;
         },
       });
@@ -1719,18 +1786,12 @@ class PresetLibrary {
    * piece changes — a member cast out of the library afterwards arrives with
    * the mods, and one cast before keeps the pictures they arrived with.
    */
-  async keepAsMod(member, mode, family = null) {
+  async keepAsMod(member, mode) {
     if (this.encoding) return;
-    if (Array.isArray(family)) {
-      // The "every family" row: one job after the other.
-      for (const one of family) await this.keepAsMod(member, mode, one);
-      return;
-    }
     const stack = mode === "stack";
-    const space = family?.space ?? DEFAULT_SPACE;
-    const sources = this.modSources(member, mode, space);
+    const sources = this.modSources(member, mode);
     if (!sources.length) return;
-    this.encoding = { count: sources.length, mode, progress: 0, family };
+    this.encoding = { count: sources.length, mode, progress: 0 };
     this.modNote = null;
     this.say(null);
     this.renderSheet();
@@ -1742,15 +1803,14 @@ class PresetLibrary {
         name: member.handle || "subject",
         subfolder: MOD_FOLDER,
         sources: sources.map((file) => file.filename),
-        mode: stack ? "stack" : mode === "clip" ? "clip" : mode === "full" ? "full" : "compressed",
+        mode: stack ? "stack" : mode === "full" ? "full" : "compressed",
         description: [member.description ?? "", ...noted].filter(Boolean).join("; "),
         concept: { person: "identity", object: "generic", scene: "background", style: "style" }[member.takes ?? "person"] ?? "generic",
-        vae: family?.vae ?? this.target?.vae?.() ?? "",
-        ...(family?.id ? { family: family.id } : {}),
+        vae: this.target?.vae?.() ?? "",
       }, { onProgress: (fraction) => {
         if (!this.encoding) return;
         this.encoding.progress = fraction;
-        const bar = this.sheet.querySelector(".mmc-wears-bar i");
+        const bar = this.sheet.querySelector(".mmc-cast-ledger-bar i");
         if (bar) bar.style.width = `${Math.round(fraction * 100)}%`;
       } });
       const rows = answer?.mods ?? [];
@@ -1766,11 +1826,12 @@ class PresetLibrary {
                 ...(file.takes ? { takes: file.takes } : {}) }
             : file));
       } else {
-        // One mod per file, hung on the file it was made of: the picture
-        // stays theirs and carries its rendition for that family.
-        sources.forEach((file, index) => {
-          const row = rows[index];
-          if (row) file.mods = { ...(file.mods ?? {}), [row.space ?? space]: row.path };
+        const swapped = new Map(sources.map((file, index) => [file, rows[index]]).filter(([, row]) => row));
+        member.files = member.files.map((file) => {
+          const row = swapped.get(file);
+          if (!row) return file;
+          const { ref_size, trim, ...rest } = file;
+          return { ...rest, filename: row.path, kind: "image" };
         });
       }
       await this.flushSave();
@@ -1784,24 +1845,56 @@ class PresetLibrary {
   }
 
   /** Attach a file, or — `mods` — a RefMod already on the machine. */
+  /** Attach a file, or — `mods` — a RefMod already on the machine.
+   *  Media is moved under input/cast/ when possible; attach never fails because of that. */
   async addFile(member, { mods = false } = {}) {
     const spec = this.target?.plate?.() ?? null;
     const chosen = await openPicker({
       kinds: mods ? ["refmods"] : ["image", "video", "audio", "renders", "refmods"],
       kind: mods ? "refmods" : "image",
       capacity: () => ({ used: 0, max: 8, filesLeft: 8 }),
-      plate: spec ? { ...spec, panels: [] } : null,
+                                    plate: spec ? { ...spec, panels: [] } : null,
     });
     if (!chosen?.length) return;
+
+    // Best-effort: ensure input/cast exists (ignore failures)
+    try {
+      await makeFolder("input", CAST_MEDIA_SUBFOLDER);
+    } catch (_) { /* folder may already exist */ }
+
     for (const asset of chosen) {
       const kind = asset.kind ?? "image";
       const slot = (ROLES.find((role) => role.fits({ kind })) ?? ROLE.from).key;
+
+      // Always start from what the picker gave us
+      let filename = asset.path;
+
+      const isMod = mods || isRefMod(filename) || String(filename ?? "").startsWith("refmod:");
+      const isOutput = / \[output\]$/.test(String(filename ?? ""));
+      const f = String(filename ?? "").replace(/\\/g, "/");
+      const alreadyCast = f === CAST_MEDIA_SUBFOLDER || f.startsWith(`${CAST_MEDIA_SUBFOLDER}/`);
+
+      if (!isMod && !isOutput && !alreadyCast && f) {
+        try {
+          const moved = await moveAsset(f, CAST_MEDIA_SUBFOLDER);
+          // Only accept a real non-empty path back
+          if (moved && typeof moved === "string") filename = moved;
+        } catch (err) {
+          console.warn("[Continuity] could not move into input/cast:", err);
+          // keep original filename — file still gets listed
+        }
+      }
+
       member.files = [...(member.files ?? []), {
-        slot, filename: asset.path, kind,
+        slot,
+        filename,
+        kind,
         ...(asset.panels?.length
-          ? { panels: asset.panels.map((panel) => ({ ...panel })) } : {}),
+        ? { panels: asset.panels.map((panel) => ({ ...panel })) }
+        : {}),
       }];
     }
+
     await this.flushSave();
     this.renderSheet();
   }

@@ -6,15 +6,9 @@ import { t } from "./i18n.js";
 import { atlasUrl, isAtlasRef } from "./presets/atlasref.js";
 import { applyTextScale, applySurfaceLift, applyTheme } from "./styles.js";
 
-/** Every POST to this pack's routes must be one a browser will not send
- *  cross-site without a preflight (`creator/guard.py`): a JSON body says so
- *  by its Content-Type, and a multipart upload — which cannot — says so with
- *  the pack's own header. A bare `{ method: "POST" }` is refused with 415. */
-export const JSON_HEADERS = { "Content-Type": "application/json" };
-export const FORM_HEADERS = { "X-Continuity-Request": "1" };
-
 const cache = new Map();   // root -> {at, assets, folders}
 const CACHE_MS = 4000;
+
 
 /** The media listing: `root: "input"` (the default) is the upload folder,
  *  `root: "output"` is finished renders — the picker's gallery tab. */
@@ -262,7 +256,7 @@ export async function saveSettings(patch) {
 /** Put every setting back to what this pack ships with -> the whole stored
  *  object, which is what the page then shows. */
 export async function resetSettings() {
-  const response = await api.fetchApi("/continuity/settings/reset", { method: "POST", headers: JSON_HEADERS });
+  const response = await api.fetchApi("/continuity/settings/reset", { method: "POST" });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body.error || t("settings failed ({status})", { status: response.status }));
   return body.settings ?? {};
@@ -281,7 +275,7 @@ export async function loadLatentCache() {
 
 /** Delete every cached reference; resolves to the emptied `{ entries, bytes }`. */
 export async function clearLatentCache() {
-  const response = await api.fetchApi("/continuity/latent_cache/clear", { method: "POST", headers: JSON_HEADERS });
+  const response = await api.fetchApi("/continuity/latent_cache/clear", { method: "POST" });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body.error || t("cache failed ({status})", { status: response.status }));
   return body;
@@ -880,7 +874,7 @@ export async function uploadRefMod(file, subfolder = "") {
   const form = new FormData();
   form.append("file", file);
   if (subfolder) form.append("subfolder", subfolder);
-  const response = await api.fetchApi("/continuity/refmod/upload", { method: "POST", headers: FORM_HEADERS, body: form });
+  const response = await api.fetchApi("/continuity/refmod/upload", { method: "POST", body: form });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body.error || t("upload failed ({status})", { status: response.status }));
   invalidate("refmods");
@@ -1344,7 +1338,7 @@ export async function blockoutFrames(token, frames) {
   for (const { index, blob } of frames) {
     form.append(String(index), blob, `${index}.png`);
   }
-  const response = await api.fetchApi("/continuity/blockout/frames", { method: "POST", headers: FORM_HEADERS, body: form });
+  const response = await api.fetchApi("/continuity/blockout/frames", { method: "POST", body: form });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body.error || t("the frames could not be sent ({status})", { status: response.status }));
   return body.held ?? 0;
