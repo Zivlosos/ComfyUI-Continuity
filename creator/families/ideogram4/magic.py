@@ -56,7 +56,17 @@ class MagicError(ValueError):
 
     Quoted back to the model on the one re-ask, and shown to a person if the
     second answer fails too — the same bargain `chat.ActionError` keeps.
+
+    `broken` is a reply that is not JSON at all, and `where` the stretch of
+    it the parse stopped on. Neither goes back to the model: shown its own
+    broken reply, or the break in it, a small model copies the mistake
+    (`reask`). `where` is for the person, if the second answer breaks too.
     """
+
+    def __init__(self, sentence, broken=False, where=""):
+        super().__init__(sentence)
+        self.broken = broken
+        self.where = where
 
 
 _sections = {}
@@ -119,10 +129,21 @@ def user_message(prose, aspect):
     return message
 
 
-def reask(message, reply, sentence):
-    """The one correction: the request again, what came back, what was wrong."""
+def reask(message, reply, problem):
+    """The one correction: the request again, and what was wrong.
+
+    A caption that parsed but broke a rule is quoted back with the rule, so
+    the fix is an edit. A reply that is not JSON is not: on the lab the 4B,
+    shown its own broken caption and the spot it broke, wrote the same
+    break again, so it is asked afresh and told only that the JSON did not
+    parse.
+    """
+    if getattr(problem, "broken", False):
+        return (f"{message}\n\nYour previous answer could not be used: {problem}\n"
+                f"Write the whole caption again as one complete, valid JSON object, "
+                f"closing every brace and bracket you open.")
     return (f"{message}\n\nYour previous answer was:\n{reply[:4000]}\n\n"
-            f"It could not be used: {sentence}\n"
+            f"It could not be used: {problem}\n"
             f"Write the whole JSON object again, corrected.")
 
 
@@ -317,27 +338,26 @@ def _closed(text):
 
 
 def _object(reply):
-    """The reply's object, or a `MagicError` that shows where it broke.
+    """The reply's object, or a broken `MagicError`.
 
-    `refine.json_object` quotes the first 300 characters of a reply that will
-    not parse, which is the whole reply for the refiner's short objects and
-    nothing useful for a caption that breaks at character 1400: the sentence
-    goes back to the model on the re-ask, and "line 1 column 1402" is not
-    something a model can find. So the break is quoted with what leads up
-    to it.
+    `refine.json_object` finds the object and quotes the head of a reply it
+    cannot read; the sentence here says only what kind of break it was,
+    because it goes back to the model (`reask`). What leads up to the break
+    rides as `where`, for the person — a caption breaks a thousand
+    characters in, and the head of it shows nothing.
     """
     try:
         return refine.json_object(reply)
     except refine.RefineError as exc:
         cause = exc.__cause__
         if not isinstance(cause, json.JSONDecodeError):
-            raise MagicError(str(exc)) from exc
+            raise MagicError("the answer held no JSON object", broken=True) from exc
         text, at = cause.doc, cause.pos
         closed = _closed(text) if at >= len(text.rstrip()) else None
         if closed is not None:
             return closed
-        raise MagicError(f"the JSON breaks ({cause.msg}) right here: "
-                         f"…{text[max(0, at - 80):at]}⟨HERE⟩{text[at:at + 40]}…") from exc
+        raise MagicError(f"its JSON did not parse ({cause.msg})", broken=True,
+                         where=f"…{text[max(0, at - 80):at]}⟨HERE⟩{text[at:at + 40]}…") from exc
 
 
 def caption(reply, prose, keep_bboxes=False):

@@ -221,7 +221,9 @@ try:
            "TARGET IMAGE ASPECT RATIO: 1:1" in asked[0]["message"]), (True, True, True))
     check("at the refiner's budget and upstream's temperature",
           (asked[0]["max_tokens"], asked[0]["temperature"]), (4096, 1.0))
-    check("the re-ask quotes what was wrong", "not return JSON" in asked[1]["message"], True)
+    check("the re-ask says what was wrong, without the broken reply",
+          ("held no JSON object" in asked[1]["message"], "not json" in asked[1]["message"]),
+          (True, False))
     check("the boxes are dropped unless kept",
           "bbox" in caption, False)
     asked.clear()
@@ -230,10 +232,10 @@ try:
           "bbox" in route._magic({**block, "magic_bboxes": True}, still_action, [], IDEO_RAIL, MEMBER),
           True)
     asked.clear()
-    route.refine_routes._backend = stand_in("no", "still no")
-    refuses("two failures refuse the turn in the second sentence",
+    route.refine_routes._backend = stand_in("no", '{"high_level_description": "a "bad" one"}')
+    refuses("two failures refuse the turn, saying where the second broke",
             lambda: route._magic(block, still_action, [], IDEO_RAIL, MEMBER),
-            "magic prompt", "JSON")
+            "magic prompt", "did not parse", 'a "⟨HERE⟩bad')
     asked.clear()
     route.refine_routes._backend = stand_in()
     check("a still on a family with no magic prompt asks nothing",

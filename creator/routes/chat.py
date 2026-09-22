@@ -620,11 +620,15 @@ def _magic(block, action, ledger, rail, cast):
         return module.caption(raw, prose, keep)
     except module.MagicError as problem:
         log.debug("magic prompt re-asked: %s", problem)
-        raw = once(module.reask(message, raw, str(problem)))
+        raw = once(module.reask(message, raw, problem))
     try:
         return module.caption(raw, prose, keep)
     except module.MagicError as problem:
-        raise chat.ActionError(f"the magic prompt could not write a caption twice: {problem}") from problem
+        # Where a broken answer broke is for the person, never the log: the
+        # reply is a piece's prompt (`_run`'s rule).
+        where = f" It broke at: {problem.where}" if problem.where else ""
+        raise chat.ActionError(
+            f"the magic prompt could not write a caption twice: {problem}.{where}") from problem
 
 
 def _with_piece(body):

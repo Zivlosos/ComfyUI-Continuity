@@ -94,18 +94,24 @@ check("a caption one brace short at the end is closed",
 cut = json.dumps({"compositional_deconstruction": {"background": "b", "elements": [
     {"type": "obj", "desc": "one"}, {"type": "obj", "desc": "two"}]}})
 raises("a reply cut off after a complete element is not closed",
-       lambda: magic.caption(cut[:cut.index("}, {") + 1], "x"), magic.MagicError, "⟨HERE⟩")
+       lambda: magic.caption(cut[:cut.index("}, {") + 1], "x"), magic.MagicError, "did not parse")
 raises("nor one cut off inside a string",
-       lambda: magic.caption(json.dumps(REPLY)[:105], "a fox"), magic.MagicError, "⟨HERE⟩")
+       lambda: magic.caption(json.dumps(REPLY)[:105], "a fox"), magic.MagicError, "did not parse")
 raises("nor one cut off after a comma",
        lambda: magic.caption('{"compositional_deconstruction":{"background":"b","elements":[],',
-                             "x"), magic.MagicError, "⟨HERE⟩")
+                             "x"), magic.MagicError, "did not parse")
 # A caption breaks a thousand characters in, where a quoted head of the reply
-# shows nothing; the re-ask has to point at the break itself.
-raises("broken JSON is quoted where it breaks",
-       lambda: magic.caption('{"high_level_description": "' + "x" * 1200
-                             + ' a sign reading "OPEN" in red"}', "x"),
-       magic.MagicError, 'reading "⟨HERE⟩OPEN')
+# shows nothing: where it broke is kept for the person, off the sentence the
+# model is shown.
+try:
+    magic.caption('{"high_level_description": "' + "x" * 1200
+                  + ' a sign reading "OPEN" in red"}', "x")
+except magic.MagicError as problem:
+    check("broken JSON keeps where it broke, off the sentence",
+          (problem.broken, 'reading "⟨HERE⟩OPEN' in problem.where, "⟨HERE⟩" in str(problem)),
+          (True, True, False))
+else:
+    FAILURES.append("broken JSON did not raise")
 raises("an element of an unknown type is refused",
        lambda: magic.caption(json.dumps({"compositional_deconstruction": {
            "background": "b", "elements": [{"type": "person", "desc": "d"}]}}), "x"),
@@ -134,8 +140,13 @@ raises("a group the caption chose for the seed is refused",
            "background": "Snow at dawn.", "elements": []}}), "a fox at {dawn|dusk}"),
        magic.MagicError, "{dawn|dusk}")
 
-check("the re-ask quotes the reply and the sentence",
-      all(part in magic.reask("ASK", "REPLY", "WHY") for part in ("ASK", "REPLY", "WHY")), True)
+check("a re-ask over a rule quotes the reply and the rule",
+      all(part in magic.reask("ASK", "REPLY", magic.MagicError("WHY")) for part in ("ASK", "REPLY", "WHY")),
+      True)
+broken_ask = magic.reask("ASK", "REPLY", magic.MagicError("WHY", broken=True, where="…X⟨HERE⟩"))
+check("a re-ask over broken JSON says why, and shows neither the reply nor the break",
+      ("ASK" in broken_ask, "WHY" in broken_ask, "REPLY" in broken_ask, "HERE" in broken_ask),
+      (True, True, False, False))
 
 
 # ---- a caption written by hand ----------------------------------------------
